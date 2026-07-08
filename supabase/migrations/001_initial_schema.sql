@@ -278,7 +278,7 @@ create policy "notifications_update_own" on public.notifications
   for update using (user_id = auth.uid());
 drop policy if exists "notifications_insert" on public.notifications;
 create policy "notifications_insert" on public.notifications
-  for insert with check (true);
+  for insert with check (user_id = auth.uid());
 
 -- eod_reports
 drop policy if exists "eod_select" on public.eod_reports;
@@ -311,7 +311,7 @@ create policy "screenshots_delete_obj" on storage.objects
 
 drop policy if exists "documents_upload" on storage.objects;
 create policy "documents_upload" on storage.objects
-  for insert with check (bucket_id = 'documents' and auth.role() = 'authenticated');
+  for insert with check (bucket_id = 'documents' and auth.uid()::text = (storage.foldername(name))[1]);
 drop policy if exists "documents_read" on storage.objects;
 create policy "documents_read" on storage.objects
   for select using (bucket_id = 'documents' and (auth.uid()::text = (storage.foldername(name))[1] or public.auth_user_role() in ('Super-admin', 'Manager')));
@@ -343,5 +343,12 @@ select cron.schedule(
 -- REALTIME
 -- ============================================================
 
-alter publication supabase_realtime add table public.time_logs;
-alter publication supabase_realtime add table public.notifications;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.time_logs;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
