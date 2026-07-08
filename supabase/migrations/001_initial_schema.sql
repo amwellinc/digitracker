@@ -166,92 +166,125 @@ alter table public.notifications enable row level security;
 alter table public.eod_reports enable row level security;
 
 -- users
+drop policy if exists "users_select_same_sub_account" on public.users;
 create policy "users_select_same_sub_account" on public.users
   for select using (sub_account = public.auth_user_sub_account());
+drop policy if exists "users_insert_super_admin" on public.users;
 create policy "users_insert_super_admin" on public.users
   for insert with check (public.auth_user_role() = 'Super-admin');
+drop policy if exists "users_update_own_or_admin" on public.users;
 create policy "users_update_own_or_admin" on public.users
   for update using (id = auth.uid() or public.auth_user_role() = 'Super-admin');
+drop policy if exists "users_delete_super_admin" on public.users;
 create policy "users_delete_super_admin" on public.users
   for delete using (public.auth_user_role() = 'Super-admin');
 
 -- time_logs
+drop policy if exists "time_logs_select" on public.time_logs;
 create policy "time_logs_select" on public.time_logs
   for select using (user_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "time_logs_insert_own" on public.time_logs;
 create policy "time_logs_insert_own" on public.time_logs
   for insert with check (user_id = auth.uid());
+drop policy if exists "time_logs_update_own" on public.time_logs;
 create policy "time_logs_update_own" on public.time_logs
   for update using (user_id = auth.uid());
 
 -- screenshots
+drop policy if exists "screenshots_select" on public.screenshots;
 create policy "screenshots_select" on public.screenshots
   for select using (user_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "screenshots_insert_own" on public.screenshots;
 create policy "screenshots_insert_own" on public.screenshots
   for insert with check (user_id = auth.uid());
+drop policy if exists "screenshots_delete" on public.screenshots;
 create policy "screenshots_delete" on public.screenshots
   for delete using (user_id = auth.uid() or public.auth_user_role() = 'Super-admin');
 
 -- tasks
+drop policy if exists "tasks_select" on public.tasks;
 create policy "tasks_select" on public.tasks
   for select using (assignee_id = auth.uid() or creator_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "tasks_insert" on public.tasks;
 create policy "tasks_insert" on public.tasks
   for insert with check (creator_id = auth.uid());
+drop policy if exists "tasks_update" on public.tasks;
 create policy "tasks_update" on public.tasks
   for update using (creator_id = auth.uid() or assignee_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "tasks_delete" on public.tasks;
 create policy "tasks_delete" on public.tasks
   for delete using (creator_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
 
 -- task_comments
+drop policy if exists "task_comments_select" on public.task_comments;
 create policy "task_comments_select" on public.task_comments
   for select using (user_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "task_comments_insert" on public.task_comments;
 create policy "task_comments_insert" on public.task_comments
   for insert with check (user_id = auth.uid());
 
 -- leave_requests
+drop policy if exists "leave_select" on public.leave_requests;
 create policy "leave_select" on public.leave_requests
   for select using (user_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "leave_insert_own" on public.leave_requests;
 create policy "leave_insert_own" on public.leave_requests
   for insert with check (user_id = auth.uid());
+drop policy if exists "leave_update_manager" on public.leave_requests;
 create policy "leave_update_manager" on public.leave_requests
   for update using (public.auth_user_role() in ('Super-admin', 'Manager'));
 
 -- public_holidays
+drop policy if exists "holidays_select" on public.public_holidays;
 create policy "holidays_select" on public.public_holidays
   for select using (sub_account = public.auth_user_sub_account());
+drop policy if exists "holidays_write_admin" on public.public_holidays;
 create policy "holidays_write_admin" on public.public_holidays
   for all using (public.auth_user_role() = 'Super-admin');
 
 -- documents
+drop policy if exists "documents_select" on public.documents;
 create policy "documents_select" on public.documents
   for select using (user_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "documents_insert" on public.documents;
 create policy "documents_insert" on public.documents
   for insert with check (user_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "documents_delete" on public.documents;
 create policy "documents_delete" on public.documents
   for delete using (user_id = auth.uid() or public.auth_user_role() = 'Super-admin');
 
 -- kpis
+drop policy if exists "kpis_select" on public.kpis;
 create policy "kpis_select" on public.kpis
   for select using (user_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "kpis_write_own" on public.kpis;
 create policy "kpis_write_own" on public.kpis
   for all using (user_id = auth.uid());
 
 -- subscriptions
+drop policy if exists "subscriptions_select" on public.subscriptions;
 create policy "subscriptions_select" on public.subscriptions
   for select using (sub_account = public.auth_user_sub_account());
+drop policy if exists "subscriptions_write_admin" on public.subscriptions;
 create policy "subscriptions_write_admin" on public.subscriptions
   for all using (public.auth_user_role() = 'Super-admin');
 
 -- notifications
+drop policy if exists "notifications_select_own" on public.notifications;
 create policy "notifications_select_own" on public.notifications
   for select using (user_id = auth.uid());
+drop policy if exists "notifications_update_own" on public.notifications;
 create policy "notifications_update_own" on public.notifications
   for update using (user_id = auth.uid());
+drop policy if exists "notifications_insert" on public.notifications;
 create policy "notifications_insert" on public.notifications
   for insert with check (true);
 
 -- eod_reports
+drop policy if exists "eod_select" on public.eod_reports;
 create policy "eod_select" on public.eod_reports
   for select using (user_id = auth.uid() or public.auth_user_role() in ('Super-admin', 'Manager'));
+drop policy if exists "eod_insert_own" on public.eod_reports;
 create policy "eod_insert_own" on public.eod_reports
   for insert with check (user_id = auth.uid());
 
@@ -266,20 +299,27 @@ values
   ('avatars',     'avatars',     true)
 on conflict (id) do nothing;
 
+drop policy if exists "screenshots_upload" on storage.objects;
 create policy "screenshots_upload" on storage.objects
   for insert with check (bucket_id = 'screenshots' and auth.uid()::text = (storage.foldername(name))[1]);
+drop policy if exists "screenshots_read" on storage.objects;
 create policy "screenshots_read" on storage.objects
   for select using (bucket_id = 'screenshots' and (auth.uid()::text = (storage.foldername(name))[1] or public.auth_user_role() in ('Super-admin', 'Manager')));
+drop policy if exists "screenshots_delete_obj" on storage.objects;
 create policy "screenshots_delete_obj" on storage.objects
   for delete using (bucket_id = 'screenshots' and (auth.uid()::text = (storage.foldername(name))[1] or public.auth_user_role() = 'Super-admin'));
 
+drop policy if exists "documents_upload" on storage.objects;
 create policy "documents_upload" on storage.objects
   for insert with check (bucket_id = 'documents' and auth.role() = 'authenticated');
+drop policy if exists "documents_read" on storage.objects;
 create policy "documents_read" on storage.objects
   for select using (bucket_id = 'documents' and (auth.uid()::text = (storage.foldername(name))[1] or public.auth_user_role() in ('Super-admin', 'Manager')));
 
+drop policy if exists "avatars_public_read" on storage.objects;
 create policy "avatars_public_read" on storage.objects
   for select using (bucket_id = 'avatars');
+drop policy if exists "avatars_upload" on storage.objects;
 create policy "avatars_upload" on storage.objects
   for insert with check (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
 
@@ -287,10 +327,16 @@ create policy "avatars_upload" on storage.objects
 -- AUTO-PURGE: screenshots older than 30 days (every Sunday 00:00 UTC)
 -- ============================================================
 
+select cron.unschedule('purge-old-screenshots') from cron.job where jobname = 'purge-old-screenshots';
 select cron.schedule(
   'purge-old-screenshots',
   '0 0 * * 0',
-  $$ delete from public.screenshots where timestamp < now() - interval '30 days'; $$
+  $$
+    delete from storage.objects
+    where bucket_id = 'screenshots'
+    and created_at < now() - interval '30 days';
+    delete from public.screenshots where timestamp < now() - interval '30 days';
+  $$
 );
 
 -- ============================================================
