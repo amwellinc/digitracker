@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth'
 const NAV = [
   { to: '/',             end: true,  label: 'Time Tracking',   icon: '⏱' },
   { to: '/calendar',    end: false, label: 'Calendar',         icon: '📅' },
-  { to: '/leave',       end: false, label: 'Leave Management', icon: '📋' },
+  { to: '/leave',       end: false, label: 'Leave & Time Off',  icon: '📋' },
   { to: '/screenshots', end: false, label: 'Screenshots',      icon: '🖥' },
   { to: '/tasks',       end: false, label: 'Tasks',            icon: '✅' },
   { to: '/documents',   end: false, label: 'Documents',        icon: '📁' },

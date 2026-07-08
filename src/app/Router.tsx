@@ -13,6 +13,9 @@ const SettingsPage = lazy(() =>
 const CalendarPage = lazy(() =>
   import('@/features/calendar/CalendarPage').then(m => ({ default: m.CalendarPage }))
 )
+const LeavePage = lazy(() =>
+  import('@/features/leave/LeavePage').then(m => ({ default: m.LeavePage }))
+)
 
 function Spinner() {
   return (
@@ -48,6 +51,14 @@ export function AppRouter() {
             element={
               <Suspense fallback={<Spinner />}>
                 <CalendarPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="leave"
+            element={
+              <Suspense fallback={<Spinner />}>
+                <LeavePage />
               </Suspense>
             }
           />

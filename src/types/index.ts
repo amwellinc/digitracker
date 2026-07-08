@@ -64,6 +64,7 @@ export interface LeaveRequest {
   type: 'Annual' | 'Medical' | 'Time-off'
   start_date: string
   end_date: string
+  hours: number | null
   reason: string
   status: 'pending' | 'approved' | 'rejected'
   created_at: string
