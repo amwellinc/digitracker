@@ -10,6 +10,9 @@ const TimeTrackingPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('@/features/settings/SettingsPage').then(m => ({ default: m.SettingsPage }))
 )
+const CalendarPage = lazy(() =>
+  import('@/features/calendar/CalendarPage').then(m => ({ default: m.CalendarPage }))
+)
 
 function Spinner() {
   return (
@@ -37,6 +40,14 @@ export function AppRouter() {
             element={
               <Suspense fallback={<Spinner />}>
                 <TimeTrackingPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="calendar"
+            element={
+              <Suspense fallback={<Spinner />}>
+                <CalendarPage />
               </Suspense>
             }
           />
