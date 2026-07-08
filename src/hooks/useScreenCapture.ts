@@ -22,10 +22,22 @@ export function useScreenCapture(onForcedClockOut: () => void) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Ref-based indirection so that scheduleNext never closes over a stale captureAndUpload,
+  // and captureAndUpload never closes over a stale scheduleNext.
+  const captureAndUploadRef = useRef<(() => Promise<void>) | null>(null)
+  const scheduleNextRef = useRef<(() => void) | null>(null)
+
   const scheduleNext = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => { void captureAndUpload() }, randomMs()) // eslint-disable-line @typescript-eslint/no-use-before-define
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    timerRef.current = setTimeout(() => {
+      void captureAndUploadRef.current?.()
+    }, randomMs())
+  }, []) // stable — captureAndUploadRef identity never changes
+
+  // Keep scheduleNext ref in sync
+  useEffect(() => {
+    scheduleNextRef.current = scheduleNext
+  }, [scheduleNext])
 
   const captureAndUpload = useCallback(async () => {
     if (!streamRef.current || !videoRef.current || !canvasRef.current || !user) return
@@ -47,21 +59,30 @@ export function useScreenCapture(onForcedClockOut: () => void) {
       .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
 
     if (uploadErr) {
-      scheduleNext()
+      scheduleNextRef.current?.()
       return
     }
 
     const { data: { publicUrl } } = supabase.storage.from('screenshots').getPublicUrl(path)
     const today = new Date().toISOString().split('T')[0]
 
-    await supabase.from('screenshots').insert({
+    const { error: insertErr } = await supabase.from('screenshots').insert({
       user_id: user.id,
       url: publicUrl,
       date: today,
     })
 
-    scheduleNext()
-  }, [user, scheduleNext])
+    if (insertErr) {
+      console.error('[useScreenCapture] Failed to record screenshot:', insertErr.message)
+    }
+
+    scheduleNextRef.current?.()
+  }, [user]) // only depends on user — scheduleNext accessed via stable ref
+
+  // Keep captureAndUpload ref in sync
+  useEffect(() => {
+    captureAndUploadRef.current = captureAndUpload
+  }, [captureAndUpload])
 
   const stop = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
@@ -69,6 +90,12 @@ export function useScreenCapture(onForcedClockOut: () => void) {
     streamRef.current = null
     if (videoRef.current) {
       videoRef.current.srcObject = null
+      videoRef.current.remove()
+      videoRef.current = null
+    }
+    if (canvasRef.current) {
+      canvasRef.current.remove()
+      canvasRef.current = null
     }
     setState({ isCapturing: false, error: null })
   }, [])
@@ -125,6 +152,14 @@ export function useScreenCapture(onForcedClockOut: () => void) {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
       streamRef.current?.getTracks().forEach(t => t.stop())
+      if (videoRef.current) {
+        videoRef.current.remove()
+        videoRef.current = null
+      }
+      if (canvasRef.current) {
+        canvasRef.current.remove()
+        canvasRef.current = null
+      }
     }
   }, [])
 
