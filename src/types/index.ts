@@ -43,10 +43,16 @@ export interface Task {
   description: string | null
   creator_id: string
   assignee_id: string | null
-  status: 'pending' | 'in_progress' | 'completed'
+  status: 'pending' | 'in_progress' | 'completed' | 'closed' | 'archived'
   due_date: string | null
   recurring: 'Daily' | 'Weekly' | 'Monthly' | null
+  attachments: Array<{ url: string; name: string; size: number; type: string }>
   created_at: string
+}
+
+export interface TaskAssignee {
+  task_id: string
+  user_id: string
 }
 
 export interface TaskComment {
@@ -110,7 +116,7 @@ export interface Subscription {
 export interface Notification {
   id: string
   user_id: string
-  type: 'task_assigned' | 'task_reply' | 'leave_request' | 'leave_approved'
+  type: 'task_assigned' | 'task_reply' | 'task_completed' | 'task_closed' | 'leave_request' | 'leave_approved'
   message: string
   read: boolean
   created_at: string
