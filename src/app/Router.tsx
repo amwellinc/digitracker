@@ -7,6 +7,9 @@ import { Layout } from './Layout'
 const TimeTrackingPage = lazy(() =>
   import('@/features/time-tracking/TimeTrackingPage').then(m => ({ default: m.TimeTrackingPage }))
 )
+const SettingsPage = lazy(() =>
+  import('@/features/settings/SettingsPage').then(m => ({ default: m.SettingsPage }))
+)
 
 function Spinner() {
   return (
@@ -34,6 +37,14 @@ export function AppRouter() {
             element={
               <Suspense fallback={<Spinner />}>
                 <TimeTrackingPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="settings"
+            element={
+              <Suspense fallback={<Spinner />}>
+                <SettingsPage />
               </Suspense>
             }
           />
