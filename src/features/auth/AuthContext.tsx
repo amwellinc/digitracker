@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .from('users')
       .select('id')
       .eq('email', email.toLowerCase().trim())
-      .eq('sub_account', subAccount.toUpperCase().trim())
+      .eq('sub_account', subAccount.trim())
       .single()
 
     if (!data) return { error: 'Not registered. Contact your administrator.' }
