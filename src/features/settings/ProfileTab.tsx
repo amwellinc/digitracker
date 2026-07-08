@@ -1,12 +1,21 @@
 import { useState, useRef } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import type { UserCountry } from '@/types'
+
+const COUNTRY_OPTIONS: { code: UserCountry; flag: string; label: string; dialCode: string }[] = [
+  { code: 'SG', flag: '🇸🇬', label: 'Singapore', dialCode: '+65' },
+  { code: 'MY', flag: '🇲🇾', label: 'Malaysia',  dialCode: '+60' },
+  { code: 'PH', flag: '🇵🇭', label: 'Philippines', dialCode: '+63' },
+]
 
 export function ProfileTab() {
   const { user, refreshUser } = useAuth()
   const [name, setName] = useState(user?.name ?? '')
   const [timeIn, setTimeIn] = useState(user?.reporting_time_in ?? '10:00')
   const [timeOut, setTimeOut] = useState(user?.reporting_time_out ?? '19:00')
+  const [country, setCountry] = useState<UserCountry>(user?.country ?? 'SG')
+  const [phone, setPhone] = useState(user?.phone ?? '')
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -38,7 +47,13 @@ export function ProfileTab() {
     setSaving(true)
     const { error } = await supabase
       .from('users')
-      .update({ name: name.trim(), reporting_time_in: timeIn, reporting_time_out: timeOut })
+      .update({
+        name: name.trim(),
+        reporting_time_in: timeIn,
+        reporting_time_out: timeOut,
+        country,
+        phone: phone.trim() || null,
+      })
       .eq('id', user.id)
     setSaving(false)
     if (!error) await refreshUser()
@@ -92,6 +107,37 @@ export function ProfileTab() {
               readOnly
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+              <select
+                value={country}
+                onChange={e => setCountry(e.target.value as UserCountry)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              >
+                {COUNTRY_OPTIONS.map(c => (
+                  <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Used to apply the correct public holidays</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+              <div className="flex gap-2">
+                <span className="inline-flex items-center px-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-500 text-sm select-none">
+                  {COUNTRY_OPTIONS.find(c => c.code === country)?.dialCode ?? '+65'}
+                </span>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="91234567"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

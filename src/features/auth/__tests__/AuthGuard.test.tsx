@@ -25,7 +25,7 @@ const staff: User = {
   id: '1', email: 'a@a.com', name: 'Alice', role: 'Staff',
   sub_account: 'AM333', manager_id: null, annual_leave: 14,
   time_off: 5, profile_image: null, reporting_time_in: '10:00',
-  reporting_time_out: '19:00', created_at: '2026-01-01T00:00:00Z',
+  reporting_time_out: '19:00', country: 'SG', phone: null, created_at: '2026-01-01T00:00:00Z',
 }
 const admin: User = { ...staff, role: 'Super-admin' }
 

@@ -1,9 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
-import type { User, UserRole } from '@/types'
+import type { User, UserRole, UserCountry } from '@/types'
 
 const ROLES: UserRole[] = ['Super-admin', 'Manager', 'Staff']
+
+const COUNTRY_OPTIONS: { code: UserCountry; flag: string; label: string; dialCode: string }[] = [
+  { code: 'SG', flag: '🇸🇬', label: 'Singapore',   dialCode: '+65' },
+  { code: 'MY', flag: '🇲🇾', label: 'Malaysia',    dialCode: '+60' },
+  { code: 'PH', flag: '🇵🇭', label: 'Philippines', dialCode: '+63' },
+]
 
 const ROLE_COLORS: Record<UserRole, string> = {
   'Super-admin': 'bg-violet-100 text-violet-700',
@@ -20,12 +26,15 @@ interface UserForm {
   time_off: string
   reporting_time_in: string
   reporting_time_out: string
+  country: UserCountry
+  phone: string
 }
 
 const emptyForm = (): UserForm => ({
   name: '', email: '', role: 'Staff', manager_id: '',
   annual_leave: '14', time_off: '5',
   reporting_time_in: '10:00', reporting_time_out: '19:00',
+  country: 'SG', phone: '',
 })
 
 export function UsersTab() {
@@ -71,6 +80,8 @@ export function UsersTab() {
       time_off: String(u.time_off),
       reporting_time_in: u.reporting_time_in,
       reporting_time_out: u.reporting_time_out,
+      country: u.country ?? 'SG',
+      phone: u.phone ?? '',
     })
     setMsg(null)
     setEditUser(u)
@@ -95,6 +106,8 @@ export function UsersTab() {
       time_off: Number(form.time_off),
       reporting_time_in: form.reporting_time_in,
       reporting_time_out: form.reporting_time_out,
+      country: form.country,
+      phone: form.phone.trim() || null,
     })
     setSaving(false)
     if (error) { setMsg({ type: 'error', text: error.message }); return }
@@ -116,6 +129,8 @@ export function UsersTab() {
       time_off: Number(form.time_off),
       reporting_time_in: form.reporting_time_in,
       reporting_time_out: form.reporting_time_out,
+      country: form.country,
+      phone: form.phone.trim() || null,
     }).eq('id', editUser.id)
     setSaving(false)
     if (error) { setMsg({ type: 'error', text: error.message }); return }
@@ -180,13 +195,15 @@ export function UsersTab() {
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Annual</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Time-off</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Hours</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Country</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center py-10 text-gray-400">
+                  <td colSpan={10} className="text-center py-10 text-gray-400">
                     {search ? 'No users match your search.' : 'No users yet. Add your first user.'}
                   </td>
                 </tr>
@@ -221,6 +238,15 @@ export function UsersTab() {
                     <td className="px-4 py-3 text-center text-gray-700">{u.annual_leave}d</td>
                     <td className="px-4 py-3 text-center text-gray-700">{u.time_off}d</td>
                     <td className="px-4 py-3 text-gray-600 text-xs">{u.reporting_time_in} – {u.reporting_time_out}</td>
+                    <td className="px-4 py-3 text-gray-700 text-sm">
+                      {COUNTRY_OPTIONS.find(c => c.code === u.country)?.flag ?? '🌐'}{' '}
+                      <span className="text-xs text-gray-500">{u.country ?? '—'}</span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">
+                      {u.phone
+                        ? <>{COUNTRY_OPTIONS.find(c => c.code === u.country)?.dialCode} {u.phone}</>
+                        : <span className="text-gray-300">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
                         <button
@@ -267,6 +293,14 @@ export function UsersTab() {
               <ManagerSelect value={form.manager_id} managers={managers} onChange={v => patch('manager_id', v)} />
             </FormRow>
             <div className="grid grid-cols-2 gap-3">
+              <FormRow label="Country">
+                <CountrySelect value={form.country as UserCountry} onChange={v => patch('country', v)} />
+              </FormRow>
+              <FormRow label="Phone Number">
+                <PhoneInput country={form.country as UserCountry} value={form.phone} onChange={v => patch('phone', v)} />
+              </FormRow>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <FormRow label="Annual Leave (days)">
                 <input type="number" min={0} value={form.annual_leave} onChange={e => patch('annual_leave', e.target.value)} className="input" />
               </FormRow>
@@ -307,6 +341,14 @@ export function UsersTab() {
             <FormRow label="Manager">
               <ManagerSelect value={form.manager_id} managers={managers.filter(m => m.id !== editUser.id)} onChange={v => patch('manager_id', v)} />
             </FormRow>
+            <div className="grid grid-cols-2 gap-3">
+              <FormRow label="Country">
+                <CountrySelect value={form.country as UserCountry} onChange={v => patch('country', v)} />
+              </FormRow>
+              <FormRow label="Phone Number">
+                <PhoneInput country={form.country as UserCountry} value={form.phone} onChange={v => patch('phone', v)} />
+              </FormRow>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <FormRow label="Annual Leave (days)">
                 <input type="number" min={0} value={form.annual_leave} onChange={e => patch('annual_leave', e.target.value)} className="input" />
@@ -404,5 +446,37 @@ function ManagerSelect({ value, managers, onChange }: {
       <option value="">— No manager —</option>
       {managers.map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
     </select>
+  )
+}
+
+function CountrySelect({ value, onChange }: { value: UserCountry; onChange: (v: string) => void }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} className="input">
+      {COUNTRY_OPTIONS.map(c => (
+        <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
+      ))}
+    </select>
+  )
+}
+
+function PhoneInput({ country, value, onChange }: {
+  country: UserCountry
+  value: string
+  onChange: (v: string) => void
+}) {
+  const dialCode = COUNTRY_OPTIONS.find(c => c.code === country)?.dialCode ?? '+65'
+  return (
+    <div className="flex gap-1">
+      <span className="inline-flex items-center px-2.5 border border-gray-300 rounded-lg bg-gray-50 text-gray-500 text-xs select-none whitespace-nowrap">
+        {dialCode}
+      </span>
+      <input
+        type="tel"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder="91234567"
+        className="input flex-1 min-w-0"
+      />
+    </div>
   )
 }

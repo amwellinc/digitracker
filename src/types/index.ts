@@ -1,5 +1,7 @@
 export type UserRole = 'Super-admin' | 'Manager' | 'Staff'
 
+export type UserCountry = 'SG' | 'MY' | 'PH'
+
 export interface User {
   id: string
   email: string
@@ -12,6 +14,8 @@ export interface User {
   profile_image: string | null
   reporting_time_in: string
   reporting_time_out: string
+  country: UserCountry
+  phone: string | null
   created_at: string
 }
 

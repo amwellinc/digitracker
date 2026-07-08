@@ -137,8 +137,9 @@ export function TeamCalendarTab() {
           </thead>
           <tbody className="divide-y divide-gray-50">
             {members.map(m => {
-              const userLogs   = allLogs.filter(l => l.user_id === m.id)
-              const userLeaves = allLeaves.filter(l => l.user_id === m.id)
+              const userLogs     = allLogs.filter(l => l.user_id === m.id)
+              const userLeaves   = allLeaves.filter(l => l.user_id === m.id)
+              const userHolidays = holidays.filter(h => h.country === (m.country ?? 'SG'))
               const workedDays = userLogs.filter(l => l.status === 'clocked_out').length
               const totalHrs   = Math.round(userLogs.reduce((s, l) => s + (l.total_minutes ?? 0), 0) / 60)
 
@@ -149,7 +150,7 @@ export function TeamCalendarTab() {
                     <div className="text-[10px] text-gray-400">{m.role}</div>
                   </td>
                   {days.map(d => {
-                    const status = dayStatus(d.str, todayStr, userLogs, userLeaves, holidays)
+                    const status = dayStatus(d.str, todayStr, userLogs, userLeaves, userHolidays)
                     return (
                       <td key={d.str} className="px-1 py-2 text-center">
                         <div className={`mx-auto w-5 h-5 rounded-sm ${CELL[status]}`} />
