@@ -16,6 +16,9 @@ const CalendarPage = lazy(() =>
 const LeavePage = lazy(() =>
   import('@/features/leave/LeavePage').then(m => ({ default: m.LeavePage }))
 )
+const ScreenshotsPage = lazy(() =>
+  import('@/features/screenshots/ScreenshotsPage').then(m => ({ default: m.ScreenshotsPage }))
+)
 
 function Spinner() {
   return (
@@ -51,6 +54,14 @@ export function AppRouter() {
             element={
               <Suspense fallback={<Spinner />}>
                 <CalendarPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="screenshots"
+            element={
+              <Suspense fallback={<Spinner />}>
+                <ScreenshotsPage />
               </Suspense>
             }
           />

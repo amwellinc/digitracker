@@ -1,19 +1,20 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 
 const NAV = [
-  { to: '/',             end: true,  label: 'Time Tracking',   icon: '⏱' },
-  { to: '/calendar',    end: false, label: 'Calendar',         icon: '📅' },
-  { to: '/leave',       end: false, label: 'Leave & Time Off',  icon: '📋' },
-  { to: '/screenshots', end: false, label: 'Screenshots',      icon: '🖥' },
-  { to: '/tasks',       end: false, label: 'Tasks',            icon: '✅' },
-  { to: '/documents',   end: false, label: 'Documents',        icon: '📁' },
-  { to: '/kpis',        end: false, label: 'KPIs',             icon: '📊' },
+  { to: '/',           end: true,  label: 'Time Tracking',  icon: '⏱',
+    children: [{ to: '/screenshots', label: 'Screenshots', icon: '📸' }] },
+  { to: '/calendar',   end: false, label: 'Calendar',        icon: '📅' },
+  { to: '/leave',      end: false, label: 'Leave & Time Off', icon: '📋' },
+  { to: '/tasks',      end: false, label: 'Tasks',            icon: '✅' },
+  { to: '/documents',  end: false, label: 'Documents',        icon: '📁' },
+  { to: '/kpis',       end: false, label: 'KPIs',             icon: '📊' },
 ]
 
 export function Layout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const handleSignOut = async () => {
     await signOut()
@@ -33,21 +34,47 @@ export function Layout() {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {NAV.map(item => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-violet-50 text-violet-700' : 'text-gray-600 hover:bg-gray-100'
-                }`
-              }
-            >
-              <span className="text-base">{item.icon}</span>
-              {item.label}
-            </NavLink>
-          ))}
+          {NAV.map(item => {
+            const parentActive = item.end
+              ? location.pathname === '/' || location.hash === '#/'
+              : location.hash.startsWith(`#${item.to}`)
+            const childActive = item.children?.some(c => location.hash === `#${c.to}`)
+            const sectionOpen = parentActive || !!childActive
+            return (
+              <div key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isActive && !childActive ? 'bg-violet-50 text-violet-700' : 'text-gray-600 hover:bg-gray-100'
+                    }`
+                  }
+                >
+                  <span className="text-base">{item.icon}</span>
+                  {item.label}
+                </NavLink>
+                {item.children && sectionOpen && (
+                  <div className="ml-3 mt-0.5 space-y-0.5 border-l-2 border-violet-100 pl-3">
+                    {item.children.map(child => (
+                      <NavLink
+                        key={child.to}
+                        to={child.to}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                            isActive ? 'bg-violet-50 text-violet-700' : 'text-gray-500 hover:bg-gray-100'
+                          }`
+                        }
+                      >
+                        <span className="text-sm">{child.icon}</span>
+                        {child.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </nav>
 
         <div className="px-3 py-4 border-t border-gray-100 space-y-0.5">

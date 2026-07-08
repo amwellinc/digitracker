@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useScreenCapture } from '@/hooks/useScreenCapture'
 import { supabase } from '@/lib/supabase'
-import type { TimeLog } from '@/types'
+import type { TimeLog, Screenshot } from '@/types'
 import { StatCards } from './StatCards'
 import { TeamAvatarRow } from './TeamAvatarRow'
-import { RecentScreenshots } from './RecentScreenshots'
 import { AdminDashboard } from '@/features/dashboard/AdminDashboard'
 
 export function TimeTrackingPage() {
@@ -14,6 +14,7 @@ export function TimeTrackingPage() {
   const [dayMinutes, setDayMinutes] = useState(0)
   const [lunchStart, setLunchStart] = useState<Date | null>(null)
   const [liveSeconds, setLiveSeconds] = useState(0)
+  const [recentShots, setRecentShots] = useState<Screenshot[]>([])
 
   const handleForcedClockOut = useCallback(async () => {
     if (!activeLog) return
@@ -44,6 +45,14 @@ export function TimeTrackingPage() {
         setActiveLog(active ?? null)
         setDayMinutes((data as TimeLog[]).reduce((s, l) => s + (l.total_minutes ?? 0), 0))
       })
+    void supabase
+      .from('screenshots')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('date', today)
+      .order('timestamp', { ascending: false })
+      .limit(4)
+      .then(({ data }) => setRecentShots((data ?? []) as Screenshot[]))
   }, [user])
 
   // Live elapsed-time ticker — runs every second while clocked in
@@ -155,15 +164,36 @@ export function TimeTrackingPage() {
       />
 
       {!isSuperAdmin && (
-        <div className="grid grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="font-semibold text-gray-900">Activity Breakdown</h3>
-            <p className="text-sm text-gray-400 mt-0.5">Apps and websites usage today</p>
-            <div className="h-28 flex items-center justify-center text-sm text-gray-300 mt-4">
-              Available in Phase 5
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-semibold text-gray-900">Recent Screenshots</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Auto-captured every 11–18 min while clocked in</p>
             </div>
+            <Link
+              to="/screenshots"
+              className="text-xs text-violet-600 hover:text-violet-700 font-medium"
+            >
+              View all →
+            </Link>
           </div>
-          <RecentScreenshots userId={user?.id ?? ''} />
+          {recentShots.length === 0 ? (
+            <div className="h-24 flex items-center justify-center text-sm text-gray-300 rounded-lg bg-gray-50">
+              No screenshots today yet
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-2">
+              {recentShots.map(s => (
+                <Link
+                  key={s.id}
+                  to="/screenshots"
+                  className="aspect-video bg-gray-100 rounded-lg overflow-hidden hover:opacity-80 transition-opacity block"
+                >
+                  <img src={s.url} alt="Screenshot" className="w-full h-full object-cover" />
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

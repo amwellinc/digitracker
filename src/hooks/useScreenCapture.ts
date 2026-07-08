@@ -143,7 +143,9 @@ export function useScreenCapture(onForcedClockOut: () => void) {
       }
 
       setState({ isCapturing: true, error: null })
-      scheduleNext()
+      // Immediate first capture (200ms lets the video render its first frame)
+      // Subsequent captures are self-scheduled inside captureAndUpload
+      setTimeout(() => void captureAndUploadRef.current?.(), 200)
       return true
     } catch {
       setState({ isCapturing: false, error: 'Screen sharing was cancelled.' })
