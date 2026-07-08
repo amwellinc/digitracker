@@ -6,6 +6,7 @@ import type { TimeLog } from '@/types'
 import { StatCards } from './StatCards'
 import { TeamAvatarRow } from './TeamAvatarRow'
 import { RecentScreenshots } from './RecentScreenshots'
+import { AdminDashboard } from '@/features/dashboard/AdminDashboard'
 
 export function TimeTrackingPage() {
   const { user } = useAuth()
@@ -88,15 +89,33 @@ export function TimeTrackingPage() {
 
   const isWorking = activeLog?.status === 'working'
   const isOnLunch = activeLog?.status === 'lunch'
+  const isSuperAdmin = user?.role === 'Super-admin'
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Time Tracking</h2>
-        <p className="text-sm text-gray-500 mt-1">Manage your daily shift and view your activity.</p>
-      </div>
 
-      {(user?.role === 'Super-admin' || user?.role === 'Manager') && <TeamAvatarRow />}
+      {/* Super-admin: full management dashboard at top */}
+      {isSuperAdmin && <AdminDashboard />}
+
+      {/* Divider for super-admin */}
+      {isSuperAdmin && (
+        <div className="flex items-center gap-4 pt-2">
+          <div className="flex-1 border-t border-gray-200" />
+          <span className="text-xs font-medium text-gray-400 uppercase tracking-wide shrink-0">Your Time Tracking</span>
+          <div className="flex-1 border-t border-gray-200" />
+        </div>
+      )}
+
+      {/* Manager: show team avatars */}
+      {user?.role === 'Manager' && <TeamAvatarRow />}
+
+      {/* Page title for Staff / Manager */}
+      {!isSuperAdmin && (
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Time Tracking</h2>
+          <p className="text-sm text-gray-500 mt-1">Manage your daily shift and view your activity.</p>
+        </div>
+      )}
 
       {captureErr && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
@@ -116,16 +135,18 @@ export function TimeTrackingPage() {
         onClockOut={handleClockOut}
       />
 
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="font-semibold text-gray-900">Activity Breakdown</h3>
-          <p className="text-sm text-gray-400 mt-0.5">Apps and websites usage today</p>
-          <div className="h-28 flex items-center justify-center text-sm text-gray-300 mt-4">
-            Available in Phase 5
+      {!isSuperAdmin && (
+        <div className="grid grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900">Activity Breakdown</h3>
+            <p className="text-sm text-gray-400 mt-0.5">Apps and websites usage today</p>
+            <div className="h-28 flex items-center justify-center text-sm text-gray-300 mt-4">
+              Available in Phase 5
+            </div>
           </div>
+          <RecentScreenshots userId={user?.id ?? ''} />
         </div>
-        <RecentScreenshots userId={user?.id ?? ''} />
-      </div>
+      )}
     </div>
   )
 }
