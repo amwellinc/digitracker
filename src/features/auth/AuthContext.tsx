@@ -56,14 +56,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadUser])
 
   const signIn = useCallback(async (email: string, subAccount: string) => {
-    const { data } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', email.toLowerCase().trim())
-      .eq('sub_account', subAccount.trim())
-      .single()
+    const { data: registered } = await supabase.rpc('check_user_registered', {
+      p_email: email.toLowerCase().trim(),
+      p_sub_account: subAccount.trim(),
+    })
 
-    if (!data) return { error: 'Not registered. Contact your administrator.' }
+    if (!registered) return { error: 'Not registered. Contact your administrator.' }
 
     const { error } = await supabase.auth.signInWithOtp({
       email: email.toLowerCase().trim(),
