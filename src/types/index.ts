@@ -84,11 +84,14 @@ export interface PublicHoliday {
   sub_account: string
 }
 
+export type DocumentType = 'Medical' | 'Employment' | 'HR' | 'ID' | 'Certificate' | 'Contract' | 'Performance' | 'Standard' | 'Other'
+
 export interface Document {
   id: string
   user_id: string
   title: string
-  type: 'Standard' | 'Medical' | 'ID'
+  type: DocumentType
+  description: string | null
   url: string
   size: number
   created_at: string

@@ -7,7 +7,7 @@ const NAV = [
   { to: '/calendar',   end: false, label: 'Calendar',        icon: '📅' },
   { to: '/leave',      end: false, label: 'Leave & Time Off', icon: '📋' },
   { to: '/tasks',      end: false, label: 'Tasks',            icon: '✅' },
-  { to: '/documents',  end: false, label: 'Documents',        icon: '📁' },
+  { to: '/documents',  end: false, label: 'HR Documents',      icon: '📁' },
   { to: '/kpis',       end: false, label: 'KPIs',             icon: '📊' },
 ]
 
