@@ -24,9 +24,7 @@ export function LoginPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="bg-white p-8 rounded-xl shadow text-center max-w-md w-full">
-          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-green-600 text-xl">✓</span>
-          </div>
+          <img src="/logo.png" alt="DIGITRACKER" className="w-16 h-16 object-contain mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Check your email</h2>
           <p className="text-gray-500 text-sm">
             We sent a magic link to <strong>{email}</strong>. Click it to sign in.
@@ -39,11 +37,10 @@ export function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white p-8 rounded-xl shadow max-w-md w-full">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-10 h-10 bg-violet-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">
-            DG
-          </div>
+        <div className="flex flex-col items-center mb-8">
+          <img src="/logo.png" alt="DIGITRACKER" className="w-24 h-24 object-contain mb-2" />
           <h1 className="text-2xl font-bold tracking-tight">DIGITRACKER</h1>
+          <p className="text-xs text-gray-400 mt-0.5">By DIGI5Y</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -24,11 +24,12 @@ export function Layout() {
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-60 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-100">
-          <div className="w-9 h-9 bg-violet-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">
-            DG
+        <div className="flex items-center gap-2 px-4 py-4 border-b border-gray-100">
+          <img src="/logo.png" alt="DIGITRACKER" className="w-10 h-10 rounded-lg object-contain" />
+          <div className="leading-tight">
+            <span className="font-bold text-sm tracking-tight block">DIGITRACKER</span>
+            <span className="text-xs text-gray-400">By DIGI5Y</span>
           </div>
-          <span className="font-bold text-lg tracking-tight">DIGITRACK</span>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
