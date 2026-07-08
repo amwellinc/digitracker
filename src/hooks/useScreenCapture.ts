@@ -63,12 +63,21 @@ export function useScreenCapture(onForcedClockOut: () => void) {
       return
     }
 
-    const { data: { publicUrl } } = supabase.storage.from('screenshots').getPublicUrl(path)
+    // Screenshots bucket is private — use a long-lived signed URL (30 days)
+    const { data: signedData, error: signErr } = await supabase.storage
+      .from('screenshots')
+      .createSignedUrl(path, 60 * 60 * 24 * 30)
+
+    if (signErr || !signedData?.signedUrl) {
+      scheduleNextRef.current?.()
+      return
+    }
+
     const today = new Date().toISOString().split('T')[0]
 
     const { error: insertErr } = await supabase.from('screenshots').insert({
       user_id: user.id,
-      url: publicUrl,
+      url: signedData.signedUrl,
       date: today,
     })
 
@@ -107,12 +116,6 @@ export function useScreenCapture(onForcedClockOut: () => void) {
       })
 
       const track = stream.getVideoTracks()[0]
-      const surface = (track.getSettings() as { displaySurface?: string }).displaySurface
-      if (surface !== 'monitor') {
-        stream.getTracks().forEach(t => t.stop())
-        setState({ isCapturing: false, error: 'Please select your entire screen, not a window or tab.' })
-        return false
-      }
 
       streamRef.current = stream
 

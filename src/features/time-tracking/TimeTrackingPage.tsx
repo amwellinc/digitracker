@@ -13,6 +13,7 @@ export function TimeTrackingPage() {
   const [activeLog, setActiveLog] = useState<TimeLog | null>(null)
   const [dayMinutes, setDayMinutes] = useState(0)
   const [lunchStart, setLunchStart] = useState<Date | null>(null)
+  const [liveSeconds, setLiveSeconds] = useState(0)
 
   const handleForcedClockOut = useCallback(async () => {
     if (!activeLog) return
@@ -44,6 +45,23 @@ export function TimeTrackingPage() {
         setDayMinutes((data as TimeLog[]).reduce((s, l) => s + (l.total_minutes ?? 0), 0))
       })
   }, [user])
+
+  // Live elapsed-time ticker — runs every second while clocked in
+  useEffect(() => {
+    if (!activeLog || activeLog.status === 'clocked_out') {
+      setLiveSeconds(0)
+      return
+    }
+    const clockInMs = new Date(activeLog.clock_in).getTime()
+    const tick = () => {
+      const elapsed = (Date.now() - clockInMs) / 1000
+      const lunchSecs = lunchStart ? (Date.now() - lunchStart.getTime()) / 1000 : 0
+      setLiveSeconds(Math.max(0, Math.floor(elapsed - lunchSecs)))
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [activeLog, lunchStart])
 
   const handleClockIn = async () => {
     if (!user) return
@@ -126,6 +144,7 @@ export function TimeTrackingPage() {
       <StatCards
         status={activeLog?.status ?? 'clocked_out'}
         dayMinutes={dayMinutes}
+        liveSeconds={liveSeconds}
         isCapturing={isCapturing}
         isWorking={!!isWorking}
         isOnLunch={!!isOnLunch}

@@ -24,6 +24,7 @@ export interface AuthContextValue {
   loading: boolean
   signIn: (email: string, subAccount: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
@@ -75,8 +76,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SIGNED_OUT' })
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) await loadUser(session.user.id)
+  }, [loadUser])
+
   return (
-    <AuthContext.Provider value={{ user: state.user, loading: state.loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user: state.user, loading: state.loading, signIn, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

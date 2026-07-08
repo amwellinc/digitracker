@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 
 export function ProfileTab() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const [name, setName] = useState(user?.name ?? '')
   const [timeIn, setTimeIn] = useState(user?.reporting_time_in ?? '10:00')
   const [timeOut, setTimeOut] = useState(user?.reporting_time_out ?? '19:00')
@@ -20,7 +20,7 @@ export function ProfileTab() {
     if (!file || !user) return
     setUploading(true)
     const ext = file.name.split('.').pop()
-    const path = `${user.id}.${ext}`
+    const path = `${user.id}/${user.id}.${ext}`
     const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
     if (upErr) { setMsg({ type: 'error', text: upErr.message }); setUploading(false); return }
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
@@ -28,6 +28,7 @@ export function ProfileTab() {
     await supabase.from('users').update({ profile_image: url }).eq('id', user.id)
     setAvatarUrl(url)
     setUploading(false)
+    await refreshUser()
     setMsg({ type: 'success', text: 'Profile picture updated.' })
   }
 
@@ -40,6 +41,7 @@ export function ProfileTab() {
       .update({ name: name.trim(), reporting_time_in: timeIn, reporting_time_out: timeOut })
       .eq('id', user.id)
     setSaving(false)
+    if (!error) await refreshUser()
     setMsg(error ? { type: 'error', text: error.message } : { type: 'success', text: 'Profile saved.' })
   }
 

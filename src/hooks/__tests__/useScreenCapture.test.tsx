@@ -10,7 +10,7 @@ vi.mock('@/lib/supabase', () => ({
     storage: {
       from: vi.fn().mockReturnValue({
         upload: vi.fn().mockResolvedValue({ data: { path: 'u/1.jpg' }, error: null }),
-        getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: 'http://x.com/1.jpg' } }),
+        createSignedUrl: vi.fn().mockResolvedValue({ data: { signedUrl: 'http://x.com/signed.jpg' }, error: null }),
       }),
     },
     from: vi.fn().mockReturnValue({
@@ -28,7 +28,7 @@ const mockUser: User = {
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <AuthContext.Provider value={{ user: mockUser, loading: false, signIn: vi.fn(), signOut: vi.fn() }}>
+    <AuthContext.Provider value={{ user: mockUser, loading: false, signIn: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn() }}>
       {children}
     </AuthContext.Provider>
   )
@@ -70,16 +70,16 @@ describe('useScreenCapture', () => {
     expect(result.current.isCapturing).toBe(true)
   })
 
-  it('start() returns false and sets error when window selected', async () => {
-    const windowTrack = { getSettings: vi.fn().mockReturnValue({ displaySurface: 'window' }), stop: vi.fn() }
+  it('start() returns true when window or tab selected (any surface accepted)', async () => {
+    const windowTrack = { getSettings: vi.fn().mockReturnValue({ displaySurface: 'window' }), stop: vi.fn(), onended: null }
     const windowStream = { getVideoTracks: vi.fn().mockReturnValue([windowTrack]), getTracks: vi.fn().mockReturnValue([windowTrack]) }
     vi.mocked(navigator.mediaDevices.getDisplayMedia).mockResolvedValueOnce(windowStream as never)
 
     const { result } = renderHook(() => useScreenCapture(vi.fn()), { wrapper })
-    let ok = true
+    let ok = false
     await act(async () => { ok = await result.current.start() })
-    expect(ok).toBe(false)
-    expect(result.current.error).toMatch(/entire screen/i)
+    expect(ok).toBe(true)
+    expect(result.current.isCapturing).toBe(true)
   })
 
   it('stop() sets isCapturing false', async () => {

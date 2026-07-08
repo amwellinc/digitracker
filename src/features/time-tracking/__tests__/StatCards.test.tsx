@@ -6,6 +6,7 @@ import { StatCards } from '../StatCards'
 const base = {
   status: 'clocked_out' as const,
   dayMinutes: 0,
+  liveSeconds: 0,
   isCapturing: false,
   isWorking: false,
   isOnLunch: false,

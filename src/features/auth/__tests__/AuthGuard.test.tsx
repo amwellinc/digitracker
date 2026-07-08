@@ -30,7 +30,7 @@ const staff: User = {
 const admin: User = { ...staff, role: 'Super-admin' }
 
 const ctx = (user: User | null, loading = false) => ({
-  user, loading, signIn: vi.fn(), signOut: vi.fn(),
+  user, loading, signIn: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn(),
 })
 
 describe('AuthGuard', () => {

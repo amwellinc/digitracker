@@ -1,6 +1,7 @@
 interface Props {
   status: 'working' | 'lunch' | 'clocked_out'
   dayMinutes: number
+  liveSeconds: number
   isCapturing: boolean
   isWorking: boolean
   isOnLunch: boolean
@@ -10,15 +11,18 @@ interface Props {
   onClockOut: () => void
 }
 
-function fmtMinutes(mins: number): string {
-  const h = Math.floor(mins / 60).toString().padStart(2, '0')
-  const m = Math.floor(mins % 60).toString().padStart(2, '0')
-  return `${h}:${m}:00`
+function fmtTime(totalMins: number, extraSecs: number): string {
+  const total = totalMins * 60 + extraSecs
+  const h = Math.floor(total / 3600).toString().padStart(2, '0')
+  const m = Math.floor((total % 3600) / 60).toString().padStart(2, '0')
+  const s = (total % 60).toString().padStart(2, '0')
+  return `${h}:${m}:${s}`
 }
 
 export function StatCards({
   status,
   dayMinutes,
+  liveSeconds,
   isCapturing,
   isWorking,
   isOnLunch,
@@ -60,7 +64,7 @@ export function StatCards({
           <span>Day Worked</span>
           <span aria-hidden="true">⏱</span>
         </div>
-        <p className="text-2xl font-bold text-gray-900 font-mono">{fmtMinutes(dayMinutes)}</p>
+        <p className="text-2xl font-bold text-gray-900 font-mono">{fmtTime(dayMinutes, liveSeconds)}</p>
         <p className="text-xs text-gray-400 mt-1">Today's total logged hours</p>
       </div>
 
