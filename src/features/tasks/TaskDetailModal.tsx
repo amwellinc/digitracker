@@ -48,7 +48,7 @@ export function TaskDetailModal({ task: initialTask, members, assigneeIds, onClo
   const assignees = members.filter(m => assigneeIds.includes(m.id))
   const creator = members.find(m => m.id === task.creator_id)
   const alert = getAlertLevel(task)
-  const canManage = user?.role === 'Super-admin' || user?.role === 'Manager' || task.creator_id === user?.id
+  const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin' || task.creator_id === user?.id
   const canComment = canManage || assigneeIds.includes(user?.id ?? '')
 
   useEffect(() => {

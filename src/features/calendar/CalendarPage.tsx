@@ -75,7 +75,7 @@ export function CalendarPage() {
   const [tab, setTab] = useState<TabId>('my')
   const [showModal, setShowModal] = useState(false)
 
-  const isSuperAdmin = user?.role === 'Super-admin'
+  const isSuperAdmin = user?.role === 'Admin' || user?.role === 'Super-Admin'
   const isManager    = user?.role === 'Manager'
 
   const tabs: { id: TabId; label: string }[] = [

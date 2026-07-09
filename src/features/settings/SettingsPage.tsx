@@ -12,13 +12,13 @@ export function SettingsPage() {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<TabId>('profile')
 
-  const isSuperAdmin = user?.role === 'Super-admin'
+  const isAdmin = user?.role === 'Admin'
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'profile',      label: 'My Profile' },
     { id: 'account',      label: 'Account' },
     { id: 'appearance',   label: 'Appearance' },
-    ...(isSuperAdmin
+    ...(isAdmin
       ? [
           { id: 'users' as TabId,        label: 'Users & Roles' },
           { id: 'subscription' as TabId, label: 'Subscription' },
@@ -56,8 +56,8 @@ export function SettingsPage() {
       {activeTab === 'profile'      && <ProfileTab />}
       {activeTab === 'account'      && <AccountTab />}
       {activeTab === 'appearance'   && <AppearanceTab />}
-      {activeTab === 'users'        && isSuperAdmin && <UsersTab />}
-      {activeTab === 'subscription' && isSuperAdmin && <SubscriptionTab />}
+      {activeTab === 'users'        && isAdmin && <UsersTab />}
+      {activeTab === 'subscription' && isAdmin && <SubscriptionTab />}
     </div>
   )
 }

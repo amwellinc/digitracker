@@ -2,20 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { User, UserRole, UserCountry } from '@/types'
+import { COUNTRY_OPTIONS, ROLE_OPTIONS, ROLE_COLORS } from '@/lib/constants'
 
-const ROLES: UserRole[] = ['Super-admin', 'Manager', 'Staff']
-
-const COUNTRY_OPTIONS: { code: UserCountry; flag: string; label: string; dialCode: string }[] = [
-  { code: 'SG', flag: '🇸🇬', label: 'Singapore',   dialCode: '+65' },
-  { code: 'MY', flag: '🇲🇾', label: 'Malaysia',    dialCode: '+60' },
-  { code: 'PH', flag: '🇵🇭', label: 'Philippines', dialCode: '+63' },
-]
-
-const ROLE_COLORS: Record<UserRole, string> = {
-  'Super-admin': 'bg-violet-100 text-violet-700',
-  'Manager':     'bg-blue-100 text-blue-700',
-  'Staff':       'bg-gray-100 text-gray-600',
-}
+const ROLES: UserRole[] = ROLE_OPTIONS
 
 interface UserForm {
   name: string
@@ -32,7 +21,7 @@ interface UserForm {
 
 const emptyForm = (): UserForm => ({
   name: '', email: '', role: 'Staff', manager_id: '',
-  annual_leave: '14', time_off: '5',
+  annual_leave: '14', time_off: '40',
   reporting_time_in: '10:00', reporting_time_out: '19:00',
   country: 'SG', phone: '',
 })
@@ -148,7 +137,7 @@ export function UsersTab() {
     setDeleteUser(null)
   }
 
-  const managers = users.filter(u => u.role === 'Manager' || u.role === 'Super-admin')
+  const managers = users.filter(u => u.role === 'Manager' || u.role === 'Admin')
   const filtered = users.filter(u =>
     u.name.toLowerCase().includes(search.toLowerCase()) ||
     u.email.toLowerCase().includes(search.toLowerCase())
@@ -192,8 +181,8 @@ export function UsersTab() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Email</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Manager</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Annual</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Time-off</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">Annual (d)</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">Time-off (h)</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Hours</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Country</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th>
@@ -236,7 +225,7 @@ export function UsersTab() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">{manager?.name ?? '—'}</td>
                     <td className="px-4 py-3 text-center text-gray-700">{u.annual_leave}d</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{u.time_off}d</td>
+                    <td className="px-4 py-3 text-center text-gray-700">{u.time_off}h</td>
                     <td className="px-4 py-3 text-gray-600 text-xs">{u.reporting_time_in} – {u.reporting_time_out}</td>
                     <td className="px-4 py-3 text-gray-700 text-sm">
                       {COUNTRY_OPTIONS.find(c => c.code === u.country)?.flag ?? '🌐'}{' '}
@@ -304,7 +293,7 @@ export function UsersTab() {
               <FormRow label="Annual Leave (days)">
                 <input type="number" min={0} value={form.annual_leave} onChange={e => patch('annual_leave', e.target.value)} className="input" />
               </FormRow>
-              <FormRow label="Time-off (days)">
+              <FormRow label="Time-off (hours)">
                 <input type="number" min={0} value={form.time_off} onChange={e => patch('time_off', e.target.value)} className="input" />
               </FormRow>
             </div>
@@ -353,7 +342,7 @@ export function UsersTab() {
               <FormRow label="Annual Leave (days)">
                 <input type="number" min={0} value={form.annual_leave} onChange={e => patch('annual_leave', e.target.value)} className="input" />
               </FormRow>
-              <FormRow label="Time-off (days)">
+              <FormRow label="Time-off (hours)">
                 <input type="number" min={0} value={form.time_off} onChange={e => patch('time_off', e.target.value)} className="input" />
               </FormRow>
             </div>

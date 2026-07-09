@@ -100,7 +100,7 @@ function TaskCard({ row, members, onOpen }: { row: TaskRow; members: User[]; onO
 
 export function TasksPage() {
   const { user } = useAuth()
-  const canManage = user?.role === 'Super-admin' || user?.role === 'Manager'
+  const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
 
   const [members, setMembers] = useState<User[]>([])
   const [rows, setRows] = useState<TaskRow[]>([])

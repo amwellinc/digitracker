@@ -2,12 +2,7 @@ import { useState, useRef } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { UserCountry } from '@/types'
-
-const COUNTRY_OPTIONS: { code: UserCountry; flag: string; label: string; dialCode: string }[] = [
-  { code: 'SG', flag: '🇸🇬', label: 'Singapore', dialCode: '+65' },
-  { code: 'MY', flag: '🇲🇾', label: 'Malaysia',  dialCode: '+60' },
-  { code: 'PH', flag: '🇵🇭', label: 'Philippines', dialCode: '+63' },
-]
+import { COUNTRY_OPTIONS } from '@/lib/constants'
 
 export function ProfileTab() {
   const { user, refreshUser } = useAuth()

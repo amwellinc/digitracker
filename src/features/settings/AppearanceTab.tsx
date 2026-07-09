@@ -24,7 +24,7 @@ const THEMES: { id: ThemeMode; label: string; icon: string; desc: string }[] = [
 
 export function AppearanceTab() {
   const { user } = useAuth()
-  const isSuperAdmin = user?.role === 'Super-admin'
+  const isSuperAdmin = user?.role === 'Admin' || user?.role === 'Super-Admin'
 
   const [mode, setMode] = useState<ThemeMode>(getStoredTheme)
   const [color, setColor] = useState(getStoredColor)

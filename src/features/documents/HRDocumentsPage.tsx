@@ -33,7 +33,7 @@ function storagePathFromUrl(url: string): string | null {
 
 export function HRDocumentsPage() {
   const { user } = useAuth()
-  const canManage = user?.role === 'Super-admin' || user?.role === 'Manager'
+  const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
 
   const [members, setMembers] = useState<User[]>([])
   const [docCounts, setDocCounts] = useState<Record<string, number>>({})

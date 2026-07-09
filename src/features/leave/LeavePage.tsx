@@ -6,7 +6,7 @@ import { RequestLeaveModal } from './RequestLeaveModal'
 
 export function LeavePage() {
   const { user } = useAuth()
-  const canManage = user?.role === 'Super-admin' || user?.role === 'Manager'
+  const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
   const [activeTab, setActiveTab] = useState<'my' | 'manage'>('my')
   const [showModal, setShowModal] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)

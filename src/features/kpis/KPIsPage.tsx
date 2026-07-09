@@ -4,7 +4,7 @@ import { KPIStaffView } from './KPIStaffView'
 
 export function KPIsPage() {
   const { user } = useAuth()
-  const canManage = user?.role === 'Super-admin' || user?.role === 'Manager'
+  const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
 
   return (
     <div className="space-y-5">

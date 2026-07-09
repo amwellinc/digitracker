@@ -106,7 +106,7 @@ function Lightbox({ shot, total, index, onClose, onPrev, onNext }: LightboxProps
 
 export function ScreenshotsPage() {
   const { user } = useAuth()
-  const canManage = user?.role === 'Super-admin' || user?.role === 'Manager'
+  const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
 
   const [members, setMembers] = useState<User[]>([])
   const [selectedUserId, setSelectedUserId] = useState(user?.id ?? '')

@@ -1,20 +1,28 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 
-const NAV = [
-  { to: '/',           end: true,  label: 'Time Tracking',  icon: '⏱',
+const STAFF_NAV = [
+  { to: '/',           end: true,  label: 'Time Tracking',   icon: '⏱',
     children: [{ to: '/screenshots', label: 'Screenshots', icon: '📸' }] },
-  { to: '/calendar',   end: false, label: 'Calendar',        icon: '📅' },
+  { to: '/calendar',   end: false, label: 'Calendar',         icon: '📅' },
   { to: '/leave',      end: false, label: 'Leave & Time Off', icon: '📋' },
   { to: '/tasks',      end: false, label: 'Tasks',            icon: '✅' },
-  { to: '/documents',  end: false, label: 'HR Documents',      icon: '📁' },
+  { to: '/documents',  end: false, label: 'HR Documents',     icon: '📁' },
   { to: '/kpis',       end: false, label: 'KPIs',             icon: '📊' },
+]
+
+const SUPER_ADMIN_NAV = [
+  { to: '/platform',  end: true,  label: 'Platform Admin',   icon: '🏢', children: [] },
+  { to: '/settings',  end: false, label: 'Settings',         icon: '⚙', children: [] },
 ]
 
 export function Layout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+
+  const isSuperAdmin = user?.role === 'Super-Admin'
+  const NAV = isSuperAdmin ? SUPER_ADMIN_NAV : STAFF_NAV
 
   const handleSignOut = async () => {
     await signOut()
@@ -79,24 +87,28 @@ export function Layout() {
 
         <div className="px-3 py-4 border-t border-gray-100 space-y-0.5">
           <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-8 h-8 rounded-full bg-violet-200 text-violet-700 font-semibold text-xs flex items-center justify-center flex-shrink-0">
+            <div className={`w-8 h-8 rounded-full font-semibold text-xs flex items-center justify-center flex-shrink-0 ${
+              isSuperAdmin ? 'bg-purple-200 text-purple-800' : 'bg-violet-200 text-violet-700'
+            }`}>
               {user?.name.slice(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
-              <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+              <p className="text-xs text-gray-400 truncate">{isSuperAdmin ? 'Super Admin' : user?.role}</p>
             </div>
           </div>
-          <NavLink
-            to="/settings"
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive ? 'bg-violet-50 text-violet-700' : 'text-gray-600 hover:bg-gray-100'
-              }`
-            }
-          >
-            <span>⚙</span> Settings
-          </NavLink>
+          {!isSuperAdmin && (
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? 'bg-violet-50 text-violet-700' : 'text-gray-600 hover:bg-gray-100'
+                }`
+              }
+            >
+              <span>⚙</span> Settings
+            </NavLink>
+          )}
           <button
             onClick={handleSignOut}
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 w-full"

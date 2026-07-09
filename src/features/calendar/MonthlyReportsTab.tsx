@@ -187,7 +187,7 @@ export function MonthlyReportsTab() {
                     </td>
                     <td className="px-5 py-3">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                        r.user.role === 'Super-admin' ? 'bg-violet-100 text-violet-700' :
+                        r.user.role === 'Admin' ? 'bg-violet-100 text-violet-700' :
                         r.user.role === 'Manager'     ? 'bg-blue-100 text-blue-700' :
                                                         'bg-gray-100 text-gray-600'
                       }`}>{r.user.role}</span>

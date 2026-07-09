@@ -134,7 +134,7 @@ export function TimeTrackingPage() {
 
   const isWorking = activeLog?.status === 'working'
   const isOnLunch = activeLog?.status === 'lunch'
-  const isSuperAdmin = user?.role === 'Super-admin'
+  const isSuperAdmin = user?.role === 'Admin' || user?.role === 'Super-Admin'
 
   return (
     <div className="space-y-6">

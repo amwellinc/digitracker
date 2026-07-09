@@ -29,7 +29,7 @@ export function ManageLeaveTab() {
   const load = useCallback(async () => {
     if (!user) return
 
-    if (user.role === 'Super-admin') {
+    if (user.role === 'Admin' || user.role === 'Super-Admin') {
       // Fetch all members then all their leaves
       const { data: members } = await supabase
         .from('users')

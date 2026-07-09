@@ -28,6 +28,9 @@ const HRDocumentsPage = lazy(() =>
 const KPIsPage = lazy(() =>
   import('@/features/kpis/KPIsPage').then(m => ({ default: m.KPIsPage }))
 )
+const SuperAdminPage = lazy(() =>
+  import('@/features/super-admin/SuperAdminPage').then(m => ({ default: m.SuperAdminPage }))
+)
 
 function Spinner() {
   return (
@@ -111,6 +114,14 @@ export function AppRouter() {
             element={
               <Suspense fallback={<Spinner />}>
                 <SettingsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="platform"
+            element={
+              <Suspense fallback={<Spinner />}>
+                <SuperAdminPage />
               </Suspense>
             }
           />

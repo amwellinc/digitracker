@@ -1,6 +1,6 @@
-export type UserRole = 'Super-admin' | 'Manager' | 'Staff'
+export type UserRole = 'Super-Admin' | 'Admin' | 'Manager' | 'Staff'
 
-export type UserCountry = 'SG' | 'MY' | 'PH'
+export type UserCountry = 'SG' | 'MY' | 'PH' | 'IN' | 'AU' | 'US' | 'GB' | 'ID' | 'TH' | 'VN' | 'AE' | 'CN' | 'JP'
 
 export interface User {
   id: string
@@ -131,7 +131,22 @@ export interface Subscription {
   seats: number
   status: 'active' | 'cancelled' | 'trialing'
   billing_date: string | null
+  billing_cycle: 'monthly' | 'annual'
+  company_name: string | null
+  notes: string | null
   created_at: string
+}
+
+export interface SubAccount {
+  code: string
+  company_name: string
+  admin_email: string | null
+  plan: 'free' | 'basic' | 'business' | 'professional'
+  seats: number
+  status: 'active' | 'trialing' | 'cancelled' | 'suspended'
+  notes: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface Notification {
