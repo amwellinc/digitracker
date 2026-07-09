@@ -102,11 +102,19 @@ export function Layout() {
 
         <div className="px-3 py-4 border-t border-gray-100 space-y-0.5">
           <div className="flex items-center gap-3 px-3 py-2">
-            <div className={`w-8 h-8 rounded-full font-semibold text-xs flex items-center justify-center flex-shrink-0 ${
-              isSuperAdmin ? 'bg-purple-200 text-purple-800' : 'bg-violet-200 text-violet-700'
-            }`}>
-              {user?.name.slice(0, 2).toUpperCase()}
-            </div>
+            {user?.profile_image ? (
+              <img
+                src={user.profile_image}
+                alt={user.name}
+                className="w-8 h-8 rounded-full object-cover flex-shrink-0 ring-1 ring-gray-200"
+              />
+            ) : (
+              <div className={`w-8 h-8 rounded-full font-semibold text-xs flex items-center justify-center flex-shrink-0 ${
+                isSuperAdmin ? 'bg-purple-200 text-purple-800' : 'bg-violet-200 text-violet-700'
+              }`}>
+                {user?.name.slice(0, 2).toUpperCase()}
+              </div>
+            )}
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
               <p className="text-xs text-gray-400 truncate">

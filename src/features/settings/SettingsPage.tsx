@@ -6,8 +6,10 @@ import { AppearanceTab } from './AppearanceTab'
 import { UsersTab } from './UsersTab'
 import { SubscriptionTab } from './SubscriptionTab'
 import { SecurityTab } from './SecurityTab'
+import { BankDetailsTab } from './BankDetailsTab'
+import { PayrollTab } from './PayrollTab'
 
-type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'users' | 'subscription'
+type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'subscription'
 
 export function SettingsPage() {
   const { user } = useAuth()
@@ -20,6 +22,8 @@ export function SettingsPage() {
     { id: 'account',    label: 'Account' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'security',   label: '🔒 Security' },
+    { id: 'bank',       label: '🏦 Bank Details' },
+    { id: 'payroll',    label: '💰 Payroll' },
     ...(isAdmin
       ? [
           { id: 'users' as TabId,        label: 'Users & Roles' },
@@ -59,6 +63,8 @@ export function SettingsPage() {
       {activeTab === 'account'      && <AccountTab />}
       {activeTab === 'appearance'   && <AppearanceTab />}
       {activeTab === 'security'     && <SecurityTab />}
+      {activeTab === 'bank'         && <BankDetailsTab />}
+      {activeTab === 'payroll'      && <PayrollTab />}
       {activeTab === 'users'        && isAdmin && <UsersTab />}
       {activeTab === 'subscription' && isAdmin && <SubscriptionTab />}
     </div>
