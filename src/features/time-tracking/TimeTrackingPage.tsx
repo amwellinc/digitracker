@@ -100,7 +100,25 @@ export function TimeTrackingPage() {
   }
 
   const handleClockOut = async () => {
-    if (!activeLog) return
+    if (!activeLog || !user) return
+
+    // Warn if KPI daily update not submitted (non-blocking)
+    const today = new Date().toISOString().slice(0, 10)
+    const [{ data: kpiLog }, { data: kpiCfg }] = await Promise.all([
+      supabase.from('kpi_daily_logs').select('id').eq('user_id', user.id).eq('date', today).maybeSingle(),
+      supabase.from('kpis').select('kpi_items, checklists').eq('user_id', user.id).maybeSingle(),
+    ])
+    const hasKpiSetup = kpiCfg && (
+      Array.isArray((kpiCfg as { kpi_items: unknown }).kpi_items) && ((kpiCfg as { kpi_items: unknown[] }).kpi_items.length > 0) ||
+      Array.isArray((kpiCfg as { checklists: unknown }).checklists) && ((kpiCfg as { checklists: unknown[] }).checklists.length > 0)
+    )
+    if (!kpiLog && hasKpiSetup) {
+      const proceed = window.confirm(
+        '⚠️  Daily KPI Update not submitted yet.\n\nYou should submit your daily update before clocking out.\n\nDo you still want to clock out?'
+      )
+      if (!proceed) return
+    }
+
     stopCapture()
     const now = new Date().toISOString()
     const elapsed = (Date.now() - new Date(activeLog.clock_in).getTime()) / 60000

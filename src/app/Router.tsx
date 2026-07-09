@@ -25,6 +25,9 @@ const TasksPage = lazy(() =>
 const HRDocumentsPage = lazy(() =>
   import('@/features/documents/HRDocumentsPage').then(m => ({ default: m.HRDocumentsPage }))
 )
+const KPIsPage = lazy(() =>
+  import('@/features/kpis/KPIsPage').then(m => ({ default: m.KPIsPage }))
+)
 
 function Spinner() {
   return (
@@ -84,6 +87,14 @@ export function AppRouter() {
             element={
               <Suspense fallback={<Spinner />}>
                 <LeavePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="kpis"
+            element={
+              <Suspense fallback={<Spinner />}>
+                <KPIsPage />
               </Suspense>
             }
           />

@@ -97,13 +97,31 @@ export interface Document {
   created_at: string
 }
 
+export interface KPIMetric {
+  id: string
+  name: string
+  target: number
+  unit: string
+  period: 'daily' | 'weekly' | 'monthly'
+}
+
 export interface KPI {
   id: string
   user_id: string
-  responsibilities: string[]
+  kpi_items: KPIMetric[]
   duties: string[]
-  checklists: Array<{ text: string; done: boolean }>
+  checklists: string[]
   updated_at: string
+}
+
+export interface KPIDailyLog {
+  id: string
+  user_id: string
+  date: string
+  metric_actuals: Record<string, number>
+  checklist_done: boolean[]
+  notes: string | null
+  submitted_at: string
 }
 
 export interface Subscription {
