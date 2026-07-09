@@ -7,9 +7,8 @@ interface CaptureState {
   error: string | null
 }
 
-// Poll every 60 s so a background-tab timer throttle (Chrome/Safari cap timers
-// to ~1 s intervals for inactive tabs) never kills the schedule.
-const POLL_MS = 60_000
+// Poll every 30 s — well below Chrome's 1-min background-tab throttle floor
+const POLL_MS = 30_000
 const MIN_MS  = 11 * 60 * 1000
 const MAX_MS  = 18 * 60 * 1000
 
@@ -21,19 +20,18 @@ export function useScreenCapture(onForcedClockOut: () => void) {
   const { user } = useAuth()
   const [state, setState] = useState<CaptureState>({ isCapturing: false, error: null })
 
-  const streamRef       = useRef<MediaStream | null>(null)
-  const videoRef        = useRef<HTMLVideoElement | null>(null)
-  const canvasRef       = useRef<HTMLCanvasElement | null>(null)
-  const intervalRef     = useRef<ReturnType<typeof setInterval> | null>(null)
-  const nextCaptureTime = useRef<number>(0)   // epoch ms for next capture
-  const busyRef         = useRef(false)        // prevent overlapping captures
-  const userRef         = useRef(user)         // always-fresh user without stale closure
+  const streamRef        = useRef<MediaStream | null>(null)
+  const videoRef         = useRef<HTMLVideoElement | null>(null)
+  const canvasRef        = useRef<HTMLCanvasElement | null>(null)
+  const intervalRef      = useRef<ReturnType<typeof setInterval> | null>(null)
+  const nextCaptureTime  = useRef<number>(0)
+  const busyRef          = useRef(false)
+  const userRef          = useRef(user)
+  const visHandlerRef    = useRef<(() => void) | null>(null)
 
   useEffect(() => { userRef.current = user }, [user])
 
-  // ── core capture routine ────────────────────────────────────────────────────
-  // try/finally guarantees nextCaptureTime is ALWAYS rescheduled even when
-  // upload fails, canvas throws (SecurityError / blank frame), or network errors.
+  // ── core capture routine ────────────────────────────────────────────────
   const doCapture = useCallback(async () => {
     if (busyRef.current) return
     if (!streamRef.current || !videoRef.current || !canvasRef.current || !userRef.current) return
@@ -50,7 +48,7 @@ export function useScreenCapture(onForcedClockOut: () => void) {
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
       const base64  = dataUrl.split(',')[1]
-      if (!base64) return    // blank/tainted canvas — reschedule via finally
+      if (!base64) return
 
       const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
       const blob  = new Blob([bytes], { type: 'image/jpeg' })
@@ -62,7 +60,7 @@ export function useScreenCapture(onForcedClockOut: () => void) {
 
       if (uploadErr) {
         console.warn('[capture] upload error:', uploadErr.message)
-        return    // finally still fires → rescheduled
+        return
       }
 
       const { data: signed, error: signErr } = await supabase.storage
@@ -87,7 +85,7 @@ export function useScreenCapture(onForcedClockOut: () => void) {
       console.error('[capture] unexpected error:', err)
     } finally {
       busyRef.current = false
-      // Always reschedule — this is the only place the chain is set
+      // Always advance the schedule — the only place the chain is set
       nextCaptureTime.current = Date.now() + randomDelay()
     }
   }, [])
@@ -95,11 +93,15 @@ export function useScreenCapture(onForcedClockOut: () => void) {
   const doCaptureRef = useRef(doCapture)
   useEffect(() => { doCaptureRef.current = doCapture }, [doCapture])
 
-  // ── stop ───────────────────────────────────────────────────────────────────
+  // ── stop ───────────────────────────────────────────────────────────────
   const stop = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
+    }
+    if (visHandlerRef.current) {
+      document.removeEventListener('visibilitychange', visHandlerRef.current)
+      visHandlerRef.current = null
     }
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
@@ -115,7 +117,7 @@ export function useScreenCapture(onForcedClockOut: () => void) {
     setState({ isCapturing: false, error: null })
   }, [])
 
-  // ── start ──────────────────────────────────────────────────────────────────
+  // ── start ──────────────────────────────────────────────────────────────
   const start = useCallback(async (): Promise<boolean> => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -138,34 +140,40 @@ export function useScreenCapture(onForcedClockOut: () => void) {
       }
 
       videoRef.current.srcObject = stream
-      try {
-        await videoRef.current.play()
-      } catch {
-        // Some environments block autoplay — getDisplayMedia stream still works
-      }
+      try { await videoRef.current.play() } catch { /* autoplay may be blocked */ }
 
       stream.getVideoTracks()[0].onended = () => {
         stop()
         onForcedClockOut()
       }
 
-      // Schedule first capture ~1 s after start (gives video time for first frame)
+      // Schedule first capture 1 s after start
       nextCaptureTime.current = Date.now() + 1000
 
-      // 60-second polling interval — survives background-tab throttling
+      // 30-second polling interval — fires well within browser throttle limits
       intervalRef.current = setInterval(() => {
         if (Date.now() >= nextCaptureTime.current) {
           void doCaptureRef.current()
         }
       }, POLL_MS)
 
-      // Fire an extra tick at 1.2 s so the first screenshot is captured promptly
-      // without waiting up to 60 s for the first interval tick
+      // Fire an extra tick at 1.2 s to capture the first screenshot immediately
+      // without waiting up to 30 s for the first interval tick
       setTimeout(() => {
         if (Date.now() >= nextCaptureTime.current) {
           void doCaptureRef.current()
         }
       }, 1200)
+
+      // When tab regains focus, immediately check if a capture is overdue.
+      // This catches missed ticks from aggressive background-tab throttling.
+      const visHandler = () => {
+        if (document.visibilityState === 'visible' && Date.now() >= nextCaptureTime.current) {
+          void doCaptureRef.current()
+        }
+      }
+      visHandlerRef.current = visHandler
+      document.addEventListener('visibilitychange', visHandler)
 
       setState({ isCapturing: true, error: null })
       return true
@@ -175,10 +183,13 @@ export function useScreenCapture(onForcedClockOut: () => void) {
     }
   }, [stop, onForcedClockOut])
 
-  // ── cleanup on unmount ─────────────────────────────────────────────────────
+  // ── cleanup on unmount ─────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      if (visHandlerRef.current) {
+        document.removeEventListener('visibilitychange', visHandlerRef.current)
+      }
       streamRef.current?.getTracks().forEach(t => t.stop())
       if (videoRef.current) { videoRef.current.remove(); videoRef.current = null }
       if (canvasRef.current) { canvasRef.current.remove(); canvasRef.current = null }

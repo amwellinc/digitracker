@@ -5,8 +5,9 @@ import { AccountTab } from './AccountTab'
 import { AppearanceTab } from './AppearanceTab'
 import { UsersTab } from './UsersTab'
 import { SubscriptionTab } from './SubscriptionTab'
+import { SecurityTab } from './SecurityTab'
 
-type TabId = 'profile' | 'account' | 'appearance' | 'users' | 'subscription'
+type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'users' | 'subscription'
 
 export function SettingsPage() {
   const { user } = useAuth()
@@ -15,9 +16,10 @@ export function SettingsPage() {
   const isAdmin = user?.role === 'Admin'
 
   const tabs: { id: TabId; label: string }[] = [
-    { id: 'profile',      label: 'My Profile' },
-    { id: 'account',      label: 'Account' },
-    { id: 'appearance',   label: 'Appearance' },
+    { id: 'profile',    label: 'My Profile' },
+    { id: 'account',    label: 'Account' },
+    { id: 'appearance', label: 'Appearance' },
+    { id: 'security',   label: '🔒 Security' },
     ...(isAdmin
       ? [
           { id: 'users' as TabId,        label: 'Users & Roles' },
@@ -56,6 +58,7 @@ export function SettingsPage() {
       {activeTab === 'profile'      && <ProfileTab />}
       {activeTab === 'account'      && <AccountTab />}
       {activeTab === 'appearance'   && <AppearanceTab />}
+      {activeTab === 'security'     && <SecurityTab />}
       {activeTab === 'users'        && isAdmin && <UsersTab />}
       {activeTab === 'subscription' && isAdmin && <SubscriptionTab />}
     </div>

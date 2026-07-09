@@ -3,8 +3,9 @@ import { PlatformDashboard } from './PlatformDashboard'
 import { SubAccountsTab } from './SubAccountsTab'
 import { PlatformSubscriptionsTab } from './PlatformSubscriptionsTab'
 import { PlansAndPricingTab } from './PlansAndPricingTab'
+import { PlatformSettingsTab } from './PlatformSettingsTab'
 
-type TabId = 'dashboard' | 'accounts' | 'subscriptions' | 'plans'
+type TabId = 'dashboard' | 'accounts' | 'subscriptions' | 'plans' | 'settings'
 
 export function SuperAdminPage() {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
@@ -14,6 +15,7 @@ export function SuperAdminPage() {
     { id: 'accounts',      label: 'Sub-Accounts',        icon: '🏢' },
     { id: 'subscriptions', label: 'Subscriptions',       icon: '💳' },
     { id: 'plans',         label: 'Plans & Pricing',     icon: '⭐' },
+    { id: 'settings',      label: 'Platform Settings',   icon: '⚙️' },
   ]
 
   return (
@@ -53,6 +55,7 @@ export function SuperAdminPage() {
       {activeTab === 'accounts'      && <SubAccountsTab />}
       {activeTab === 'subscriptions' && <PlatformSubscriptionsTab />}
       {activeTab === 'plans'         && <PlansAndPricingTab />}
+      {activeTab === 'settings'      && <PlatformSettingsTab />}
     </div>
   )
 }

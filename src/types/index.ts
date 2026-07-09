@@ -27,6 +27,7 @@ export interface TimeLog {
   clock_out: string | null
   status: 'working' | 'lunch' | 'clocked_out'
   total_minutes: number
+  last_seen_at: string | null
 }
 
 export interface Screenshot {

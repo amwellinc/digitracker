@@ -26,18 +26,35 @@ const emptyForm = (): UserForm => ({
   country: 'SG', phone: '',
 })
 
+function avatarBg(role: UserRole) {
+  switch (role) {
+    case 'Admin':   return 'bg-violet-100 text-violet-700'
+    case 'Manager': return 'bg-blue-100 text-blue-700'
+    default:        return 'bg-gray-100 text-gray-600'
+  }
+}
+
+function initials(name: string) {
+  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+}
+
 export function UsersTab() {
   const { user: currentUser } = useAuth()
-  const [users, setUsers] = useState<User[]>([])
+  const [users, setUsers]     = useState<User[]>([])
   const [loading, setLoading] = useState(true)
-  const [showAddModal, setShowAddModal] = useState(false)
-  const [editUser, setEditUser] = useState<User | null>(null)
-  const [deleteUser, setDeleteUser] = useState<User | null>(null)
-  const [form, setForm] = useState<UserForm>(emptyForm())
+  const [search, setSearch]   = useState('')
+
+  const [showAddModal, setShowAddModal]   = useState(false)
+  const [viewUser, setViewUser]           = useState<User | null>(null)
+  const [editUser, setEditUser]           = useState<User | null>(null)
+  const [deleteUser, setDeleteUser]       = useState<User | null>(null)
+
+  const [form, setForm]     = useState<UserForm>(emptyForm())
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [search, setSearch] = useState('')
+  const [msg, setMsg]       = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [inviting, setInviting] = useState<string | null>(null)  // userId being invited
+  const [inviteAllBusy, setInviteAllBusy] = useState(false)
 
   const fetchUsers = useCallback(async () => {
     if (!currentUser) return
@@ -53,11 +70,7 @@ export function UsersTab() {
 
   useEffect(() => { void fetchUsers() }, [fetchUsers])
 
-  function openAdd() {
-    setForm(emptyForm())
-    setMsg(null)
-    setShowAddModal(true)
-  }
+  function openAdd() { setForm(emptyForm()); setMsg(null); setShowAddModal(true) }
 
   function openEdit(u: User) {
     setForm({
@@ -73,6 +86,7 @@ export function UsersTab() {
       phone: u.phone ?? '',
     })
     setMsg(null)
+    setViewUser(null)
     setEditUser(u)
   }
 
@@ -83,8 +97,7 @@ export function UsersTab() {
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!currentUser) return
-    setSaving(true)
-    setMsg(null)
+    setSaving(true); setMsg(null)
     const { error } = await supabase.from('users').insert({
       name: form.name.trim(),
       email: form.email.toLowerCase().trim(),
@@ -108,8 +121,7 @@ export function UsersTab() {
   async function handleEdit(e: React.FormEvent) {
     e.preventDefault()
     if (!editUser) return
-    setSaving(true)
-    setMsg(null)
+    setSaving(true); setMsg(null)
     const { error } = await supabase.from('users').update({
       name: form.name.trim(),
       role: form.role,
@@ -137,6 +149,43 @@ export function UsersTab() {
     setDeleteUser(null)
   }
 
+  async function sendInvite(u: User) {
+    setInviting(u.id)
+    const appUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
+    const { error } = await supabase.auth.signInWithOtp({
+      email: u.email,
+      options: { emailRedirectTo: appUrl },
+    })
+    setInviting(null)
+    if (error) {
+      setMsg({ type: 'error', text: `Could not invite ${u.name}: ${error.message}` })
+    } else {
+      setMsg({ type: 'success', text: `Magic link sent to ${u.email}` })
+    }
+    setTimeout(() => setMsg(null), 3000)
+  }
+
+  async function inviteAll() {
+    setInviteAllBusy(true)
+    const appUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
+    let sent = 0; let failed = 0
+    for (const u of users) {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: u.email,
+        options: { emailRedirectTo: appUrl },
+      })
+      if (error) failed++ ; else sent++
+      // small delay to avoid hammering SMTP
+      await new Promise(r => setTimeout(r, 500))
+    }
+    setInviteAllBusy(false)
+    setMsg({
+      type: failed === 0 ? 'success' : 'error',
+      text: `Sent ${sent} invite${sent !== 1 ? 's' : ''}${failed > 0 ? `, ${failed} failed` : ''}.`,
+    })
+    setTimeout(() => setMsg(null), 5000)
+  }
+
   const managers = users.filter(u => u.role === 'Manager' || u.role === 'Admin')
   const filtered = users.filter(u =>
     u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -145,18 +194,36 @@ export function UsersTab() {
 
   return (
     <div>
+      {/* Toast */}
+      {msg && (
+        <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${
+          msg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
+        }`}>
+          {msg.text}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Users & Roles</h2>
           <p className="text-sm text-gray-500">{users.length} user{users.length !== 1 ? 's' : ''} in this workspace</p>
         </div>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 bg-violet-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-violet-700 transition-colors"
-        >
-          <span className="text-lg leading-none">+</span> Add User
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={inviteAll}
+            disabled={inviteAllBusy || users.length === 0}
+            className="flex items-center gap-2 bg-teal-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-teal-700 disabled:opacity-50 transition-colors"
+          >
+            {inviteAllBusy ? '⏳ Sending…' : '📧 Invite All'}
+          </button>
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 bg-violet-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-violet-700 transition-colors"
+          >
+            <span className="text-lg leading-none">+</span> Add User
+          </button>
+        </div>
       </div>
 
       {/* Search */}
@@ -170,86 +237,101 @@ export function UsersTab() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
         {loading ? (
           <div className="flex items-center justify-center h-40 text-sm text-gray-400">Loading users…</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Email</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Manager</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Annual (d)</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Time-off (h)</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Hours</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Country</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">User</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Email</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Role</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Manager</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Country</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center py-10 text-gray-400">
+                  <td colSpan={6} className="text-center py-10 text-gray-400">
                     {search ? 'No users match your search.' : 'No users yet. Add your first user.'}
                   </td>
                 </tr>
               )}
               {filtered.map(u => {
                 const manager = users.find(m => m.id === u.manager_id)
-                const isSelf = u.id === currentUser?.id
+                const isSelf  = u.id === currentUser?.id
+                const country = COUNTRY_OPTIONS.find(c => c.code === u.country)
                 return (
                   <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                    {/* Avatar + Name — click directly opens Edit */}
+                    <td
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => openEdit(u)}
+                    >
+                      <div className="flex items-center gap-3">
                         {u.profile_image ? (
-                          <img src={u.profile_image} alt="" className="w-7 h-7 rounded-full object-cover" />
+                          <img
+                            src={u.profile_image}
+                            alt={u.name}
+                            className="w-10 h-10 rounded-full object-cover ring-2 ring-white shadow-sm flex-shrink-0"
+                          />
                         ) : (
-                          <div className="w-7 h-7 rounded-full bg-violet-200 text-violet-700 text-xs font-bold flex items-center justify-center">
-                            {u.name.slice(0, 2).toUpperCase()}
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ring-2 ring-white shadow-sm ${avatarBg(u.role)}`}>
+                            {initials(u.name)}
                           </div>
                         )}
-                        <span className="font-medium text-gray-900">
-                          {u.name}
-                          {isSelf && <span className="ml-1 text-xs text-gray-400">(you)</span>}
-                        </span>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-violet-700 hover:underline truncate">
+                            {u.name}
+                            {isSelf && <span className="ml-1.5 text-xs font-normal text-gray-400">(you)</span>}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">{u.reporting_time_in} – {u.reporting_time_out}</p>
+                        </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{u.email}</td>
+                    <td className="px-4 py-3 text-gray-600 text-sm">{u.email}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${ROLE_COLORS[u.role]}`}>
                         {u.role}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{manager?.name ?? '—'}</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{u.annual_leave}d</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{u.time_off}h</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">{u.reporting_time_in} – {u.reporting_time_out}</td>
-                    <td className="px-4 py-3 text-gray-700 text-sm">
-                      {COUNTRY_OPTIONS.find(c => c.code === u.country)?.flag ?? '🌐'}{' '}
-                      <span className="text-xs text-gray-500">{u.country ?? '—'}</span>
+                    <td className="px-4 py-3 text-gray-600 text-sm whitespace-nowrap">{manager?.name ?? <span className="text-gray-300">—</span>}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                        <span>{country?.flag ?? '🌐'}</span>
+                        <span className="text-xs text-gray-500">{country?.label ?? u.country ?? '—'}</span>
+                      </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">
-                      {u.phone
-                        ? <>{COUNTRY_OPTIONS.find(c => c.code === u.country)?.dialCode} {u.phone}</>
-                        : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
                       <div className="flex justify-end gap-2">
                         <button
+                          onClick={() => void sendInvite(u)}
+                          disabled={inviting === u.id}
+                          className="text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-md px-3 py-1.5 transition-colors disabled:opacity-50"
+                        >
+                          {inviting === u.id ? '⏳' : '📧 Invite'}
+                        </button>
+                        <button
+                          onClick={() => setViewUser(u)}
+                          className="text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 rounded-md px-3 py-1.5 transition-colors"
+                        >
+                          View
+                        </button>
+                        <button
                           onClick={() => openEdit(u)}
-                          className="text-xs font-medium text-violet-600 hover:text-violet-800 border border-violet-200 rounded px-2.5 py-1"
+                          className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-md px-3 py-1.5 transition-colors"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => !isSelf && setDeleteUser(u)}
                           disabled={isSelf}
-                          className="text-xs font-medium text-red-500 hover:text-red-700 border border-red-200 rounded px-2.5 py-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-md px-3 py-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         >
-                          Remove
+                          Delete
                         </button>
                       </div>
                     </td>
@@ -261,48 +343,142 @@ export function UsersTab() {
         )}
       </div>
 
-      {/* Add Modal */}
+      {/* ── Profile View Modal ──────────────────────────────────────────── */}
+      {viewUser && !editUser && !deleteUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setViewUser(null)}>
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Profile header */}
+            <div className="relative bg-gradient-to-br from-violet-600 to-violet-800 px-6 pt-8 pb-16">
+              <button
+                onClick={() => setViewUser(null)}
+                className="absolute top-4 right-4 text-white/70 hover:text-white text-xl leading-none"
+              >
+                &times;
+              </button>
+              <div className="flex flex-col items-center text-center">
+                {viewUser.profile_image ? (
+                  <img
+                    src={viewUser.profile_image}
+                    alt={viewUser.name}
+                    className="w-20 h-20 rounded-full object-cover ring-4 ring-white/30 shadow-lg mb-3"
+                  />
+                ) : (
+                  <div className={`w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold ring-4 ring-white/30 shadow-lg mb-3 ${avatarBg(viewUser.role)}`}>
+                    {initials(viewUser.name)}
+                  </div>
+                )}
+                <h2 className="text-xl font-bold text-white">{viewUser.name}</h2>
+                <p className="text-violet-200 text-sm mt-0.5">{viewUser.email}</p>
+                <span className={`mt-2 inline-block text-xs font-semibold px-3 py-1 rounded-full ${ROLE_COLORS[viewUser.role]}`}>
+                  {viewUser.role}
+                </span>
+              </div>
+            </div>
+
+            {/* Profile details */}
+            <div className="-mt-8 mx-4 bg-white rounded-xl shadow border border-gray-100 divide-y divide-gray-50">
+              <ProfileRow icon="👔" label="Manager">
+                {users.find(m => m.id === viewUser.manager_id)?.name ?? <span className="text-gray-400">No manager assigned</span>}
+              </ProfileRow>
+              <ProfileRow icon="🌏" label="Country">
+                {(() => {
+                  const c = COUNTRY_OPTIONS.find(x => x.code === viewUser.country)
+                  return c ? `${c.flag} ${c.label}` : viewUser.country ?? '—'
+                })()}
+              </ProfileRow>
+              <ProfileRow icon="📞" label="Phone">
+                {viewUser.phone
+                  ? `${COUNTRY_OPTIONS.find(c => c.code === viewUser.country)?.dialCode ?? ''} ${viewUser.phone}`.trim()
+                  : <span className="text-gray-400">Not provided</span>}
+              </ProfileRow>
+              <ProfileRow icon="⏰" label="Work Hours">
+                {viewUser.reporting_time_in} – {viewUser.reporting_time_out}
+              </ProfileRow>
+              <ProfileRow icon="🌴" label="Annual Leave">
+                {viewUser.annual_leave} days
+              </ProfileRow>
+              <ProfileRow icon="🕐" label="Time-Off Balance">
+                {viewUser.time_off} hours
+              </ProfileRow>
+              <ProfileRow icon="📅" label="Member Since">
+                {new Date(viewUser.created_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })}
+              </ProfileRow>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between px-4 py-4">
+              <button
+                onClick={() => { setDeleteUser(viewUser); setViewUser(null) }}
+                disabled={viewUser.id === currentUser?.id}
+                className="text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg px-4 py-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Delete User
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setViewUser(null)} className="btn-ghost text-sm">
+                  Close
+                </button>
+                <button
+                  onClick={() => openEdit(viewUser)}
+                  className="btn-primary text-sm"
+                >
+                  Edit Profile
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Modal ──────────────────────────────────────────────────── */}
       {showAddModal && (
         <Modal title="Add User" onClose={() => setShowAddModal(false)}>
           <form onSubmit={handleAdd} className="space-y-4">
             <FormRow label="Full Name">
               <input required value={form.name} onChange={e => patch('name', e.target.value)}
-                placeholder="Jane Smith"
-                className="input" />
+                placeholder="Jane Smith" className="input" />
             </FormRow>
             <FormRow label="Email">
               <input required type="email" value={form.email} onChange={e => patch('email', e.target.value)}
-                placeholder="jane@company.com"
-                className="input" />
+                placeholder="jane@company.com" className="input" />
             </FormRow>
-            <FormRow label="Role">
-              <RoleSelect value={form.role} onChange={v => patch('role', v)} />
-            </FormRow>
-            <FormRow label="Manager">
-              <ManagerSelect value={form.manager_id} managers={managers} onChange={v => patch('manager_id', v)} />
-            </FormRow>
+            <div className="grid grid-cols-2 gap-3">
+              <FormRow label="Role">
+                <RoleSelect value={form.role} onChange={v => patch('role', v)} />
+              </FormRow>
+              <FormRow label="Manager">
+                <ManagerSelect value={form.manager_id} managers={managers} onChange={v => patch('manager_id', v)} />
+              </FormRow>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <FormRow label="Country">
                 <CountrySelect value={form.country as UserCountry} onChange={v => patch('country', v)} />
               </FormRow>
-              <FormRow label="Phone Number">
+              <FormRow label="Phone">
                 <PhoneInput country={form.country as UserCountry} value={form.phone} onChange={v => patch('phone', v)} />
               </FormRow>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <FormRow label="Annual Leave (days)">
-                <input type="number" min={0} value={form.annual_leave} onChange={e => patch('annual_leave', e.target.value)} className="input" />
+                <input type="number" min={0} value={form.annual_leave}
+                  onChange={e => patch('annual_leave', e.target.value)} className="input" />
               </FormRow>
               <FormRow label="Time-off (hours)">
-                <input type="number" min={0} value={form.time_off} onChange={e => patch('time_off', e.target.value)} className="input" />
+                <input type="number" min={0} value={form.time_off}
+                  onChange={e => patch('time_off', e.target.value)} className="input" />
               </FormRow>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="Clock-in Time">
-                <input type="time" value={form.reporting_time_in} onChange={e => patch('reporting_time_in', e.target.value)} className="input" />
+              <FormRow label="Clock-in">
+                <input type="time" value={form.reporting_time_in}
+                  onChange={e => patch('reporting_time_in', e.target.value)} className="input" />
               </FormRow>
-              <FormRow label="Clock-out Time">
-                <input type="time" value={form.reporting_time_out} onChange={e => patch('reporting_time_out', e.target.value)} className="input" />
+              <FormRow label="Clock-out">
+                <input type="time" value={form.reporting_time_out}
+                  onChange={e => patch('reporting_time_out', e.target.value)} className="input" />
               </FormRow>
             </div>
             {msg && <p className={`text-sm ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
@@ -314,7 +490,7 @@ export function UsersTab() {
         </Modal>
       )}
 
-      {/* Edit Modal */}
+      {/* ── Edit Modal ─────────────────────────────────────────────────── */}
       {editUser && (
         <Modal title={`Edit — ${editUser.name}`} onClose={() => setEditUser(null)}>
           <form onSubmit={handleEdit} className="space-y-4">
@@ -322,36 +498,44 @@ export function UsersTab() {
               <input required value={form.name} onChange={e => patch('name', e.target.value)} className="input" />
             </FormRow>
             <FormRow label="Email">
-              <input value={form.email} readOnly className="input bg-gray-50 text-gray-500 cursor-not-allowed" />
+              <input value={form.email} readOnly className="input bg-gray-50 text-gray-400 cursor-not-allowed" />
             </FormRow>
-            <FormRow label="Role">
-              <RoleSelect value={form.role} onChange={v => patch('role', v)} />
-            </FormRow>
-            <FormRow label="Manager">
-              <ManagerSelect value={form.manager_id} managers={managers.filter(m => m.id !== editUser.id)} onChange={v => patch('manager_id', v)} />
-            </FormRow>
+            <div className="grid grid-cols-2 gap-3">
+              <FormRow label="Role">
+                <RoleSelect value={form.role} onChange={v => patch('role', v)} />
+              </FormRow>
+              <FormRow label="Manager">
+                <ManagerSelect value={form.manager_id}
+                  managers={managers.filter(m => m.id !== editUser.id)}
+                  onChange={v => patch('manager_id', v)} />
+              </FormRow>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <FormRow label="Country">
                 <CountrySelect value={form.country as UserCountry} onChange={v => patch('country', v)} />
               </FormRow>
-              <FormRow label="Phone Number">
+              <FormRow label="Phone">
                 <PhoneInput country={form.country as UserCountry} value={form.phone} onChange={v => patch('phone', v)} />
               </FormRow>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <FormRow label="Annual Leave (days)">
-                <input type="number" min={0} value={form.annual_leave} onChange={e => patch('annual_leave', e.target.value)} className="input" />
+                <input type="number" min={0} value={form.annual_leave}
+                  onChange={e => patch('annual_leave', e.target.value)} className="input" />
               </FormRow>
               <FormRow label="Time-off (hours)">
-                <input type="number" min={0} value={form.time_off} onChange={e => patch('time_off', e.target.value)} className="input" />
+                <input type="number" min={0} value={form.time_off}
+                  onChange={e => patch('time_off', e.target.value)} className="input" />
               </FormRow>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="Clock-in Time">
-                <input type="time" value={form.reporting_time_in} onChange={e => patch('reporting_time_in', e.target.value)} className="input" />
+              <FormRow label="Clock-in">
+                <input type="time" value={form.reporting_time_in}
+                  onChange={e => patch('reporting_time_in', e.target.value)} className="input" />
               </FormRow>
-              <FormRow label="Clock-out Time">
-                <input type="time" value={form.reporting_time_out} onChange={e => patch('reporting_time_out', e.target.value)} className="input" />
+              <FormRow label="Clock-out">
+                <input type="time" value={form.reporting_time_out}
+                  onChange={e => patch('reporting_time_out', e.target.value)} className="input" />
               </FormRow>
             </div>
             {msg && <p className={`text-sm ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
@@ -363,14 +547,23 @@ export function UsersTab() {
         </Modal>
       )}
 
-      {/* Delete Confirm Modal */}
+      {/* ── Delete Confirm ─────────────────────────────────────────────── */}
       {deleteUser && (
-        <Modal title="Remove User" onClose={() => setDeleteUser(null)}>
-          <p className="text-sm text-gray-600 mb-2">
-            Are you sure you want to remove <strong>{deleteUser.name}</strong>?
+        <Modal title="Delete User" onClose={() => setDeleteUser(null)}>
+          <div className="flex items-center gap-4 mb-4">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0 ${avatarBg(deleteUser.role)}`}>
+              {initials(deleteUser.name)}
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">{deleteUser.name}</p>
+              <p className="text-sm text-gray-500">{deleteUser.email}</p>
+            </div>
+          </div>
+          <p className="text-sm text-gray-600 mb-1">
+            Are you sure you want to remove <strong>{deleteUser.name}</strong> from this workspace?
           </p>
-          <p className="text-xs text-gray-500 mb-4">
-            This will delete their account, time logs, and all associated data from this workspace. This action cannot be undone.
+          <p className="text-xs text-gray-400 mb-5">
+            This deletes their account and all associated data. This action cannot be undone.
           </p>
           <div className="flex justify-end gap-3">
             <button onClick={() => setDeleteUser(null)} className="btn-ghost">Cancel</button>
@@ -379,7 +572,7 @@ export function UsersTab() {
               disabled={deleting}
               className="bg-red-600 text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-red-700 disabled:opacity-50"
             >
-              {deleting ? 'Removing…' : 'Remove User'}
+              {deleting ? 'Deleting…' : 'Delete User'}
             </button>
           </div>
         </Modal>
@@ -388,7 +581,17 @@ export function UsersTab() {
   )
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ProfileRow({ icon, label, children }: { icon: string; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 px-5 py-3">
+      <span className="text-base w-6 text-center flex-shrink-0">{icon}</span>
+      <span className="text-xs font-medium text-gray-400 w-28 flex-shrink-0">{label}</span>
+      <span className="text-sm font-medium text-gray-800">{children}</span>
+    </div>
+  )
+}
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -415,21 +618,13 @@ function FormRow({ label, children }: { label: string; children: React.ReactNode
 
 function RoleSelect({ value, onChange }: { value: UserRole; onChange: (v: UserRole) => void }) {
   return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value as UserRole)}
-      className="input"
-    >
+    <select value={value} onChange={e => onChange(e.target.value as UserRole)} className="input">
       {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
     </select>
   )
 }
 
-function ManagerSelect({ value, managers, onChange }: {
-  value: string
-  managers: User[]
-  onChange: (v: string) => void
-}) {
+function ManagerSelect({ value, managers, onChange }: { value: string; managers: User[]; onChange: (v: string) => void }) {
   return (
     <select value={value} onChange={e => onChange(e.target.value)} className="input">
       <option value="">— No manager —</option>
@@ -448,11 +643,7 @@ function CountrySelect({ value, onChange }: { value: UserCountry; onChange: (v: 
   )
 }
 
-function PhoneInput({ country, value, onChange }: {
-  country: UserCountry
-  value: string
-  onChange: (v: string) => void
-}) {
+function PhoneInput({ country, value, onChange }: { country: UserCountry; value: string; onChange: (v: string) => void }) {
   const dialCode = COUNTRY_OPTIONS.find(c => c.code === country)?.dialCode ?? '+65'
   return (
     <div className="flex gap-1">

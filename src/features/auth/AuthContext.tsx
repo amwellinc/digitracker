@@ -26,7 +26,12 @@ export interface AuthContextValue {
   visitingAccount: SubAccount | null
   visitSubAccount: (account: SubAccount) => void
   exitVisit: () => void
+  // Magic-link (OTP) — kept for Super Admin and first-time access
   signIn: (email: string, subAccount: string) => Promise<{ error: string | null }>
+  // Email + password
+  signInWithPassword: (email: string, subAccount: string, password: string) => Promise<{ error: string | null }>
+  // Password reset email
+  sendPasswordReset: (email: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -61,18 +66,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [loadUser])
 
+  // Magic-link sign-in (OTP) — first-time access or Super Admin
   const signIn = useCallback(async (email: string, subAccount: string) => {
     const { data: registered } = await supabase.rpc('check_user_registered', {
       p_email: email.toLowerCase().trim(),
       p_sub_account: subAccount.trim(),
     })
-
     if (!registered) return { error: 'Not registered. Contact your administrator.' }
 
     const { error } = await supabase.auth.signInWithOtp({
       email: email.toLowerCase().trim(),
       options: { emailRedirectTo: import.meta.env.VITE_APP_URL ?? window.location.origin },
     })
+    return { error: error?.message ?? null }
+  }, [])
+
+  // Email + password sign-in
+  const signInWithPassword = useCallback(async (
+    email: string,
+    subAccount: string,
+    password: string,
+  ) => {
+    // Verify user exists in our system first
+    const { data: registered } = await supabase.rpc('check_user_registered', {
+      p_email: email.toLowerCase().trim(),
+      p_sub_account: subAccount.trim(),
+    })
+    if (!registered) return { error: 'Not registered. Contact your administrator.' }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.toLowerCase().trim(),
+      password,
+    })
+
+    if (error) {
+      // Friendly message when no password is set yet
+      if (error.message.includes('Invalid login credentials')) {
+        return { error: 'Incorrect password. Use "Forgot password?" to set one, or sign in with a magic link.' }
+      }
+      return { error: error.message }
+    }
+    return { error: null }
+  }, [])
+
+  // Send password reset email (also works as "set password" for new users who logged in via magic link)
+  const sendPasswordReset = useCallback(async (email: string) => {
+    const appUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.toLowerCase().trim(),
+      { redirectTo: `${appUrl}/#/reset-password` },
+    )
     return { error: error?.message ?? null }
   }, [])
 
@@ -87,18 +130,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session?.user) await loadUser(session.user.id)
   }, [loadUser])
 
-  const visitSubAccount = useCallback((account: SubAccount) => {
-    setVisitingAccount(account)
-  }, [])
+  const visitSubAccount  = useCallback((account: SubAccount) => setVisitingAccount(account), [])
+  const exitVisit        = useCallback(() => setVisitingAccount(null), [])
+  const isSuperAdmin     = state.user?.role === 'Super-Admin'
 
-  const exitVisit = useCallback(() => {
-    setVisitingAccount(null)
-  }, [])
-
-  const isSuperAdmin = state.user?.role === 'Super-Admin'
-
-  // When visiting, expose a user that looks like an Admin of the visited sub-account.
-  // Super Admin RLS bypasses sub-account filters, so all data queries work transparently.
   const effectiveUser: User | null = visitingAccount && state.user
     ? { ...state.user, sub_account: visitingAccount.code, role: 'Admin' }
     : state.user
@@ -112,6 +147,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       visitSubAccount,
       exitVisit,
       signIn,
+      signInWithPassword,
+      sendPasswordReset,
       signOut,
       refreshUser,
     }}>

@@ -34,7 +34,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
       visitingAccount: null,
       visitSubAccount: vi.fn(),
       exitVisit: vi.fn(),
-      signIn: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn(),
+      signIn: vi.fn(), signInWithPassword: vi.fn(), sendPasswordReset: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn(),
     }}>
       {children}
     </AuthContext.Provider>

@@ -1,50 +1,51 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
-import { useScreenCapture } from '@/hooks/useScreenCapture'
 import { supabase } from '@/lib/supabase'
-import type { TimeLog, Screenshot } from '@/types'
+import { useClockContext } from './ClockContext'
+import type { Screenshot } from '@/types'
 import { StatCards } from './StatCards'
 import { TeamAvatarRow } from './TeamAvatarRow'
 import { AdminDashboard } from '@/features/dashboard/AdminDashboard'
 
 export function TimeTrackingPage() {
   const { user } = useAuth()
-  const [activeLog, setActiveLog] = useState<TimeLog | null>(null)
-  const [dayMinutes, setDayMinutes] = useState(0)
-  const [lunchStart, setLunchStart] = useState<Date | null>(null)
-  const [liveSeconds, setLiveSeconds] = useState(0)
-  const [recentShots, setRecentShots] = useState<Screenshot[]>([])
+  const {
+    activeLog,
+    dayMinutes,
+    lunchStart,
+    isCapturing,
+    captureError,
+    handleClockIn,
+    handleClockOut,
+    handleStartLunch,
+    handleEndLunch,
+  } = useClockContext()
 
-  const handleForcedClockOut = useCallback(async () => {
-    if (!activeLog) return
-    const now = new Date().toISOString()
-    const elapsed = (Date.now() - new Date(activeLog.clock_in).getTime()) / 60000
-    await supabase
-      .from('time_logs')
-      .update({ clock_out: now, status: 'clocked_out', total_minutes: Math.round(elapsed) })
-      .eq('id', activeLog.id)
-    setActiveLog(null)
-  }, [activeLog])
+  const [liveSeconds,  setLiveSeconds]  = useState(0)
+  const [recentShots,  setRecentShots]  = useState<Screenshot[]>([])
 
-  const { isCapturing, error: captureErr, start: startCapture, stop: stopCapture } =
-    useScreenCapture(handleForcedClockOut)
+  // Live elapsed-time ticker
+  useEffect(() => {
+    if (!activeLog || activeLog.status === 'clocked_out') {
+      setLiveSeconds(0)
+      return
+    }
+    const clockInMs = new Date(activeLog.clock_in).getTime()
+    const tick = () => {
+      const elapsed    = (Date.now() - clockInMs) / 1000
+      const lunchSecs  = lunchStart ? (Date.now() - lunchStart.getTime()) / 1000 : 0
+      setLiveSeconds(Math.max(0, Math.floor(elapsed - lunchSecs)))
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [activeLog, lunchStart])
 
+  // Recent screenshots for today
   useEffect(() => {
     if (!user) return
     const today = new Date().toISOString().split('T')[0]
-    void supabase
-      .from('time_logs')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('date', today)
-      .order('clock_in', { ascending: false })
-      .then(({ data }) => {
-        if (!data) return
-        const active = (data as TimeLog[]).find(l => l.status !== 'clocked_out')
-        setActiveLog(active ?? null)
-        setDayMinutes((data as TimeLog[]).reduce((s, l) => s + (l.total_minutes ?? 0), 0))
-      })
     void supabase
       .from('screenshots')
       .select('*')
@@ -55,94 +56,31 @@ export function TimeTrackingPage() {
       .then(({ data }) => setRecentShots((data ?? []) as Screenshot[]))
   }, [user])
 
-  // Live elapsed-time ticker — runs every second while clocked in
+  // Refresh recent shots whenever a new capture completes
   useEffect(() => {
-    if (!activeLog || activeLog.status === 'clocked_out') {
-      setLiveSeconds(0)
-      return
-    }
-    const clockInMs = new Date(activeLog.clock_in).getTime()
-    const tick = () => {
-      const elapsed = (Date.now() - clockInMs) / 1000
-      const lunchSecs = lunchStart ? (Date.now() - lunchStart.getTime()) / 1000 : 0
-      setLiveSeconds(Math.max(0, Math.floor(elapsed - lunchSecs)))
-    }
-    tick()
-    const id = setInterval(tick, 1000)
+    if (!isCapturing || !user) return
+    const today = new Date().toISOString().split('T')[0]
+    const id = setInterval(() => {
+      void supabase
+        .from('screenshots')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('date', today)
+        .order('timestamp', { ascending: false })
+        .limit(4)
+        .then(({ data }) => setRecentShots((data ?? []) as Screenshot[]))
+    }, 60_000)
     return () => clearInterval(id)
-  }, [activeLog, lunchStart])
+  }, [isCapturing, user])
 
-  const handleClockIn = async () => {
-    if (!user) return
-    const ok = await startCapture()
-    if (!ok) return
-    const now = new Date().toISOString()
-    const { data } = await supabase
-      .from('time_logs')
-      .insert({ user_id: user.id, date: now.split('T')[0], clock_in: now, status: 'working' })
-      .select()
-      .single()
-    if (data) setActiveLog(data as TimeLog)
-  }
-
-  const handleStartLunch = async () => {
-    if (!activeLog) return
-    setLunchStart(new Date())
-    await supabase.from('time_logs').update({ status: 'lunch' }).eq('id', activeLog.id)
-    setActiveLog(p => p ? { ...p, status: 'lunch' } : null)
-  }
-
-  const handleEndLunch = async () => {
-    if (!activeLog) return
-    setLunchStart(null)
-    await supabase.from('time_logs').update({ status: 'working' }).eq('id', activeLog.id)
-    setActiveLog(p => p ? { ...p, status: 'working' } : null)
-  }
-
-  const handleClockOut = async () => {
-    if (!activeLog || !user) return
-
-    // Warn if KPI daily update not submitted (non-blocking)
-    const today = new Date().toISOString().slice(0, 10)
-    const [{ data: kpiLog }, { data: kpiCfg }] = await Promise.all([
-      supabase.from('kpi_daily_logs').select('id').eq('user_id', user.id).eq('date', today).maybeSingle(),
-      supabase.from('kpis').select('kpi_items, checklists').eq('user_id', user.id).maybeSingle(),
-    ])
-    const hasKpiSetup = kpiCfg && (
-      Array.isArray((kpiCfg as { kpi_items: unknown }).kpi_items) && ((kpiCfg as { kpi_items: unknown[] }).kpi_items.length > 0) ||
-      Array.isArray((kpiCfg as { checklists: unknown }).checklists) && ((kpiCfg as { checklists: unknown[] }).checklists.length > 0)
-    )
-    if (!kpiLog && hasKpiSetup) {
-      const proceed = window.confirm(
-        '⚠️  Daily KPI Update not submitted yet.\n\nYou should submit your daily update before clocking out.\n\nDo you still want to clock out?'
-      )
-      if (!proceed) return
-    }
-
-    stopCapture()
-    const now = new Date().toISOString()
-    const elapsed = (Date.now() - new Date(activeLog.clock_in).getTime()) / 60000
-    const lunchMins = lunchStart ? (Date.now() - lunchStart.getTime()) / 60000 : 0
-    const total = Math.round(elapsed - lunchMins)
-    await supabase.from('time_logs')
-      .update({ clock_out: now, status: 'clocked_out', total_minutes: total })
-      .eq('id', activeLog.id)
-    setDayMinutes(p => p + total)
-    setActiveLog(null)
-    setLunchStart(null)
-  }
-
-  const isWorking = activeLog?.status === 'working'
-  const isOnLunch = activeLog?.status === 'lunch'
+  const isWorking    = activeLog?.status === 'working'
+  const isOnLunch    = activeLog?.status === 'lunch'
   const isSuperAdmin = user?.role === 'Admin' || user?.role === 'Super-Admin'
 
   return (
     <div className="space-y-6">
-
-      {/* Super-admin: full management dashboard at top */}
       {isSuperAdmin && <AdminDashboard />}
 
-      {/* Divider for super-admin */}
       {isSuperAdmin && (
         <div className="flex items-center gap-4 pt-2">
           <div className="flex-1 border-t border-gray-200" />
@@ -151,10 +89,8 @@ export function TimeTrackingPage() {
         </div>
       )}
 
-      {/* Manager: show team avatars */}
       {user?.role === 'Manager' && <TeamAvatarRow />}
 
-      {/* Page title for Staff / Manager */}
       {!isSuperAdmin && (
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Time Tracking</h2>
@@ -162,9 +98,9 @@ export function TimeTrackingPage() {
         </div>
       )}
 
-      {captureErr && (
+      {captureError && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
-          {captureErr}
+          {captureError}
         </div>
       )}
 
@@ -188,10 +124,7 @@ export function TimeTrackingPage() {
               <h3 className="font-semibold text-gray-900">Recent Screenshots</h3>
               <p className="text-xs text-gray-400 mt-0.5">Auto-captured every 11–18 min while clocked in</p>
             </div>
-            <Link
-              to="/screenshots"
-              className="text-xs text-violet-600 hover:text-violet-700 font-medium"
-            >
+            <Link to="/screenshots" className="text-xs text-violet-600 hover:text-violet-700 font-medium">
               View all →
             </Link>
           </div>

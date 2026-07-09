@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { ClockProvider } from '@/features/time-tracking/ClockContext'
 
 const STAFF_NAV = [
   { to: '/',           end: true,  label: 'Time Tracking',   icon: '⏱',
@@ -187,9 +188,11 @@ export function Layout() {
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
-        </main>
+        <ClockProvider>
+          <main className="flex-1 overflow-y-auto p-6">
+            <Outlet />
+          </main>
+        </ClockProvider>
       </div>
     </div>
   )
