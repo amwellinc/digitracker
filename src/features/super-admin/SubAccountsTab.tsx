@@ -251,13 +251,13 @@ export function SubAccountsTab() {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => setViewAccount(a)}
-                        className="text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded px-2.5 py-1"
+                        className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded px-3 py-1.5 transition-colors"
                       >
-                        View
+                        Visit
                       </button>
                       <button
                         onClick={() => openEdit(a)}
-                        className="text-xs font-medium text-violet-600 hover:text-violet-800 border border-violet-200 rounded px-2.5 py-1"
+                        className="text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded px-2.5 py-1"
                       >
                         Edit
                       </button>

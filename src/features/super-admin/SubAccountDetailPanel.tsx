@@ -10,6 +10,10 @@ interface User {
   role: UserRole
   country: string
   created_at: string
+  annual_leave: number
+  time_off: number
+  reporting_time_in: string
+  reporting_time_out: string
 }
 
 interface TimeLog {
@@ -24,6 +28,26 @@ interface Props {
   onClose: () => void
 }
 
+interface AddUserForm {
+  name: string
+  email: string
+  role: UserRole
+  country: string
+  annual_leave: string
+  time_off: string
+}
+
+interface SettingsForm {
+  company_name: string
+  admin_email: string
+  notes: string
+}
+
+const emptyAddUser = (): AddUserForm => ({
+  name: '', email: '', role: 'Staff', country: 'SG',
+  annual_leave: '14', time_off: '40',
+})
+
 const ROLE_COLORS: Record<string, string> = {
   Admin:   'bg-violet-100 text-violet-700',
   Manager: 'bg-blue-100 text-blue-700',
@@ -32,16 +56,42 @@ const ROLE_COLORS: Record<string, string> = {
 
 const PLAN_MRR: Record<string, number> = { free: 0, basic: 19.9, business: 39.9, professional: 99.9 }
 
-type PanelTab = 'overview' | 'users' | 'subscription'
+const COUNTRIES = [
+  { code: 'SG', name: 'Singapore' },
+  { code: 'MY', name: 'Malaysia' },
+  { code: 'PH', name: 'Philippines' },
+  { code: 'IN', name: 'India' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'ID', name: 'Indonesia' },
+  { code: 'TH', name: 'Thailand' },
+  { code: 'VN', name: 'Vietnam' },
+]
+
+type PanelTab = 'overview' | 'users' | 'settings' | 'subscription'
 
 export function SubAccountDetailPanel({ account, onClose }: Props) {
-  const [activeTab, setActiveTab] = useState<PanelTab>('overview')
+  const [activeTab, setActiveTab] = useState<PanelTab>('users')
   const [users, setUsers] = useState<User[]>([])
   const [sub, setSub] = useState<Subscription | null>(null)
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
+
+  // User management state
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [newRole, setNewRole] = useState<UserRole>('Staff')
+  const [showAddUser, setShowAddUser] = useState(false)
+  const [addUserForm, setAddUserForm] = useState<AddUserForm>(emptyAddUser())
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+
+  // Settings state
+  const [settingsForm, setSettingsForm] = useState<SettingsForm>({
+    company_name: account.company_name,
+    admin_email: account.admin_email ?? '',
+    notes: account.notes ?? '',
+  })
+
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -52,7 +102,11 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
     monthStart.setHours(0, 0, 0, 0)
 
     const [{ data: usersData }, { data: subData }, { data: logsData }] = await Promise.all([
-      supabase.from('users').select('id, name, email, role, country, created_at').eq('sub_account', account.code).order('role'),
+      supabase
+        .from('users')
+        .select('id, name, email, role, country, created_at, annual_leave, time_off, reporting_time_in, reporting_time_out')
+        .eq('sub_account', account.code)
+        .order('role'),
       supabase.from('subscriptions').select('*').eq('sub_account', account.code).maybeSingle(),
       supabase.from('time_logs').select('user_id, clock_in, clock_out, total_hours').gte('clock_in', monthStart.toISOString()),
     ])
@@ -67,20 +121,84 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
 
   useEffect(() => { void load() }, [load])
 
+  function flash(type: 'success' | 'error', text: string) {
+    setMsg({ type, text })
+    setTimeout(() => setMsg(null), 3000)
+  }
+
+  // ── Role update ────────────────────────────────────────────────────────────
   async function handleRoleUpdate() {
     if (!editingUser) return
     setSaving(true)
     const { error } = await supabase.from('users').update({ role: newRole }).eq('id', editingUser.id)
     setSaving(false)
-    if (error) { setMsg({ type: 'error', text: error.message }); return }
-    setMsg({ type: 'success', text: `${editingUser.name}'s role updated to ${newRole}.` })
+    if (error) { flash('error', error.message); return }
+    flash('success', `${editingUser.name}'s role updated to ${newRole}.`)
     setEditingUser(null)
     void load()
-    setTimeout(() => setMsg(null), 3000)
+  }
+
+  // ── Add user ───────────────────────────────────────────────────────────────
+  async function handleAddUser(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    const { error } = await supabase.from('users').insert({
+      email: addUserForm.email.toLowerCase().trim(),
+      name: addUserForm.name.trim(),
+      role: addUserForm.role,
+      sub_account: account.code,
+      country: addUserForm.country,
+      annual_leave: Number(addUserForm.annual_leave),
+      time_off: Number(addUserForm.time_off),
+      reporting_time_in: '09:00',
+      reporting_time_out: '18:00',
+    })
+    setSaving(false)
+    if (error) { flash('error', error.message); return }
+    flash('success', `${addUserForm.name} added successfully. They can now log in with their email.`)
+    setShowAddUser(false)
+    setAddUserForm(emptyAddUser())
+    void load()
+  }
+
+  // ── Delete user ────────────────────────────────────────────────────────────
+  async function handleDeleteUser(userId: string, userName: string) {
+    if (!confirm(`Remove ${userName} from this sub-account? This cannot be undone.`)) return
+    setDeletingUserId(userId)
+    const { error } = await supabase.from('users').delete().eq('id', userId)
+    setDeletingUserId(null)
+    if (error) { flash('error', error.message); return }
+    flash('success', `${userName} removed.`)
+    void load()
+  }
+
+  // ── Settings save ──────────────────────────────────────────────────────────
+  async function handleSaveSettings(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    const { error } = await supabase
+      .from('sub_accounts')
+      .update({
+        company_name: settingsForm.company_name.trim(),
+        admin_email: settingsForm.admin_email.toLowerCase().trim(),
+        notes: settingsForm.notes.trim() || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('code', account.code)
+    setSaving(false)
+    if (error) { flash('error', error.message); return }
+    flash('success', 'Account settings saved.')
   }
 
   const hoursThisMonth = timeLogs.reduce((acc, l) => acc + (l.total_hours ?? 0), 0)
   const activeNow = timeLogs.filter(l => !l.clock_out).length
+
+  const TAB_LABELS: Record<PanelTab, string> = {
+    overview: 'Overview',
+    users: 'Users',
+    settings: 'Settings',
+    subscription: 'Subscription',
+  }
 
   return (
     <>
@@ -99,6 +217,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                 account.status === 'trialing' ? 'bg-amber-100 text-amber-700' :
                 'bg-red-100 text-red-600'
               }`}>{account.status}</span>
+              <span className="text-xs text-violet-500 font-medium bg-violet-50 border border-violet-100 px-2 py-0.5 rounded-full">Visiting</span>
             </div>
             <h2 className="text-xl font-bold text-gray-900">{account.company_name || account.code}</h2>
             {account.admin_email && <p className="text-sm text-gray-500 mt-0.5">{account.admin_email}</p>}
@@ -108,15 +227,15 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
 
         {/* Tabs */}
         <div className="flex gap-6 px-6 border-b border-gray-100">
-          {(['overview', 'users', 'subscription'] as PanelTab[]).map(tab => (
+          {(['overview', 'users', 'settings', 'subscription'] as PanelTab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`py-3 text-sm font-medium border-b-2 transition-colors capitalize ${
+              className={`py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab ? 'border-violet-600 text-violet-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              {tab}
+              {TAB_LABELS[tab]}
             </button>
           ))}
         </div>
@@ -147,9 +266,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                   <div className="bg-gray-50 rounded-xl p-4">
                     <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Account Details</h4>
                     <dl className="space-y-2 text-sm">
-                      <Row label="Plan" value={
-                        <span className="capitalize font-semibold text-violet-700">{account.plan}</span>
-                      } />
+                      <Row label="Plan" value={<span className="capitalize font-semibold text-violet-700">{account.plan}</span>} />
                       <Row label="Seats used" value={`${users.length} / ${account.seats}`} />
                       <Row label="Monthly value" value={`$${PLAN_MRR[account.plan]?.toFixed(2) ?? '0.00'}`} />
                       <Row label="Admin email" value={account.admin_email ?? '—'} />
@@ -179,7 +296,13 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
               {activeTab === 'users' && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm text-gray-500">{users.length} user{users.length !== 1 ? 's' : ''}</p>
+                    <p className="text-sm text-gray-500">{users.length} user{users.length !== 1 ? 's' : ''} · {account.seats - users.length} seat{account.seats - users.length !== 1 ? 's' : ''} available</p>
+                    <button
+                      onClick={() => { setAddUserForm(emptyAddUser()); setShowAddUser(true) }}
+                      className="flex items-center gap-1.5 text-xs font-semibold bg-violet-600 text-white px-3 py-1.5 rounded-lg hover:bg-violet-700 transition-colors"
+                    >
+                      <span className="text-sm leading-none">+</span> Add User
+                    </button>
                   </div>
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <table className="w-full text-sm">
@@ -188,12 +311,13 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                           <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Name</th>
                           <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Email</th>
                           <th className="text-center px-4 py-3 text-xs font-medium text-gray-500">Role</th>
+                          <th className="text-center px-4 py-3 text-xs font-medium text-gray-500">Country</th>
                           <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {users.length === 0 && (
-                          <tr><td colSpan={4} className="text-center py-8 text-gray-400 text-sm">No users in this account.</td></tr>
+                          <tr><td colSpan={5} className="text-center py-8 text-gray-400 text-sm">No users in this account. Add one to get started.</td></tr>
                         )}
                         {users.map(u => (
                           <tr key={u.id} className="hover:bg-gray-50 transition-colors">
@@ -229,14 +353,24 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                                 </span>
                               )}
                             </td>
+                            <td className="px-4 py-3 text-center text-xs text-gray-500">{u.country || '—'}</td>
                             <td className="px-4 py-3 text-right">
                               {editingUser?.id !== u.id && (
-                                <button
-                                  onClick={() => { setEditingUser(u); setNewRole(u.role) }}
-                                  className="text-xs text-violet-600 hover:text-violet-800 font-medium"
-                                >
-                                  Change Role
-                                </button>
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => { setEditingUser(u); setNewRole(u.role) }}
+                                    className="text-xs text-violet-600 hover:text-violet-800 font-medium"
+                                  >
+                                    Role
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteUser(u.id, u.name)}
+                                    disabled={deletingUserId === u.id}
+                                    className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40"
+                                  >
+                                    {deletingUserId === u.id ? '…' : 'Remove'}
+                                  </button>
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -245,6 +379,66 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                     </table>
                   </div>
                 </div>
+              )}
+
+              {/* SETTINGS TAB */}
+              {activeTab === 'settings' && (
+                <form onSubmit={handleSaveSettings} className="space-y-5">
+                  <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Account Details</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
+                        <input
+                          required
+                          value={settingsForm.company_name}
+                          onChange={e => setSettingsForm(f => ({ ...f, company_name: e.target.value }))}
+                          className="input"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Admin Email</label>
+                        <input
+                          type="email"
+                          value={settingsForm.admin_email}
+                          onChange={e => setSettingsForm(f => ({ ...f, admin_email: e.target.value }))}
+                          placeholder="admin@company.com"
+                          className="input"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Internal Notes</label>
+                        <textarea
+                          rows={2}
+                          value={settingsForm.notes}
+                          onChange={e => setSettingsForm(f => ({ ...f, notes: e.target.value }))}
+                          placeholder="Internal notes about this account…"
+                          className="input resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Account Info (read-only)</h4>
+                    <dl className="space-y-2 text-sm">
+                      <Row label="Sub-Account Code" value={<span className="font-mono font-bold text-gray-800">{account.code}</span>} />
+                      <Row label="Plan" value={<span className="capitalize font-semibold text-violet-700">{account.plan}</span>} />
+                      <Row label="Seats" value={`${users.length} used / ${account.seats} total`} />
+                      <Row label="Status" value={<span className="capitalize">{account.status}</span>} />
+                      <Row label="Created" value={new Date(account.created_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })} />
+                    </dl>
+                    <p className="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-200">
+                      To change plan, seats, or status — use the Edit button in the Sub-Accounts list or the Subscriptions tab.
+                    </p>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button type="submit" disabled={saving} className="btn-primary">
+                      {saving ? 'Saving…' : 'Save Settings'}
+                    </button>
+                  </div>
+                </form>
               )}
 
               {/* SUBSCRIPTION TAB */}
@@ -307,6 +501,100 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
           )}
         </div>
       </div>
+
+      {/* Add User Modal */}
+      {showAddUser && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-semibold text-gray-900">Add User</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Adding to <span className="font-mono font-bold">{account.code}</span> · {account.company_name}</p>
+              </div>
+              <button onClick={() => setShowAddUser(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <form onSubmit={handleAddUser} className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input
+                  required
+                  value={addUserForm.name}
+                  onChange={e => setAddUserForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="John Smith"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                <input
+                  required
+                  type="email"
+                  value={addUserForm.email}
+                  onChange={e => setAddUserForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="john@company.com"
+                  className="input"
+                />
+                <p className="text-xs text-gray-400 mt-0.5">User will log in via magic link sent to this email.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <select
+                    value={addUserForm.role}
+                    onChange={e => setAddUserForm(f => ({ ...f, role: e.target.value as UserRole }))}
+                    className="input"
+                  >
+                    {(['Admin', 'Manager', 'Staff'] as UserRole[]).map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                  <select
+                    value={addUserForm.country}
+                    onChange={e => setAddUserForm(f => ({ ...f, country: e.target.value }))}
+                    className="input"
+                  >
+                    {COUNTRIES.map(c => (
+                      <option key={c.code} value={c.code}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Annual Leave (days)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={60}
+                    value={addUserForm.annual_leave}
+                    onChange={e => setAddUserForm(f => ({ ...f, annual_leave: e.target.value }))}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Time Off (hours)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={addUserForm.time_off}
+                    onChange={e => setAddUserForm(f => ({ ...f, time_off: e.target.value }))}
+                    className="input"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setShowAddUser(false)} className="btn-ghost">Cancel</button>
+                <button type="submit" disabled={saving} className="btn-primary">
+                  {saving ? 'Adding…' : 'Add User'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   )
 }
