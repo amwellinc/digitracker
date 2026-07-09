@@ -22,7 +22,14 @@ import { AuthContext } from '../AuthContext'
 import type { AuthContextValue } from '../AuthContext'
 
 function makeCtx(signIn: AuthContextValue['signIn']): AuthContextValue {
-  return { user: null, loading: false, signIn, signOut: vi.fn(), refreshUser: vi.fn() }
+  return {
+    user: null, loading: false,
+    isSuperAdmin: false,
+    visitingAccount: null,
+    visitSubAccount: vi.fn(),
+    exitVisit: vi.fn(),
+    signIn, signOut: vi.fn(), refreshUser: vi.fn(),
+  }
 }
 
 describe('LoginPage', () => {

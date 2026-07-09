@@ -28,7 +28,14 @@ const mockUser: User = {
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <AuthContext.Provider value={{ user: mockUser, loading: false, signIn: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn() }}>
+    <AuthContext.Provider value={{
+      user: mockUser, loading: false,
+      isSuperAdmin: false,
+      visitingAccount: null,
+      visitSubAccount: vi.fn(),
+      exitVisit: vi.fn(),
+      signIn: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn(),
+    }}>
       {children}
     </AuthContext.Provider>
   )

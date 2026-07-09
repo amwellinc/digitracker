@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { SubAccount } from '@/types'
 import { SubAccountDetailPanel } from './SubAccountDetailPanel'
+import { useAuth } from '@/hooks/useAuth'
 
 const PLAN_OPTIONS = ['free', 'basic', 'business', 'professional'] as const
 const STATUS_OPTIONS = ['active', 'trialing', 'cancelled', 'suspended'] as const
@@ -44,6 +46,8 @@ interface EditForm {
 }
 
 export function SubAccountsTab() {
+  const { visitSubAccount } = useAuth()
+  const navigate = useNavigate()
   const [accounts, setAccounts] = useState<SubAccount[]>([])
   const [userCounts, setUserCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
@@ -250,14 +254,21 @@ export function SubAccountsTab() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => setViewAccount(a)}
+                        onClick={() => { visitSubAccount(a); navigate('/') }}
                         className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded px-3 py-1.5 transition-colors"
+                        title={`Enter ${a.company_name || a.code} as Admin`}
                       >
                         Visit
                       </button>
                       <button
-                        onClick={() => openEdit(a)}
+                        onClick={() => setViewAccount(a)}
                         className="text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded px-2.5 py-1"
+                      >
+                        Manage
+                      </button>
+                      <button
+                        onClick={() => openEdit(a)}
+                        className="text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 rounded px-2.5 py-1"
                       >
                         Edit
                       </button>

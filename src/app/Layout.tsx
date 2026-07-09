@@ -17,16 +17,22 @@ const SUPER_ADMIN_NAV = [
 ]
 
 export function Layout() {
-  const { user, signOut } = useAuth()
+  const { user, isSuperAdmin, visitingAccount, exitVisit, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
-  const isSuperAdmin = user?.role === 'Super-Admin'
-  const NAV = isSuperAdmin ? SUPER_ADMIN_NAV : STAFF_NAV
+  const isVisiting = isSuperAdmin && !!visitingAccount
+  // When visiting: show staff nav. When super admin at home: show platform nav.
+  const NAV = (isSuperAdmin && !isVisiting) ? SUPER_ADMIN_NAV : STAFF_NAV
 
   const handleSignOut = async () => {
     await signOut()
     navigate('/login')
+  }
+
+  const handleExitVisit = () => {
+    exitVisit()
+    navigate('/platform')
   }
 
   return (
@@ -40,6 +46,14 @@ export function Layout() {
             <span className="text-xs text-gray-400">By DIGI5Y</span>
           </div>
         </div>
+
+        {/* Visit mode indicator in sidebar */}
+        {isVisiting && (
+          <div className="mx-3 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="text-xs font-semibold text-amber-700">Admin Visit Mode</p>
+            <p className="text-xs text-amber-600 font-mono truncate">{visitingAccount!.code}</p>
+          </div>
+        )}
 
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
           {NAV.map(item => {
@@ -94,10 +108,12 @@ export function Layout() {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
-              <p className="text-xs text-gray-400 truncate">{isSuperAdmin ? 'Super Admin' : user?.role}</p>
+              <p className="text-xs text-gray-400 truncate">
+                {isVisiting ? `Admin · ${visitingAccount!.code}` : isSuperAdmin ? 'Super Admin' : user?.role}
+              </p>
             </div>
           </div>
-          {!isSuperAdmin && (
+          {(!isSuperAdmin || isVisiting) && (
             <NavLink
               to="/settings"
               className={({ isActive }) =>
@@ -108,6 +124,14 @@ export function Layout() {
             >
               <span>⚙</span> Settings
             </NavLink>
+          )}
+          {isVisiting && (
+            <button
+              onClick={handleExitVisit}
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-amber-600 hover:bg-amber-50 w-full"
+            >
+              <span>←</span> Exit Visit
+            </button>
           )}
           <button
             onClick={handleSignOut}
@@ -120,8 +144,33 @@ export function Layout() {
 
       {/* Main area */}
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Visit Banner */}
+        {isVisiting && (
+          <div className="bg-amber-500 text-white px-6 py-2 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold">
+                Visiting: {visitingAccount!.company_name || visitingAccount!.code}
+              </span>
+              <span className="font-mono text-xs bg-amber-600 px-2 py-0.5 rounded">
+                {visitingAccount!.code}
+              </span>
+              <span className="text-xs bg-amber-600 px-2 py-0.5 rounded font-medium">
+                Admin Access
+              </span>
+            </div>
+            <button
+              onClick={handleExitVisit}
+              className="text-sm font-semibold bg-white text-amber-700 hover:bg-amber-50 px-3 py-1 rounded-lg transition-colors"
+            >
+              ← Exit Visit
+            </button>
+          </div>
+        )}
+
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
-          <h1 className="text-xl font-semibold text-gray-900">Time Tracking</h1>
+          <h1 className="text-xl font-semibold text-gray-900">
+            {isVisiting ? `${visitingAccount!.company_name || visitingAccount!.code} — Admin` : 'Time Tracking'}
+          </h1>
           <div className="flex items-center gap-4">
             <button className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Notifications">
               🔔

@@ -1,7 +1,7 @@
-import { createContext, useCallback, useEffect, useReducer } from 'react'
+import { createContext, useCallback, useEffect, useReducer, useState } from 'react'
 import type { ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { User } from '@/types'
+import type { User, SubAccount } from '@/types'
 
 interface AuthState {
   user: User | null
@@ -22,6 +22,10 @@ function reducer(_state: AuthState, action: AuthAction): AuthState {
 export interface AuthContextValue {
   user: User | null
   loading: boolean
+  isSuperAdmin: boolean
+  visitingAccount: SubAccount | null
+  visitSubAccount: (account: SubAccount) => void
+  exitVisit: () => void
   signIn: (email: string, subAccount: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshUser: () => Promise<void>
@@ -31,6 +35,7 @@ export const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, { user: null, loading: true })
+  const [visitingAccount, setVisitingAccount] = useState<SubAccount | null>(null)
 
   const loadUser = useCallback(async (authId: string) => {
     const { data } = await supabase
@@ -72,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signOut = useCallback(async () => {
+    setVisitingAccount(null)
     await supabase.auth.signOut()
     dispatch({ type: 'SIGNED_OUT' })
   }, [])
@@ -81,8 +87,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session?.user) await loadUser(session.user.id)
   }, [loadUser])
 
+  const visitSubAccount = useCallback((account: SubAccount) => {
+    setVisitingAccount(account)
+  }, [])
+
+  const exitVisit = useCallback(() => {
+    setVisitingAccount(null)
+  }, [])
+
+  const isSuperAdmin = state.user?.role === 'Super-Admin'
+
+  // When visiting, expose a user that looks like an Admin of the visited sub-account.
+  // Super Admin RLS bypasses sub-account filters, so all data queries work transparently.
+  const effectiveUser: User | null = visitingAccount && state.user
+    ? { ...state.user, sub_account: visitingAccount.code, role: 'Admin' }
+    : state.user
+
   return (
-    <AuthContext.Provider value={{ user: state.user, loading: state.loading, signIn, signOut, refreshUser }}>
+    <AuthContext.Provider value={{
+      user: effectiveUser,
+      loading: state.loading,
+      isSuperAdmin,
+      visitingAccount,
+      visitSubAccount,
+      exitVisit,
+      signIn,
+      signOut,
+      refreshUser,
+    }}>
       {children}
     </AuthContext.Provider>
   )

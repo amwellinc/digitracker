@@ -47,7 +47,14 @@ vi.mock('@/lib/supabase', () => {
 
 function wrap(children: React.ReactNode) {
   return (
-    <AuthContext.Provider value={{ user: adminUser, loading: false, signIn: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn() }}>
+    <AuthContext.Provider value={{
+      user: adminUser, loading: false,
+      isSuperAdmin: false,
+      visitingAccount: null,
+      visitSubAccount: vi.fn(),
+      exitVisit: vi.fn(),
+      signIn: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn(),
+    }}>
       {children}
     </AuthContext.Provider>
   )
