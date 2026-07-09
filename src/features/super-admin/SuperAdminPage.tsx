@@ -1,15 +1,19 @@
 import { useState } from 'react'
+import { PlatformDashboard } from './PlatformDashboard'
 import { SubAccountsTab } from './SubAccountsTab'
 import { PlatformSubscriptionsTab } from './PlatformSubscriptionsTab'
+import { PlansAndPricingTab } from './PlansAndPricingTab'
 
-type TabId = 'accounts' | 'subscriptions'
+type TabId = 'dashboard' | 'accounts' | 'subscriptions' | 'plans'
 
 export function SuperAdminPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('accounts')
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard')
 
   const tabs: { id: TabId; label: string; icon: string }[] = [
-    { id: 'accounts',      label: 'Sub-Accounts',   icon: '🏢' },
-    { id: 'subscriptions', label: 'Subscriptions',  icon: '💳' },
+    { id: 'dashboard',     label: 'Dashboard',          icon: '📊' },
+    { id: 'accounts',      label: 'Sub-Accounts',        icon: '🏢' },
+    { id: 'subscriptions', label: 'Subscriptions',       icon: '💳' },
+    { id: 'plans',         label: 'Plans & Pricing',     icon: '⭐' },
   ]
 
   return (
@@ -27,12 +31,12 @@ export function SuperAdminPage() {
       </div>
 
       <div className="border-b border-gray-200">
-        <nav className="-mb-px flex gap-6">
+        <nav className="-mb-px flex gap-6 overflow-x-auto">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-violet-600 text-violet-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -45,8 +49,10 @@ export function SuperAdminPage() {
         </nav>
       </div>
 
+      {activeTab === 'dashboard'     && <PlatformDashboard />}
       {activeTab === 'accounts'      && <SubAccountsTab />}
       {activeTab === 'subscriptions' && <PlatformSubscriptionsTab />}
+      {activeTab === 'plans'         && <PlansAndPricingTab />}
     </div>
   )
 }

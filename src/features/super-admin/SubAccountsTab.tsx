@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { SubAccount } from '@/types'
+import { SubAccountDetailPanel } from './SubAccountDetailPanel'
 
 const PLAN_OPTIONS = ['free', 'basic', 'business', 'professional'] as const
 const STATUS_OPTIONS = ['active', 'trialing', 'cancelled', 'suspended'] as const
@@ -48,6 +49,7 @@ export function SubAccountsTab() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+  const [viewAccount, setViewAccount] = useState<SubAccount | null>(null)
   const [editAccount, setEditAccount] = useState<SubAccount | null>(null)
   const [createForm, setCreateForm] = useState<CreateForm>(emptyCreate())
   const [editForm, setEditForm] = useState<EditForm | null>(null)
@@ -246,12 +248,20 @@ export function SubAccountsTab() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => openEdit(a)}
-                      className="text-xs font-medium text-violet-600 hover:text-violet-800 border border-violet-200 rounded px-2.5 py-1"
-                    >
-                      Edit
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setViewAccount(a)}
+                        className="text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded px-2.5 py-1"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => openEdit(a)}
+                        className="text-xs font-medium text-violet-600 hover:text-violet-800 border border-violet-200 rounded px-2.5 py-1"
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -259,6 +269,11 @@ export function SubAccountsTab() {
           </table>
         )}
       </div>
+
+      {/* Detail Panel slide-over */}
+      {viewAccount && (
+        <SubAccountDetailPanel account={viewAccount} onClose={() => setViewAccount(null)} />
+      )}
 
       {/* Create Modal */}
       {showCreate && (
