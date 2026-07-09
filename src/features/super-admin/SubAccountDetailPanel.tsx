@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { SubAccount, Subscription } from '@/types'
 import type { UserRole } from '@/types'
+import { COUNTRY_OPTIONS } from '@/lib/constants'
 
 interface User {
   id: string
@@ -56,18 +57,6 @@ const ROLE_COLORS: Record<string, string> = {
 
 const PLAN_MRR: Record<string, number> = { free: 0, basic: 19.9, business: 39.9, professional: 99.9 }
 
-const COUNTRIES = [
-  { code: 'SG', name: 'Singapore' },
-  { code: 'MY', name: 'Malaysia' },
-  { code: 'PH', name: 'Philippines' },
-  { code: 'IN', name: 'India' },
-  { code: 'AU', name: 'Australia' },
-  { code: 'US', name: 'United States' },
-  { code: 'GB', name: 'United Kingdom' },
-  { code: 'ID', name: 'Indonesia' },
-  { code: 'TH', name: 'Thailand' },
-  { code: 'VN', name: 'Vietnam' },
-]
 
 type PanelTab = 'overview' | 'users' | 'settings' | 'subscription'
 
@@ -556,8 +545,8 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                     onChange={e => setAddUserForm(f => ({ ...f, country: e.target.value }))}
                     className="input"
                   >
-                    {COUNTRIES.map(c => (
-                      <option key={c.code} value={c.code}>{c.name}</option>
+                    {COUNTRY_OPTIONS.map(c => (
+                      <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
                     ))}
                   </select>
                 </div>
