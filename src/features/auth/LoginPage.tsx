@@ -5,13 +5,15 @@ export function LoginPage() {
   const { signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [subAccount, setSubAccount] = useState('')
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setStatus('loading')
-    const { error } = await signIn(email, subAccount)
+    const code = isSuperAdmin ? '__saas__' : subAccount
+    const { error } = await signIn(email, code)
     if (error) {
       setErrorMsg(error)
       setStatus('error')
@@ -43,6 +45,24 @@ export function LoginPage() {
           <p className="text-xs text-gray-400 mt-0.5">By DIGI5Y</p>
         </div>
 
+        {/* Super Admin toggle */}
+        <div className="flex rounded-lg border border-gray-200 mb-5 overflow-hidden text-sm">
+          <button
+            type="button"
+            onClick={() => setIsSuperAdmin(false)}
+            className={`flex-1 py-2 font-medium transition-colors ${!isSuperAdmin ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+          >
+            Team Login
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsSuperAdmin(true)}
+            className={`flex-1 py-2 font-medium transition-colors ${isSuperAdmin ? 'bg-purple-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+          >
+            ⭐ Platform Admin
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -58,19 +78,27 @@ export function LoginPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Sub-account code
-            </label>
-            <input
-              type="text"
-              required
-              value={subAccount}
-              onChange={e => setSubAccount(e.target.value)}
-              placeholder="e.g. AM333"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
+          {!isSuperAdmin && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Sub-account code
+              </label>
+              <input
+                type="text"
+                required
+                value={subAccount}
+                onChange={e => setSubAccount(e.target.value.toUpperCase().trim())}
+                placeholder="e.g. AM333"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
+              />
+            </div>
+          )}
+
+          {isSuperAdmin && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-xs text-purple-700">
+              Platform Admin access — magic link will be sent to your email.
+            </div>
+          )}
 
           {status === 'error' && (
             <p className="text-sm text-red-600">{errorMsg}</p>
@@ -79,7 +107,9 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={status === 'loading'}
-            className="w-full bg-violet-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className={`w-full text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+              isSuperAdmin ? 'bg-purple-600 hover:bg-purple-700' : 'bg-violet-600 hover:bg-violet-700'
+            }`}
           >
             {status === 'loading' ? 'Checking...' : 'Send magic link'}
           </button>
