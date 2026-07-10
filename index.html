@@ -16,6 +16,21 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      GHL OAuth callback bridge.
+      GHL redirects to https://digitracker.digi5y.co/ghl/callback?code=...&state=...
+      GitHub Pages serves index.html for that path (SPA). This script detects the
+      OAuth params and moves them into the hash so HashRouter can route them.
+    -->
+    <script>
+      (function () {
+        var p = window.location.pathname;
+        var s = window.location.search;
+        if (p === '/ghl/callback' && s.indexOf('code=') !== -1) {
+          window.location.replace('/#/ghl/callback' + s);
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

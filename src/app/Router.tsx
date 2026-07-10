@@ -51,6 +51,7 @@ export function AppRouter() {
         <Route path="/login"           element={<LoginPage />} />
         <Route path="/reset-password"  element={<ResetPasswordPage />} />
         <Route path="/install"         element={<GHLInstallPage />} />
+        <Route path="/ghl/callback"    element={<GHLConnectedPage />} />
         <Route path="/ghl/connected"   element={<GHLConnectedPage />} />
 
         {/* Authenticated app shell */}

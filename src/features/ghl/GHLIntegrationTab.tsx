@@ -1,7 +1,27 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useAuth } from '@/hooks/useAuth'
 
-// N8N webhook — live endpoint backed by GHL PIT for AM333 (hv6oU9BWN5BzCTe0dEMl)
+// Redirect URI registered in the GHL Marketplace App.
+// GHL redirects here after the user authorizes; index.html bridges it into HashRouter.
+const GHL_REDIRECT_URI = 'https://digitracker.digi5y.co/ghl/callback'
+
+// N8N live-status endpoint — returns connection info + contacts for the AM333 location.
 const GHL_STATUS_URL = 'https://amwellinc.app.n8n.cloud/webhook/digitracker-ghl-status'
+
+const GHL_SCOPES = [
+  'contacts.readonly',
+  'contacts.write',
+  'locations.readonly',
+  'calendars.readonly',
+  'users.readonly',
+].join(' ')
+
+interface StoredInstallation {
+  location_id:  string
+  company_name: string
+  sub_account:  string
+  installed_at: string
+}
 
 interface GHLContact {
   id: string
@@ -22,29 +42,72 @@ interface GHLStatus {
   contacts: GHLContact[]
 }
 
-export function GHLIntegrationTab() {
-  const [status, setStatus]           = useState<GHLStatus | null>(null)
-  const [loading, setLoading]         = useState(false)
-  const [error, setError]             = useState<string | null>(null)
-  const [copied, setCopied]           = useState(false)
-  const [showContacts, setShowContacts] = useState(false)
+function loadStoredInstallation(subAccount: string): StoredInstallation | null {
+  try {
+    const raw = localStorage.getItem('ghl_installation')
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as StoredInstallation
+    // Only use if it belongs to the current sub-account
+    return parsed.sub_account === subAccount ? parsed : null
+  } catch {
+    return null
+  }
+}
 
-  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? ''
+export function GHLIntegrationTab() {
+  const { user } = useAuth()
+
+  const clientId    = (import.meta.env.VITE_GHL_CLIENT_ID as string | undefined) ?? ''
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL  as string | undefined) ?? ''
   const webhookUrl  = `${supabaseUrl}/functions/v1/ghl-webhook`
 
-  async function loadStatus() {
-    setLoading(true)
-    setError(null)
+  // Stored OAuth installation (from localStorage after OAuth exchange)
+  const [stored, setStored]   = useState<StoredInstallation | null>(null)
+
+  // Live status from N8N (contacts + live GHL data)
+  const [liveStatus, setLiveStatus] = useState<GHLStatus | null>(null)
+  const [liveLoading, setLiveLoading] = useState(false)
+  const [liveError, setLiveError]     = useState<string | null>(null)
+  const [showContacts, setShowContacts] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  // Load stored installation on mount
+  useEffect(() => {
+    if (!user) return
+    setStored(loadStoredInstallation(user.sub_account))
+  }, [user])
+
+  function buildOAuthUrl(): string {
+    const params = new URLSearchParams({
+      response_type: 'code',
+      redirect_uri:  GHL_REDIRECT_URI,
+      client_id:     clientId,
+      scope:         GHL_SCOPES,
+      state:         user?.sub_account ?? '',
+    })
+    return `https://marketplace.gohighlevel.com/oauth/chooselocation?${params.toString()}`
+  }
+
+  async function loadLiveStatus() {
+    setLiveLoading(true)
+    setLiveError(null)
     try {
       const res = await fetch(GHL_STATUS_URL)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = (await res.json()) as GHLStatus
-      setStatus(data)
+      setLiveStatus((await res.json()) as GHLStatus)
     } catch {
-      setError('Could not reach GHL. Check your connection or try again.')
+      setLiveError('Could not reach GHL live data. Check your connection or try again.')
     } finally {
-      setLoading(false)
+      setLiveLoading(false)
     }
+  }
+
+  function handleDisconnect() {
+    if (!window.confirm('Disconnect GoHighLevel? The stored token will be removed.')) return
+    localStorage.removeItem('ghl_installation')
+    setStored(null)
+    setLiveStatus(null)
+    setShowContacts(false)
   }
 
   async function copyWebhookUrl() {
@@ -53,123 +116,106 @@ export function GHLIntegrationTab() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // Use OAuth connection if available; fall back to live AM333 status if loaded
+  const isConnected = !!(stored || liveStatus?.connected)
+  const displayName = stored?.company_name || liveStatus?.company_name || 'GoHighLevel'
+  const displayLoc  = stored?.location_id  || liveStatus?.location_id  || ''
+
   return (
     <div className="max-w-2xl space-y-6">
+
       {/* Section header */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900">GoHighLevel Integration</h2>
         <p className="text-sm text-gray-500 mt-1">
-          DIGITRACKER is connected to the AM333 (DIGI5Y) GHL sub-account. View synced contacts and manage the integration.
+          Connect DIGITRACKER to your GHL sub-account to sync contacts, push time data, and automate CRM workflows.
         </p>
       </div>
 
       {/* ── Connection card ─────────────────────────────────────────────── */}
-      {!status && !loading && !error && (
-        <div className="bg-violet-50 border border-violet-200 rounded-2xl p-6 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-violet-600 text-white text-lg flex items-center justify-center flex-shrink-0">
-              🔗
-            </div>
-            <div>
-              <p className="font-semibold text-violet-900">AM333 (DIGI5Y) Sub-account</p>
-              <p className="text-xs text-violet-600 mt-0.5">Click to verify live connection and load contacts</p>
-            </div>
-          </div>
-          <button
-            onClick={() => void loadStatus()}
-            className="flex-shrink-0 bg-violet-600 text-white text-sm font-semibold rounded-xl px-5 py-2.5 hover:bg-violet-700 transition-colors"
-          >
-            Check Status
-          </button>
-        </div>
-      )}
-
-      {/* Loading spinner */}
-      {loading && (
-        <div className="flex justify-center py-10">
-          <div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin" />
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-5 flex items-start gap-3">
-          <span className="text-red-500 text-lg flex-shrink-0">⚠</span>
-          <div>
-            <p className="text-sm font-semibold text-red-800">Connection error</p>
-            <p className="text-sm text-red-600 mt-0.5">{error}</p>
-            <button
-              onClick={() => void loadStatus()}
-              className="mt-3 text-sm text-red-700 underline hover:text-red-900"
-            >
-              Try again
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Connected state */}
-      {status?.connected && (
+      {isConnected ? (
         <div className="bg-green-50 border border-green-200 rounded-2xl p-5 space-y-5">
+
           {/* Status row */}
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-green-600 text-white text-lg flex items-center justify-center flex-shrink-0">
                 ✓
               </div>
               <div>
-                <p className="font-semibold text-green-900">Connected — {status.company_name}</p>
-                <p className="text-xs text-green-700 mt-0.5 font-mono">{status.location_id}</p>
+                <p className="font-semibold text-green-900">Connected — {displayName}</p>
+                <p className="text-xs text-green-700 mt-0.5 font-mono">{displayLoc}</p>
               </div>
             </div>
-            <button
-              onClick={() => void loadStatus()}
-              className="flex-shrink-0 text-sm text-green-700 hover:text-green-900 border border-green-300 rounded-lg px-3 py-1.5 transition-colors"
-            >
-              Refresh
-            </button>
+            {stored && (
+              <button
+                onClick={handleDisconnect}
+                className="flex-shrink-0 text-sm text-red-600 hover:text-red-800 border border-red-200 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                Disconnect
+              </button>
+            )}
           </div>
 
           {/* Meta grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div className="bg-white rounded-xl p-3 border border-green-100">
-              <p className="text-xs text-gray-400 mb-0.5">Location</p>
-              <p className="text-xs text-gray-700">
-                {[status.city, status.state].filter(Boolean).join(', ') || 'AM333'}
-              </p>
-            </div>
-            <div className="bg-white rounded-xl p-3 border border-green-100">
-              <p className="text-xs text-gray-400 mb-0.5">Total Contacts</p>
-              <p className="text-xs text-gray-700 font-semibold">{status.contacts_count}</p>
-            </div>
+            {stored?.installed_at && (
+              <div className="bg-white rounded-xl p-3 border border-green-100">
+                <p className="text-xs text-gray-400 mb-0.5">Connected</p>
+                <p className="text-xs text-gray-700">
+                  {new Date(stored.installed_at).toLocaleDateString('en-SG', {
+                    day: 'numeric', month: 'short', year: 'numeric',
+                  })}
+                </p>
+              </div>
+            )}
+            {liveStatus && (
+              <div className="bg-white rounded-xl p-3 border border-green-100">
+                <p className="text-xs text-gray-400 mb-0.5">Total Contacts</p>
+                <p className="text-xs text-gray-700 font-semibold">{liveStatus.contacts_count}</p>
+              </div>
+            )}
             <div className="bg-white rounded-xl p-3 border border-green-100 sm:col-span-2">
-              <p className="text-xs text-gray-400 mb-0.5">Connection method</p>
-              <p className="text-xs text-gray-600">Direct API (Private Integration Token) · AM333 Location</p>
+              <p className="text-xs text-gray-400 mb-0.5">Scopes granted</p>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {GHL_SCOPES.replace(/ /g, ' · ')}
+              </p>
             </div>
           </div>
 
-          {/* Contact list */}
+          {/* Live contacts section */}
           <div className="border-t border-green-200 pt-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-900">GHL Contacts</p>
-                <p className="text-xs text-gray-500">Live from GoHighLevel · up to 50 shown</p>
+                <p className="text-sm font-medium text-gray-900">Synced Contacts</p>
+                <p className="text-xs text-gray-500">Live from GHL — up to 50 shown</p>
               </div>
               <button
-                onClick={() => setShowContacts(v => !v)}
-                className="text-sm text-violet-600 hover:text-violet-800 border border-violet-200 rounded-lg px-3 py-1.5 transition-colors"
+                onClick={() => {
+                  if (!liveStatus) {
+                    void loadLiveStatus().then(() => setShowContacts(true))
+                  } else {
+                    setShowContacts(v => !v)
+                  }
+                }}
+                disabled={liveLoading}
+                className="text-sm text-violet-600 hover:text-violet-800 border border-violet-200 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
               >
-                {showContacts ? 'Hide' : 'Show'}
+                {liveLoading ? 'Loading…' : showContacts ? 'Hide' : 'View'}
               </button>
             </div>
 
-            {showContacts && status.contacts.length === 0 && (
-              <p className="text-sm text-gray-400 py-2">No contacts returned. Verify the PIT token has contacts.readonly scope.</p>
+            {liveError && (
+              <p className="text-sm text-red-500">{liveError}</p>
             )}
 
-            {showContacts && status.contacts.length > 0 && (
+            {showContacts && liveStatus?.contacts.length === 0 && (
+              <p className="text-sm text-gray-400 py-2">No contacts returned yet.</p>
+            )}
+
+            {showContacts && liveStatus && liveStatus.contacts.length > 0 && (
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                {status.contacts.map(c => (
+                {liveStatus.contacts.map(c => (
                   <div
                     key={c.id}
                     className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 border border-green-100"
@@ -192,17 +238,45 @@ export function GHLIntegrationTab() {
             )}
           </div>
         </div>
+
+      ) : (
+        /* ── Not connected ────────────────────────────────────────────── */
+        <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center space-y-5">
+          <div className="w-16 h-16 rounded-2xl bg-violet-50 flex items-center justify-center text-3xl mx-auto">
+            🔗
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900 text-lg">Not Connected</p>
+            <p className="text-sm text-gray-500 mt-1 max-w-xs mx-auto">
+              Link your GoHighLevel sub-account to sync contacts and automate data flows with DIGITRACKER.
+            </p>
+          </div>
+
+          {clientId ? (
+            <a
+              href={buildOAuthUrl()}
+              className="inline-flex items-center gap-2 bg-violet-600 text-white rounded-xl px-6 py-3 text-sm font-semibold hover:bg-violet-700 active:bg-violet-800 transition-colors"
+            >
+              Connect GoHighLevel →
+            </a>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700 text-left max-w-sm mx-auto">
+              <strong>Setup required:</strong> The GHL Marketplace App credentials have not been configured yet.
+              Contact your platform administrator or complete the GHL Marketplace App registration.
+            </div>
+          )}
+        </div>
       )}
 
-      {/* ── What syncs card ─────────────────────────────────────────────────── */}
+      {/* ── What syncs ──────────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
         <h3 className="text-sm font-semibold text-gray-900">What syncs between DIGITRACKER &amp; GHL?</h3>
         <ul className="space-y-3">
           {[
-            { icon: '👤', label: 'Contacts',  desc: 'GHL contacts visible in DIGITRACKER for team linking' },
+            { icon: '👤', label: 'Contacts',  desc: 'GHL contacts mirrored as potential team members' },
             { icon: '🕐', label: 'Time Data', desc: 'Daily punch-in/out summaries pushed to GHL contact notes' },
             { icon: '📋', label: 'Tasks',     desc: 'Completed DIGITRACKER tasks logged as GHL conversation activity' },
-            { icon: '🔔', label: 'Events',    desc: 'Real-time contact events received via GHL webhooks' },
+            { icon: '🔔', label: 'Events',    desc: 'Real-time contact and appointment events received from GHL' },
           ].map(item => (
             <li key={item.label} className="flex items-start gap-3 text-sm">
               <span className="text-lg flex-shrink-0">{item.icon}</span>
@@ -216,17 +290,17 @@ export function GHLIntegrationTab() {
         </ul>
       </div>
 
-      {/* ── Webhook URL card ────────────────────────────────────────────────── */}
+      {/* ── Webhook URL ─────────────────────────────────────────────────── */}
       <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 space-y-3">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Webhook Endpoint</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Add this URL in GHL → Settings → Integrations → Webhooks to receive real-time contact events.
+            Add this URL in your GHL Marketplace App settings under "Webhook URL".
           </p>
         </div>
         <div className="flex items-center gap-2">
           <code className="flex-1 text-xs font-mono bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-gray-700 truncate">
-            {webhookUrl || 'Not configured — set VITE_SUPABASE_URL'}
+            {webhookUrl || 'Not configured'}
           </code>
           {webhookUrl && (
             <button
@@ -237,7 +311,14 @@ export function GHLIntegrationTab() {
             </button>
           )}
         </div>
+        <div className="pt-1">
+          <p className="text-xs text-gray-500 mb-1.5">OAuth Redirect URI (register in GHL App):</p>
+          <code className="block text-xs font-mono bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-600 break-all">
+            {GHL_REDIRECT_URI}
+          </code>
+        </div>
       </div>
+
     </div>
   )
 }
