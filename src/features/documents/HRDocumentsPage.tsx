@@ -141,10 +141,10 @@ export function HRDocumentsPage() {
         </p>
       </div>
 
-      <div className={canManage ? 'flex gap-5' : ''}>
+      <div className={canManage ? 'flex flex-col lg:flex-row gap-5' : ''}>
         {/* Left panel: user selector (admin/manager only) */}
         {canManage && (
-          <div className="w-72 flex-shrink-0">
+          <div className="w-full lg:w-72 lg:flex-shrink-0">
             <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100vh - 220px)' }}>
               <div className="p-3 border-b border-gray-100">
                 <input

@@ -22,21 +22,22 @@ export function LeavePage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Leave & Time Off</h2>
           <p className="text-sm text-gray-500 mt-0.5">Track and manage leave requests</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="bg-violet-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-violet-700 transition-colors"
+          className="bg-violet-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-violet-700 transition-colors self-start sm:self-auto"
+          style={{ minHeight: '44px' }}
         >
           + Request Leave
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto scrollbar-hide">
         {tabs.map(t => (
           <button
             key={t.id}

@@ -42,12 +42,12 @@ export function SettingsPage() {
       </div>
 
       <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex gap-6">
+        <nav className="-mb-px flex gap-1 sm:gap-4 overflow-x-auto scrollbar-hide pb-px">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
                 activeTab === tab.id
                   ? 'border-violet-600 text-violet-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'

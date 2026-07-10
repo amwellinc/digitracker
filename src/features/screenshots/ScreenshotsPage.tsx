@@ -43,17 +43,30 @@ function Lightbox({ shot, total, index, onClose, onPrev, onNext }: LightboxProps
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-2 sm:p-6"
       onClick={onClose}
     >
+      {/* Prev — always visible, positioned in overlay */}
+      {total > 1 && (
+        <button
+          onClick={e => { e.stopPropagation(); onPrev() }}
+          disabled={index === 0}
+          className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 text-white text-2xl flex items-center justify-center disabled:opacity-20 transition-colors"
+          aria-label="Previous"
+        >
+          ‹
+        </button>
+      )}
+
       <div
-        className="relative max-w-5xl w-full"
+        className="relative max-w-5xl w-full mx-10 sm:mx-16"
         onClick={e => e.stopPropagation()}
       >
         {/* Close */}
         <button
           onClick={onClose}
-          className="absolute -top-10 right-0 text-white/70 hover:text-white text-3xl leading-none"
+          className="absolute -top-9 right-0 text-white/70 hover:text-white text-3xl leading-none p-1"
+          aria-label="Close"
         >
           &times;
         </button>
@@ -66,40 +79,32 @@ function Lightbox({ shot, total, index, onClose, onPrev, onNext }: LightboxProps
         />
 
         {/* Caption */}
-        <div className="flex items-center justify-between mt-3 px-1">
-          <p className="text-white/60 text-sm">{index + 1} / {total}</p>
-          <p className="text-white text-sm font-medium">{fmtTime(shot.timestamp)}</p>
+        <div className="flex items-center justify-between mt-3 px-1 gap-2">
+          <p className="text-white/60 text-xs sm:text-sm">{index + 1} / {total}</p>
+          <p className="text-white text-xs sm:text-sm font-medium">{fmtTime(shot.timestamp)}</p>
           <a
             href={shot.url}
             download={`screenshot-${shot.timestamp}.jpg`}
             target="_blank"
             rel="noreferrer"
-            className="text-white/60 hover:text-white text-sm underline"
+            className="text-white/60 hover:text-white text-xs sm:text-sm underline"
           >
             Download
           </a>
         </div>
-
-        {/* Prev / Next */}
-        {total > 1 && (
-          <>
-            <button
-              onClick={onPrev}
-              disabled={index === 0}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-14 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 text-white flex items-center justify-center disabled:opacity-20 transition-colors"
-            >
-              ‹
-            </button>
-            <button
-              onClick={onNext}
-              disabled={index === total - 1}
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-14 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 text-white flex items-center justify-center disabled:opacity-20 transition-colors"
-            >
-              ›
-            </button>
-          </>
-        )}
       </div>
+
+      {/* Next — always visible, positioned in overlay */}
+      {total > 1 && (
+        <button
+          onClick={e => { e.stopPropagation(); onNext() }}
+          disabled={index === total - 1}
+          className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 text-white text-2xl flex items-center justify-center disabled:opacity-20 transition-colors"
+          aria-label="Next"
+        >
+          ›
+        </button>
+      )}
     </div>
   )
 }
@@ -201,7 +206,7 @@ export function ScreenshotsPage() {
       )}
 
       {/* Controls row */}
-      <div className="flex items-center gap-4 flex-wrap">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
         {/* User selector — admin/manager only */}
         {canManage && members.length > 0 && (
           <div className="flex items-center gap-2">
@@ -209,7 +214,7 @@ export function ScreenshotsPage() {
             <select
               value={selectedUserId}
               onChange={e => { setSelectedUserId(e.target.value); setLightboxIdx(null) }}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 min-h-[44px]"
             >
               {members.map(m => (
                 <option key={m.id} value={m.id}>
@@ -228,20 +233,20 @@ export function ScreenshotsPage() {
             value={selectedDate}
             max={todayStr()}
             onChange={e => { setSelectedDate(e.target.value); setLightboxIdx(null) }}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 min-h-[44px]"
           />
           {selectedDate !== todayStr() && (
             <button
               onClick={() => setSelectedDate(todayStr())}
-              className="text-sm text-violet-600 hover:underline"
+              className="text-sm text-violet-600 hover:underline whitespace-nowrap"
             >
-              Back to today
+              Today
             </button>
           )}
         </div>
 
         {/* Stats */}
-        <div className="ml-auto flex items-center gap-6 text-sm text-gray-500">
+        <div className="sm:ml-auto flex items-center gap-4 text-sm text-gray-500">
           <span>
             <span className="font-semibold text-gray-900">{shots.length}</span> capture{shots.length !== 1 ? 's' : ''}
           </span>

@@ -187,18 +187,18 @@ export function AdminDashboard() {
     <div className="space-y-6">
 
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <p className="text-sm text-gray-500">{dateStr}</p>
-          <h1 className="text-2xl font-bold text-gray-900 mt-0.5">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mt-0.5">
             {greeting()}, {user?.name.split(' ')[0]} 👋
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {user?.sub_account} Workspace · {total} team member{total !== 1 ? 's' : ''}
+            {user?.sub_account} · {total} member{total !== 1 ? 's' : ''}
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-3xl font-mono font-bold text-gray-900 tracking-tight">{timeStr}</p>
+        <div className="sm:text-right">
+          <p className="text-2xl sm:text-3xl font-mono font-bold text-gray-900 tracking-tight">{timeStr}</p>
           <p className="text-xs text-gray-400 mt-0.5">Live</p>
         </div>
       </div>
@@ -214,7 +214,7 @@ export function AdminDashboard() {
 
       {/* Live Team Status Table */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-100">
           <div>
             <h2 className="font-semibold text-gray-900">Live Team Status</h2>
             <p className="text-xs text-gray-400 mt-0.5">Updates in real time via Supabase Realtime</p>
@@ -225,7 +225,8 @@ export function AdminDashboard() {
           </div>
         </div>
 
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[600px]">
           <thead className="bg-gray-50">
             <tr>
               <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Member</th>
@@ -296,6 +297,7 @@ export function AdminDashboard() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Bottom Row */}

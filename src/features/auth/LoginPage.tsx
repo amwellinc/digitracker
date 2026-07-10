@@ -94,22 +94,24 @@ export function LoginPage() {
       <Logo />
 
       {/* Account-type toggle */}
-      <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm mb-5">
+      <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
         <button
           type="button"
           onClick={() => { setAccountType('team'); setStatus('idle'); setErrorMsg('') }}
-          className={`flex-1 py-2 font-medium transition-colors ${
+          className={`flex-1 py-2.5 font-semibold transition-colors ${
             !isPlatform ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
           }`}
+          style={{ minHeight: '44px' }}
         >
           Team Login
         </button>
         <button
           type="button"
           onClick={() => { setAccountType('platform'); setStatus('idle'); setErrorMsg('') }}
-          className={`flex-1 py-2 font-medium transition-colors ${
+          className={`flex-1 py-2.5 font-semibold transition-colors ${
             isPlatform ? 'bg-purple-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
           }`}
+          style={{ minHeight: '44px' }}
         >
           ⭐ Platform Admin
         </button>
@@ -282,8 +284,8 @@ export function LoginPage() {
 
 function Screen({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full space-y-6">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-violet-50/30 p-4 py-8">
+      <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg shadow-gray-200/80 max-w-md w-full space-y-5 border border-gray-100">
         {children}
       </div>
     </div>

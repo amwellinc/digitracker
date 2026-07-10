@@ -64,7 +64,7 @@ export function StatCards({
   const workedHours = (totalSecondsWorked / 3600).toFixed(1)
 
   return (
-    <div className="grid grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       {/* Status card */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="flex items-center justify-between text-gray-400 text-sm mb-3">

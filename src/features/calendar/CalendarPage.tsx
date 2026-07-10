@@ -90,29 +90,30 @@ export function CalendarPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Activity Calendar</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Activity Calendar</h1>
           <p className="text-sm text-gray-500 mt-1">View attendance, schedules, and reports.</p>
         </div>
         {isSuperAdmin && (
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 bg-violet-600 text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-violet-700 transition-colors shadow-sm"
+            className="flex items-center gap-2 bg-violet-600 text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-violet-700 transition-colors self-start"
+            style={{ minHeight: '44px' }}
           >
-            <span className="text-base leading-none">+</span> Add Public Holiday
+            + Add Holiday
           </button>
         )}
       </div>
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
-        <nav className="-mb-px flex gap-6">
+        <nav className="-mb-px flex gap-2 sm:gap-6 overflow-x-auto scrollbar-hide pb-px">
           {tabs.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
                 tab === t.id
                   ? 'border-violet-600 text-violet-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'

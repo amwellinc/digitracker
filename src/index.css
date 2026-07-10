@@ -2,14 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
 @layer components {
   .input {
-    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500;
+    @apply w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm
+           focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-400
+           transition-colors bg-white placeholder-gray-400;
+    min-height: 44px;
   }
   .btn-primary {
-    @apply bg-violet-600 text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-violet-700 disabled:opacity-50 transition-colors;
+    @apply bg-violet-600 text-white text-sm font-semibold rounded-lg px-4 py-2.5
+           hover:bg-violet-700 active:bg-violet-800 disabled:opacity-50 transition-colors;
+    min-height: 44px;
   }
   .btn-ghost {
-    @apply text-sm font-medium text-gray-600 border border-gray-300 rounded-lg px-4 py-2 hover:bg-gray-50 transition-colors;
+    @apply text-sm font-medium text-gray-600 border border-gray-300 rounded-lg px-4 py-2.5
+           hover:bg-gray-50 active:bg-gray-100 transition-colors;
+    min-height: 44px;
+  }
+  /* Card base */
+  .card {
+    @apply bg-white rounded-xl border border-gray-200;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  /* Consistent section header */
+  .section-header {
+    @apply px-4 py-3 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between;
   }
 }

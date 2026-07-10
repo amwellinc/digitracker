@@ -216,27 +216,28 @@ export function TasksPage() {
   return (
     <div className="space-y-5">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Tasks</h2>
           <p className="text-sm text-gray-500 mt-0.5">Manage your tasks and team assignments</p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="bg-violet-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-violet-700 transition-colors flex items-center gap-1.5"
+          className="bg-violet-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-violet-700 transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+          style={{ minHeight: '44px' }}
         >
           + New Task
         </button>
       </div>
 
       {/* Filter strip + user selector */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex gap-1 flex-wrap">
+      <div className="space-y-2">
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
           {FILTERS.map(f => {
             const count = filterCount(f.id)
             return (
               <button key={f.id} onClick={() => setFilter(f.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap ${
                   filter === f.id ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}>
                 {f.id === 'overdue' && overdueCount > 0 && (
@@ -257,7 +258,7 @@ export function TasksPage() {
 
         {/* By-User selector: admin/manager only */}
         {canManage && (
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setFilter('by_user')}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${

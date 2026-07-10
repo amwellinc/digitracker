@@ -118,11 +118,11 @@ export function KPIStaffView() {
         </div>
       )}
 
-      {/* ── 2-column layout ── */}
-      <div className="flex gap-5 items-start">
+      {/* ── 2-column layout: stacks on mobile ── */}
+      <div className="flex flex-col lg:flex-row gap-5 items-start">
 
         {/* ── LEFT: Daily Checklist ── */}
-        <div className="w-64 flex-shrink-0 bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="w-full lg:w-64 lg:flex-shrink-0 bg-white border border-gray-200 rounded-2xl overflow-hidden">
           <div className="px-4 py-3.5 border-b border-gray-100 bg-gray-50">
             <p className="text-sm font-bold text-gray-800">✅ Daily Checklist</p>
             <p className="text-xs text-gray-400 mt-0.5">{todayFmt}</p>
@@ -192,7 +192,8 @@ export function KPIStaffView() {
             {kpiConfig!.kpi_items.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8">No KPI metrics configured yet.</p>
             ) : (
-              <div className="divide-y divide-gray-50">
+              <div className="overflow-x-auto">
+              <div className="divide-y divide-gray-50 min-w-[560px]">
                 {/* Table header */}
                 <div className="grid grid-cols-[1fr_90px_120px_180px] gap-4 px-5 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">
                   <span>Objective</span>
@@ -229,6 +230,7 @@ export function KPIStaffView() {
                     </div>
                   )
                 })}
+              </div>
               </div>
             )}
           </div>
