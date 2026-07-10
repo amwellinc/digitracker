@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
-import { ClockProvider } from '@/features/time-tracking/ClockContext'
+import { ClockProvider, useClockContext } from '@/features/time-tracking/ClockContext'
 
 const STAFF_NAV = [
   { to: '/',           end: true,  label: 'Time Tracking',   icon: '⏱',
@@ -17,13 +17,33 @@ const SUPER_ADMIN_NAV = [
   { to: '/settings',  end: false, label: 'Settings',         icon: '⚙', children: [] },
 ]
 
-export function Layout() {
+function ClockStatusBadge() {
+  const { activeLog } = useClockContext()
+  const status = activeLog?.status ?? 'clocked_out'
+  const label = status === 'working' ? 'Online' : status === 'lunch' ? 'On Lunch' : 'Offline'
+  const dotColor = status === 'working' ? 'bg-green-500' : status === 'lunch' ? 'bg-amber-500' : 'bg-gray-400'
+  const labelColor = status === 'working' ? 'text-green-600' : status === 'lunch' ? 'text-amber-500' : 'text-gray-400'
+
+  return (
+    <div className="flex items-center gap-2 text-sm text-gray-500">
+      Status:
+      <span className={`flex items-center gap-1.5 font-medium ${labelColor}`}>
+        <span
+          className={`w-2 h-2 rounded-full ${dotColor} ${status === 'working' ? 'animate-pulse' : ''}`}
+          aria-hidden="true"
+        />
+        {label}
+      </span>
+    </div>
+  )
+}
+
+function LayoutInner() {
   const { user, isSuperAdmin, visitingAccount, exitVisit, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
   const isVisiting = isSuperAdmin && !!visitingAccount
-  // When visiting: show staff nav. When super admin at home: show platform nav.
   const NAV = (isSuperAdmin && !isVisiting) ? SUPER_ADMIN_NAV : STAFF_NAV
 
   const handleSignOut = async () => {
@@ -48,7 +68,6 @@ export function Layout() {
           </div>
         </div>
 
-        {/* Visit mode indicator in sidebar */}
         {isVisiting && (
           <div className="mx-3 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             <p className="text-xs font-semibold text-amber-700">Admin Visit Mode</p>
@@ -153,7 +172,6 @@ export function Layout() {
 
       {/* Main area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Visit Banner */}
         {isVisiting && (
           <div className="bg-amber-500 text-white px-6 py-2 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-3">
@@ -181,27 +199,22 @@ export function Layout() {
             {isVisiting ? `${visitingAccount!.company_name || visitingAccount!.code} — Admin` : 'Time Tracking'}
           </h1>
           <div className="flex items-center gap-4">
-            <button className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Notifications">
-              🔔
-            </button>
-            <button className="text-sm font-medium text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50">
-              Account
-            </button>
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              Status:
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-gray-400" />
-                Inactive
-              </span>
-            </div>
+            <ClockStatusBadge />
           </div>
         </header>
-        <ClockProvider>
-          <main className="flex-1 overflow-y-auto p-6">
-            <Outlet />
-          </main>
-        </ClockProvider>
+
+        <main className="flex-1 overflow-y-auto p-6">
+          <Outlet />
+        </main>
       </div>
     </div>
+  )
+}
+
+export function Layout() {
+  return (
+    <ClockProvider>
+      <LayoutInner />
+    </ClockProvider>
   )
 }
