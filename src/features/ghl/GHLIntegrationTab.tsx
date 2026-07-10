@@ -57,7 +57,10 @@ function loadStoredInstallation(subAccount: string): StoredInstallation | null {
 export function GHLIntegrationTab() {
   const { user } = useAuth()
 
-  const clientId    = (import.meta.env.VITE_GHL_CLIENT_ID as string | undefined) ?? ''
+  // Client ID is public — appears in every OAuth URL users see.
+  // Falls back to the registered ID if the env var isn't set in the build.
+  const clientId    = (import.meta.env.VITE_GHL_CLIENT_ID as string | undefined)
+    || '6a5077c2c3994b0fe4e85b2f-mrepbni5'
   const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL  as string | undefined) ?? ''
   const webhookUrl  = `${supabaseUrl}/functions/v1/ghl-webhook`
 
