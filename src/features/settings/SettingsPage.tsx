@@ -8,8 +8,9 @@ import { SubscriptionTab } from './SubscriptionTab'
 import { SecurityTab } from './SecurityTab'
 import { BankDetailsTab } from './BankDetailsTab'
 import { PayrollTab } from './PayrollTab'
+import { GHLIntegrationTab } from '@/features/ghl/GHLIntegrationTab'
 
-type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'subscription'
+type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'subscription' | 'ghl'
 
 export function SettingsPage() {
   const { user } = useAuth()
@@ -28,6 +29,7 @@ export function SettingsPage() {
       ? [
           { id: 'users' as TabId,        label: 'Users & Roles' },
           { id: 'subscription' as TabId, label: 'Subscription' },
+          { id: 'ghl' as TabId,          label: '🔗 GHL Integration' },
         ]
       : []),
   ]
@@ -67,6 +69,7 @@ export function SettingsPage() {
       {activeTab === 'payroll'      && <PayrollTab />}
       {activeTab === 'users'        && isAdmin && <UsersTab />}
       {activeTab === 'subscription' && isAdmin && <SubscriptionTab />}
+      {activeTab === 'ghl'          && isAdmin && <GHLIntegrationTab />}
     </div>
   )
 }

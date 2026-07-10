@@ -4,6 +4,8 @@ import { LoginPage } from '@/features/auth/LoginPage'
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { AuthGuard } from '@/features/auth/AuthGuard'
 import { Layout } from './Layout'
+import { GHLInstallPage } from '@/features/ghl/GHLInstallPage'
+import { GHLConnectedPage } from '@/features/ghl/GHLConnectedPage'
 
 const TimeTrackingPage = lazy(() =>
   import('@/features/time-tracking/TimeTrackingPage').then(m => ({ default: m.TimeTrackingPage }))
@@ -45,8 +47,13 @@ export function AppRouter() {
   return (
     <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        {/* Public routes */}
+        <Route path="/login"           element={<LoginPage />} />
+        <Route path="/reset-password"  element={<ResetPasswordPage />} />
+        <Route path="/install"         element={<GHLInstallPage />} />
+        <Route path="/ghl/connected"   element={<GHLConnectedPage />} />
+
+        {/* Authenticated app shell */}
         <Route
           path="/"
           element={
