@@ -13,10 +13,25 @@
         --color-brand-light: #ede9fe;
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-YK9Qp8xU.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-J8MNCwGQ.css">
+    <script type="module" crossorigin src="/assets/index-Dc5Sjq0L.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DsKBl03H.css">
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      GHL OAuth callback bridge.
+      GHL redirects to https://digitracker.digi5y.co/ghl/callback?code=...&state=...
+      GitHub Pages serves index.html for that path (SPA). This script detects the
+      OAuth params and moves them into the hash so HashRouter can route them.
+    -->
+    <script>
+      (function () {
+        var p = window.location.pathname;
+        var s = window.location.search;
+        if (p === '/ghl/callback' && s.indexOf('code=') !== -1) {
+          window.location.replace('/#/ghl/callback' + s);
+        }
+      })();
+    </script>
   </body>
 </html>
