@@ -4,28 +4,49 @@ import { supabase } from '@/lib/supabase'
 
 export function ResetPasswordPage() {
   const navigate = useNavigate()
-  const [password, setPassword]   = useState('')
-  const [confirm, setConfirm]     = useState('')
-  const [showPass, setShowPass]   = useState(false)
-  const [status, setStatus]       = useState<'idle' | 'loading' | 'done' | 'error' | 'invalid'>('idle')
-  const [errorMsg, setErrorMsg]   = useState('')
-  const [ready, setReady]         = useState(false)
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm]   = useState('')
+  const [showPass, setShowPass] = useState(false)
+  const [status, setStatus]     = useState<'idle' | 'loading' | 'done' | 'error' | 'invalid'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [ready, setReady]       = useState(false)
+  const [timedOut, setTimedOut] = useState(false)
 
-  // Supabase sends the recovery token as a hash fragment.
-  // The auth state change with event PASSWORD_RECOVERY signals we can call updateUser.
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setReady(true)
-      if (event === 'SIGNED_IN' && !ready) {
-        // If already signed in without recovery event, might be a stale link
-      }
-    })
-    // Also check current session — user might already be in recovery state
+    // index.html bridges /auth/reset?code=XXX → /#/reset-password?code=XXX
+    // The code ends up in the hash because HashRouter puts everything there.
+    // Supabase JS only looks in window.location.search — we must exchange manually.
+    const hash   = window.location.hash           // e.g. "#/reset-password?code=XXXX"
+    const qIdx   = hash.indexOf('?')
+    const params = new URLSearchParams(qIdx >= 0 ? hash.slice(qIdx + 1) : '')
+    const code   = params.get('code')
+
+    if (code) {
+      void supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+        if (error) setStatus('invalid')
+        else setReady(true)
+      })
+      return
+    }
+
+    // Fallback path: no code in URL (direct navigation or implicit-flow legacy link).
+    // Check for an existing recovery session, then listen for auth events.
     void supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) setReady(true)
     })
-    return () => subscription.unsubscribe()
-  }, [ready])
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') setReady(true)
+    })
+
+    // If nothing resolves in 8 s the link is almost certainly expired.
+    const t = setTimeout(() => setTimedOut(true), 8000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(t)
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -39,7 +60,8 @@ export function ResetPasswordPage() {
       setStatus('error')
       return
     }
-    setStatus('loading'); setErrorMsg('')
+    setStatus('loading')
+    setErrorMsg('')
 
     const { error } = await supabase.auth.updateUser({ password })
     if (error) {
@@ -51,12 +73,13 @@ export function ResetPasswordPage() {
     setTimeout(() => navigate('/'), 2500)
   }
 
+  // ── Success ─────────────────────────────────────────────────────────────────
   if (status === 'done') {
     return (
       <Screen>
-        <div className="text-center">
-          <div className="text-5xl mb-4">✅</div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Password set!</h2>
+        <div className="text-center space-y-3">
+          <div className="text-5xl">✅</div>
+          <h2 className="text-xl font-bold text-gray-900">Password set!</h2>
           <p className="text-sm text-gray-500">
             Your password has been updated. Redirecting you to the app…
           </p>
@@ -65,26 +88,44 @@ export function ResetPasswordPage() {
     )
   }
 
+  // ── Expired / invalid link ───────────────────────────────────────────────────
+  if (status === 'invalid' || (timedOut && !ready)) {
+    return (
+      <Screen>
+        <div className="text-center space-y-4">
+          <div className="text-5xl">🔗</div>
+          <h2 className="text-xl font-bold text-gray-900">Link expired</h2>
+          <p className="text-sm text-gray-500">
+            This reset link has expired or has already been used.
+            Reset links are valid for <strong>1 hour</strong> and can only be clicked once.
+          </p>
+          <button
+            onClick={() => navigate('/login')}
+            className="inline-flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors"
+          >
+            Request a new link →
+          </button>
+        </div>
+      </Screen>
+    )
+  }
+
+  // ── Verifying ───────────────────────────────────────────────────────────────
   if (!ready) {
     return (
       <Screen>
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-gray-500">Verifying your reset link…</p>
-          <p className="text-xs text-gray-400 mt-2">
-            If this takes more than a few seconds, your link may have expired.{' '}
-            <button
-              onClick={() => navigate('/login')}
-              className="text-violet-600 hover:underline"
-            >
-              Request a new one
-            </button>
+        <div className="text-center space-y-4">
+          <div className="w-10 h-10 border-4 border-violet-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-gray-600 font-medium">Verifying your reset link…</p>
+          <p className="text-xs text-gray-400">
+            This only takes a moment. If it takes too long, the link may have expired.
           </p>
         </div>
       </Screen>
     )
   }
 
+  // ── Set password form ────────────────────────────────────────────────────────
   return (
     <Screen>
       <div className="text-center mb-2">
@@ -127,9 +168,8 @@ export function ResetPasswordPage() {
           />
         </div>
 
-        {/* Strength hint */}
         {password.length > 0 && (
-          <div className="text-xs text-gray-400 space-y-0.5">
+          <div className="text-xs space-y-0.5">
             <p className={password.length >= 8 ? 'text-green-600' : 'text-red-500'}>
               {password.length >= 8 ? '✓' : '✗'} At least 8 characters
             </p>

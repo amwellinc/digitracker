@@ -66,17 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [loadUser])
 
-  // Magic-link sign-in (OTP) — first-time access or Super Admin
-  const signIn = useCallback(async (email: string, subAccount: string) => {
-    const { data: registered } = await supabase.rpc('check_user_registered', {
-      p_email: email.toLowerCase().trim(),
-      p_sub_account: subAccount.trim(),
-    })
-    if (!registered) return { error: 'Not registered. Contact your administrator.' }
-
+  // Magic-link sign-in (OTP).
+  // Redirects to origin root so Supabase PKCE code lands in window.location.search
+  // (not buried inside the hash where Supabase JS can't find it).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const signIn = useCallback(async (email: string, _subAccount: string) => {
     const { error } = await supabase.auth.signInWithOtp({
       email: email.toLowerCase().trim(),
-      options: { emailRedirectTo: import.meta.env.VITE_APP_URL ?? window.location.origin },
+      options: { emailRedirectTo: window.location.origin },
     })
     return { error: error?.message ?? null }
   }, [])
@@ -84,23 +81,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Email + password sign-in
   const signInWithPassword = useCallback(async (
     email: string,
-    subAccount: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _subAccount: string,
     password: string,
   ) => {
-    // Verify user exists in our system first
-    const { data: registered } = await supabase.rpc('check_user_registered', {
-      p_email: email.toLowerCase().trim(),
-      p_sub_account: subAccount.trim(),
-    })
-    if (!registered) return { error: 'Not registered. Contact your administrator.' }
-
     const { error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase().trim(),
       password,
     })
-
     if (error) {
-      // Friendly message when no password is set yet
       if (error.message.includes('Invalid login credentials')) {
         return { error: 'Incorrect password. Use "Forgot password?" to set one, or sign in with a magic link.' }
       }
@@ -109,12 +98,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null }
   }, [])
 
-  // Send password reset email (also works as "set password" for new users who logged in via magic link)
+  // Send password reset email.
+  // Redirects to /auth/reset (a plain path) so index.html can bridge
+  // the PKCE ?code= into the HashRouter before ResetPasswordPage loads.
   const sendPasswordReset = useCallback(async (email: string) => {
-    const appUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.toLowerCase().trim(),
-      { redirectTo: `${appUrl}/#/reset-password` },
+      { redirectTo: `${window.location.origin}/auth/reset` },
     )
     return { error: error?.message ?? null }
   }, [])
