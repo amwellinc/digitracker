@@ -13,23 +13,38 @@
         --color-brand-light: #ede9fe;
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-Cq0Jf66L.js"></script>
+    <script type="module" crossorigin src="/assets/index-N7QC8xgT.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DsKBl03H.css">
   </head>
   <body>
     <div id="root"></div>
     <!--
-      GHL OAuth callback bridge.
-      GHL redirects to https://digitracker.digi5y.co/ghl/callback?code=...&state=...
-      GitHub Pages serves index.html for that path (SPA). This script detects the
-      OAuth params and moves them into the hash so HashRouter can route them.
+      Path-to-hash bridges for GitHub Pages + HashRouter.
+
+      GitHub Pages serves index.html for every path (SPA fallback).
+      Supabase and GHL deliver callbacks as real paths with query params —
+      but HashRouter only reads the hash fragment. These bridges detect
+      each callback path and rewrite the URL into the hash before the
+      React app boots, so the correct route receives the right params.
     -->
     <script>
       (function () {
         var p = window.location.pathname;
         var s = window.location.search;
+
+        // GHL OAuth: /ghl/callback?code=...&state=... → /#/ghl/callback?code=...&state=...
         if (p === '/ghl/callback' && s.indexOf('code=') !== -1) {
           window.location.replace('/#/ghl/callback' + s);
+          return;
+        }
+
+        // Password reset: /auth/reset?code=... → /#/reset-password?code=...
+        // sendPasswordReset() uses redirectTo: origin/auth/reset so the PKCE code
+        // lands as a real query param (?code=XXX) rather than inside the hash where
+        // Supabase JS cannot find it.
+        if (p === '/auth/reset' && s.indexOf('code=') !== -1) {
+          window.location.replace('/#/reset-password' + s);
+          return;
         }
       })();
     </script>
