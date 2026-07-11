@@ -13,37 +13,72 @@ export function ResetPasswordPage() {
   const [timedOut, setTimedOut] = useState(false)
 
   useEffect(() => {
-    // index.html bridges /auth/reset?code=XXX → /#/reset-password?code=XXX
-    // The code ends up in the hash because HashRouter puts everything there.
-    // Supabase JS only looks in window.location.search — we must exchange manually.
-    const hash   = window.location.hash           // e.g. "#/reset-password?code=XXXX"
-    const qIdx   = hash.indexOf('?')
-    const params = new URLSearchParams(qIdx >= 0 ? hash.slice(qIdx + 1) : '')
-    const code   = params.get('code')
+    // Three possible entry paths — all bridged through public/404.html:
+    //
+    //  A. Implicit flow: /auth/reset#access_token=...&type=recovery
+    //     404.html stores the raw hash string in sessionStorage("dt_recovery")
+    //     then redirects to /#/reset-password. We call setSession() here.
+    //
+    //  B. PKCE flow: /auth/reset?code=...
+    //     404.html redirects to /#/reset-password?code=...
+    //     The code ends up in window.location.hash (HashRouter). We call
+    //     exchangeCodeForSession() manually because Supabase JS reads
+    //     window.location.search — which is empty with HashRouter.
+    //
+    //  C. No token: show spinner → timeout → expired-link screen.
 
-    if (code) {
-      void supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+    let cancelled = false
+    let unsubscribe: (() => void) | undefined
+
+    async function bootstrap() {
+      // ── Path A: implicit flow (most common with default Supabase projects) ──
+      const stored = sessionStorage.getItem('dt_recovery')
+      if (stored) {
+        sessionStorage.removeItem('dt_recovery')
+        const hp           = new URLSearchParams(stored)
+        const accessToken  = hp.get('access_token')  ?? ''
+        const refreshToken = hp.get('refresh_token') ?? ''
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+          if (cancelled) return
+          if (error) setStatus('invalid')
+          else setReady(true)
+          return
+        }
+      }
+
+      // ── Path B: PKCE flow — code is in the hash query string ──────────────
+      const hash    = window.location.hash           // "#/reset-password?code=XXXX"
+      const qIdx    = hash.indexOf('?')
+      const hParams = new URLSearchParams(qIdx >= 0 ? hash.slice(qIdx + 1) : '')
+      const code    = hParams.get('code')
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (cancelled) return
         if (error) setStatus('invalid')
         else setReady(true)
+        return
+      }
+
+      // ── Path C: check for existing session, then wait for auth events ──────
+      const { data: { session } } = await supabase.auth.getSession()
+      if (cancelled) return
+      if (session) { setReady(true); return }
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+        if (cancelled) return
+        if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') setReady(true)
       })
-      return
+      unsubscribe = () => subscription.unsubscribe()
     }
 
-    // Fallback path: no code in URL (direct navigation or implicit-flow legacy link).
-    // Check for an existing recovery session, then listen for auth events.
-    void supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
-    })
+    void bootstrap()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') setReady(true)
-    })
-
-    // If nothing resolves in 8 s the link is almost certainly expired.
-    const t = setTimeout(() => setTimedOut(true), 8000)
+    const t = setTimeout(() => { if (!cancelled) setTimedOut(true) }, 8000)
 
     return () => {
-      subscription.unsubscribe()
+      cancelled = true
+      unsubscribe?.()
       clearTimeout(t)
     }
   }, [])
