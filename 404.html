@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DIGITRACKER</title>
+  <style>
+    body { margin: 0; display: flex; align-items: center; justify-content: center;
+           min-height: 100vh; background: #f9fafb; font-family: sans-serif; }
+    p { color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <p>Redirecting…</p>
+  <!--
+    GitHub Pages serves this file for every path that has no matching file.
+    All Supabase and GHL callbacks arrive here as real server paths.
+    This script bridges them into the HashRouter before React boots.
+  -->
+  <script>
+    (function () {
+      var p  = window.location.pathname;
+      var s  = window.location.search;
+      var h  = window.location.hash;          // e.g. "#access_token=...&type=recovery"
+      var hp = new URLSearchParams(h.slice(1));
+
+      // ── GHL OAuth ────────────────────────────────────────────────────────
+      // /ghl/callback?code=...&state=... → /#/ghl/callback?code=...&state=...
+      if (p === '/ghl/callback' && s.indexOf('code=') !== -1) {
+        window.location.replace('/#/ghl/callback' + s);
+        return;
+      }
+
+      // ── Password reset — IMPLICIT FLOW ───────────────────────────────────
+      // Supabase sends: /auth/reset#access_token=...&type=recovery
+      // HashRouter only has one hash slot, so we can't embed the token there.
+      // Store the raw hash params in sessionStorage; ResetPasswordPage reads them.
+      if (p === '/auth/reset' &&
+          hp.get('access_token') &&
+          hp.get('type') === 'recovery') {
+        try { sessionStorage.setItem('dt_recovery', h.slice(1)); } catch (e) {}
+        window.location.replace('/#/reset-password');
+        return;
+      }
+
+      // ── Password reset — PKCE FLOW ───────────────────────────────────────
+      // Supabase sends: /auth/reset?code=...
+      // Move the code into the hash so HashRouter delivers it to ResetPasswordPage.
+      if (p === '/auth/reset' && s.indexOf('code=') !== -1) {
+        window.location.replace('/#/reset-password' + s);
+        return;
+      }
+
+      // ── Everything else → home ───────────────────────────────────────────
+      window.location.replace('/');
+    })();
+  </script>
+</body>
+</html>

@@ -13,7 +13,7 @@
         --color-brand-light: #ede9fe;
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-N7QC8xgT.js"></script>
+    <script type="module" crossorigin src="/assets/index-xGB5Zb8N.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DsKBl03H.css">
   </head>
   <body>
@@ -29,19 +29,28 @@
     -->
     <script>
       (function () {
-        var p = window.location.pathname;
-        var s = window.location.search;
+        var p  = window.location.pathname;
+        var s  = window.location.search;
+        var h  = window.location.hash;
+        var hp = new URLSearchParams(h.slice(1));
 
-        // GHL OAuth: /ghl/callback?code=...&state=... → /#/ghl/callback?code=...&state=...
+        // GHL OAuth: /ghl/callback?code=...&state=... → /#/ghl/callback?...
+        // (Also handled by public/404.html — whichever GitHub Pages serves first.)
         if (p === '/ghl/callback' && s.indexOf('code=') !== -1) {
           window.location.replace('/#/ghl/callback' + s);
           return;
         }
 
-        // Password reset: /auth/reset?code=... → /#/reset-password?code=...
-        // sendPasswordReset() uses redirectTo: origin/auth/reset so the PKCE code
-        // lands as a real query param (?code=XXX) rather than inside the hash where
-        // Supabase JS cannot find it.
+        // Password reset — implicit flow: /auth/reset#access_token=...&type=recovery
+        if (p === '/auth/reset' &&
+            hp.get('access_token') &&
+            hp.get('type') === 'recovery') {
+          try { sessionStorage.setItem('dt_recovery', h.slice(1)); } catch (e) {}
+          window.location.replace('/#/reset-password');
+          return;
+        }
+
+        // Password reset — PKCE flow: /auth/reset?code=...
         if (p === '/auth/reset' && s.indexOf('code=') !== -1) {
           window.location.replace('/#/reset-password' + s);
           return;
