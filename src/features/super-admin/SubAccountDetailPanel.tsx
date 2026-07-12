@@ -1,21 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
-import type { SubAccount, Subscription } from '@/types'
+import type { SubAccount, Subscription, User } from '@/types'
 import type { UserRole } from '@/types'
 import { COUNTRY_OPTIONS } from '@/lib/constants'
-
-interface User {
-  id: string
-  name: string
-  email: string
-  role: UserRole
-  country: string
-  created_at: string
-  annual_leave: number
-  time_off: number
-  reporting_time_in: string
-  reporting_time_out: string
-}
+import { useAuth } from '@/hooks/useAuth'
 
 interface TimeLog {
   user_id: string
@@ -61,6 +50,8 @@ const PLAN_MRR: Record<string, number> = { free: 0, basic: 19.9, business: 39.9,
 type PanelTab = 'overview' | 'users' | 'settings' | 'subscription'
 
 export function SubAccountDetailPanel({ account, onClose }: Props) {
+  const { startViewAs } = useAuth()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<PanelTab>('users')
   const [users, setUsers] = useState<User[]>([])
   const [sub, setSub] = useState<Subscription | null>(null)
@@ -93,7 +84,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
     const [{ data: usersData }, { data: subData }, { data: logsData }] = await Promise.all([
       supabase
         .from('users')
-        .select('id, name, email, role, country, created_at, annual_leave, time_off, reporting_time_in, reporting_time_out')
+        .select('id, name, email, role, sub_account, manager_id, country, created_at, annual_leave, time_off, reporting_time_in, reporting_time_out, profile_image, phone')
         .eq('sub_account', account.code)
         .order('role'),
       supabase.from('subscriptions').select('*').eq('sub_account', account.code).maybeSingle(),
@@ -148,6 +139,13 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
     setShowAddUser(false)
     setAddUserForm(emptyAddUser())
     void load()
+  }
+
+  // ── View As ────────────────────────────────────────────────────────────────
+  function handleViewAs(u: User) {
+    startViewAs(u)
+    onClose()
+    navigate('/')
   }
 
   // ── Delete user ────────────────────────────────────────────────────────────
@@ -301,6 +299,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                           <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Email</th>
                           <th className="text-center px-4 py-3 text-xs font-medium text-gray-500">Role</th>
                           <th className="text-center px-4 py-3 text-xs font-medium text-gray-500">Country</th>
+                          <th className="text-center px-4 py-3 text-xs font-medium text-indigo-500">View As</th>
                           <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">Actions</th>
                         </tr>
                       </thead>
@@ -343,6 +342,15 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                               )}
                             </td>
                             <td className="px-4 py-3 text-center text-xs text-gray-500">{u.country || '—'}</td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                onClick={() => handleViewAs(u)}
+                                title={`View app as ${u.name}`}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-colors"
+                              >
+                                👁 View As
+                              </button>
+                            </td>
                             <td className="px-4 py-3 text-right">
                               {editingUser?.id !== u.id && (
                                 <div className="flex items-center justify-end gap-2">

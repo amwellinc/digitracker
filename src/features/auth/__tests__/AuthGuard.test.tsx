@@ -35,6 +35,9 @@ const ctx = (user: User | null, loading = false) => ({
   visitingAccount: null,
   visitSubAccount: vi.fn(),
   exitVisit: vi.fn(),
+  viewAsUser: null,
+  startViewAs: vi.fn(),
+  exitViewAs: vi.fn(),
   signIn: vi.fn(), signInWithPassword: vi.fn(), sendPasswordReset: vi.fn(), signOut: vi.fn(), refreshUser: vi.fn(),
 })
 

@@ -1,87 +1,131 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
-import type { KPI, KPIDailyLog } from '@/types'
+import type { EODRow, KPI, KPIDailyLog } from '@/types'
+import { KPIIndicators } from './KPIIndicators'
 
-function getUrgency(timeOut: string | undefined, submitted: boolean): 'none' | 'upcoming' | 'urgent' {
-  if (submitted) return 'none'
-  if (!timeOut) return 'upcoming'
-  const [h, m] = timeOut.split(':').map(Number)
-  const minsLeft = (new Date().setHours(h, m, 0, 0) - Date.now()) / 60000
-  if (minsLeft < 60) return 'urgent'
-  return 'upcoming'
+function todayStr() { return new Date().toISOString().slice(0, 10) }
+function todayFmt() {
+  return new Date().toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-function ProgressBar({ value, max }: { value: number; max: number }) {
-  const p = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
-  return (
-    <div className="flex items-center gap-2 min-w-0">
-      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${p >= 100 ? 'bg-green-500' : p >= 70 ? 'bg-violet-500' : 'bg-amber-400'}`}
-          style={{ width: `${p}%` }}
-        />
-      </div>
-      <span className={`text-xs font-semibold w-10 text-right ${p >= 100 ? 'text-green-600' : p >= 70 ? 'text-violet-600' : 'text-amber-500'}`}>
-        {p}%
-      </span>
-    </div>
-  )
-}
+function emptyRow(): EODRow { return { task: '', remarks: '' } }
 
 export function KPIStaffView() {
   const { user } = useAuth()
-  const today = new Date().toISOString().slice(0, 10)
-  const todayFmt = new Date(today).toLocaleDateString('en-SG', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
+  const today = todayStr()
 
-  const [kpiConfig, setKpiConfig]         = useState<KPI | null>(null)
-  const [todayLog, setTodayLog]           = useState<KPIDailyLog | null>(null)
-  const [loading, setLoading]             = useState(true)
-  const [metricActuals, setMetricActuals] = useState<Record<string, string>>({})
-  const [checklistDone, setChecklistDone] = useState<boolean[]>([])
-  const [notes, setNotes]                 = useState('')
-  const [submitting, setSubmitting]       = useState(false)
-  const [submitted, setSubmitted]         = useState(false)
+  const [kpiConfig,  setKpiConfig]  = useState<KPI | null>(null)
+  const [todayLog,   setTodayLog]   = useState<KPIDailyLog | null>(null)
+  const [loading,    setLoading]    = useState(true)
 
-  useEffect(() => {
+  // Checklist state
+  const [checkDone,    setCheckDone]    = useState<boolean[]>([])
+  const [checkRemarks, setCheckRemarks] = useState<string[]>([])
+  const [savingCheck,  setSavingCheck]  = useState(false)
+
+  // EOD rows state
+  const [eodRows,     setEodRows]     = useState<EODRow[]>([emptyRow(), emptyRow(), emptyRow()])
+  const [submitting,  setSubmitting]  = useState(false)
+  const [eodSubmitted,setEodSubmitted] = useState(false)
+  const [eodSavedAt, setEodSavedAt]  = useState<string | null>(null)
+  const [eodMsg,     setEodMsg]      = useState<string | null>(null)
+
+  const loadData = useCallback(async () => {
     if (!user) return
-    Promise.all([
+    setLoading(true)
+    const [{ data: kpi }, { data: log }] = await Promise.all([
       supabase.from('kpis').select('*').eq('user_id', user.id).maybeSingle(),
       supabase.from('kpi_daily_logs').select('*').eq('user_id', user.id).eq('date', today).maybeSingle(),
-    ]).then(([{ data: kpi }, { data: log }]) => {
-      const config = kpi as KPI ?? null
-      const dayLog = log as KPIDailyLog ?? null
-      setKpiConfig(config)
-      setTodayLog(dayLog)
-      if (config) {
-        const actuals: Record<string, string> = {}
-        config.kpi_items.forEach(m => {
-          actuals[m.id] = dayLog?.metric_actuals?.[m.id] != null ? String(dayLog.metric_actuals[m.id]) : ''
-        })
-        setMetricActuals(actuals)
-        setChecklistDone(config.checklists.map((_, i) => dayLog?.checklist_done?.[i] ?? false))
-        setNotes(dayLog?.notes ?? '')
-        if (dayLog) setSubmitted(true)
-      }
-      setLoading(false)
-    })
+    ])
+    const config = kpi as KPI ?? null
+    const dayLog = log as KPIDailyLog ?? null
+    setKpiConfig(config)
+    setTodayLog(dayLog)
+
+    if (config) {
+      setCheckDone(config.checklists.map((_, i) => dayLog?.checklist_done?.[i] ?? false))
+      setCheckRemarks(config.checklists.map((_, i) => dayLog?.checklist_remarks?.[i] ?? ''))
+    }
+
+    const rows: EODRow[] = Array.isArray(dayLog?.eod_rows) && (dayLog!.eod_rows as EODRow[]).length > 0
+      ? (dayLog!.eod_rows as EODRow[])
+      : [emptyRow(), emptyRow(), emptyRow()]
+    setEodRows(rows)
+
+    if (dayLog && Array.isArray(dayLog.eod_rows) && (dayLog.eod_rows as EODRow[]).some(r => r.task?.trim())) {
+      setEodSubmitted(true)
+      setEodSavedAt(dayLog.submitted_at)
+    }
+
+    setLoading(false)
   }, [user, today])
 
-  async function handleSubmit() {
-    if (!user || !kpiConfig) return
-    setSubmitting(true)
-    const actuals: Record<string, number> = {}
-    kpiConfig.kpi_items.forEach(m => {
-      const v = metricActuals[m.id]
-      if (v !== '') actuals[m.id] = Number(v)
-    })
-    const { data } = await supabase
-      .from('kpi_daily_logs')
-      .upsert({ user_id: user.id, date: today, metric_actuals: actuals, checklist_done: checklistDone, notes: notes.trim() || null, submitted_at: new Date().toISOString() }, { onConflict: 'user_id,date' })
+  useEffect(() => { void loadData() }, [loadData])
+
+  // Save checklist (called on check/uncheck and remarks change)
+  async function saveChecklist(done: boolean[], remarks: string[]) {
+    if (!user) return
+    setSavingCheck(true)
+    const payload = {
+      user_id: user.id, date: today,
+      metric_actuals: todayLog?.metric_actuals ?? {},
+      checklist_done: done,
+      checklist_remarks: remarks,
+      eod_rows: eodRows,
+      notes: null,
+      submitted_at: todayLog?.submitted_at ?? new Date().toISOString(),
+    }
+    const { data } = await supabase.from('kpi_daily_logs')
+      .upsert(payload, { onConflict: 'user_id,date' })
       .select().single()
-    if (data) { setTodayLog(data as KPIDailyLog); setSubmitted(true) }
+    if (data) setTodayLog(data as KPIDailyLog)
+    setSavingCheck(false)
+  }
+
+  function toggleCheck(i: number) {
+    const done = checkDone.map((v, j) => j === i ? !v : v)
+    setCheckDone(done)
+    void saveChecklist(done, checkRemarks)
+  }
+
+  function updateCheckRemark(i: number, val: string) {
+    const remarks = checkRemarks.map((v, j) => j === i ? val : v)
+    setCheckRemarks(remarks)
+    void saveChecklist(checkDone, remarks)
+  }
+
+  // EOD rows
+  function updateRow(i: number, field: keyof EODRow, val: string) {
+    setEodRows(rows => rows.map((r, j) => j === i ? { ...r, [field]: val } : r))
+  }
+  function addRow() { setEodRows(rows => [...rows, emptyRow()]) }
+  function removeRow(i: number) {
+    if (eodRows.length <= 1) return
+    setEodRows(rows => rows.filter((_, j) => j !== i))
+  }
+
+  async function submitEOD() {
+    if (!user) return
+    const filledRows = eodRows.filter(r => r.task.trim())
+    if (filledRows.length < 1) { setEodMsg('Add at least one task before submitting.'); return }
+    setSubmitting(true)
+    const now = new Date().toISOString()
+    const payload = {
+      user_id: user.id, date: today,
+      metric_actuals: todayLog?.metric_actuals ?? {},
+      checklist_done: checkDone,
+      checklist_remarks: checkRemarks,
+      eod_rows: eodRows,
+      notes: null,
+      submitted_at: now,
+    }
+    const { data } = await supabase.from('kpi_daily_logs')
+      .upsert(payload, { onConflict: 'user_id,date' })
+      .select().single()
+    if (data) { setTodayLog(data as KPIDailyLog); setEodSubmitted(true); setEodSavedAt(now) }
+    setEodMsg('EOD Report saved!')
+    setTimeout(() => setEodMsg(null), 3000)
     setSubmitting(false)
   }
 
@@ -89,241 +133,221 @@ export function KPIStaffView() {
     return <div className="flex justify-center py-20"><div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin" /></div>
   }
 
-  const hasKpi = kpiConfig && (kpiConfig.kpi_items.length > 0 || kpiConfig.duties.length > 0 || kpiConfig.checklists.length > 0)
-
-  if (!hasKpi) {
-    return (
-      <div className="bg-white rounded-2xl border border-gray-200 flex flex-col items-center justify-center py-20 text-gray-400">
-        <span className="text-5xl mb-3">📊</span>
-        <p className="text-base font-medium text-gray-500">KPIs haven't been set up yet</p>
-        <p className="text-sm mt-1">Contact your manager to configure your KPIs and checklist.</p>
-      </div>
-    )
-  }
-
-  const urgency = getUrgency(user?.reporting_time_out, submitted)
-  const checkDone = checklistDone.filter(Boolean).length
-  const checkTotal = kpiConfig!.checklists.length
+  const checklist = kpiConfig?.checklists ?? []
+  const duties    = kpiConfig?.duties ?? []
+  const checkDoneCount = checkDone.filter(Boolean).length
 
   return (
-    <div className="space-y-4">
-      {/* Urgency banner */}
-      {urgency !== 'none' && (
-        <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 ${urgency === 'urgent' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-          <span className="text-lg">{urgency === 'urgent' ? '🔴' : '⚠️'}</span>
-          <p className="text-sm font-semibold flex-1">
-            {urgency === 'urgent' ? 'Daily Report overdue — submit before clocking out!' : 'Daily Report pending — submit before clock-out.'}
-            {user?.reporting_time_out && <span className="font-normal ml-1 opacity-70">Clock-out: {user.reporting_time_out}</span>}
-          </p>
-        </div>
-      )}
+    <div className="space-y-5">
 
-      {/* ── 2-column layout: stacks on mobile ── */}
+      {/* ── KPI Performance Indicators ── */}
+      {user && <KPIIndicators user={user} />}
+
+      {/* ── Urgency banner ── */}
+      {(() => {
+        if (!user?.reporting_time_out) return null
+        const [h, m] = user.reporting_time_out.split(':').map(Number)
+        const minsLeft = (new Date().setHours(h, m, 0, 0) - Date.now()) / 60000
+        if (minsLeft > 60 || minsLeft < 0) return null
+        return (
+          <div className="rounded-xl border bg-red-50 border-red-200 text-red-700 px-4 py-3 flex items-center gap-3">
+            <span className="text-lg">🔴</span>
+            <p className="text-sm font-semibold">EOD Report due soon — clock-out at {user.reporting_time_out}</p>
+          </div>
+        )
+      })()}
+
+      {/* ── 3-Section Layout ── */}
       <div className="flex flex-col lg:flex-row gap-5 items-start">
 
-        {/* ── LEFT: Daily Checklist ── */}
-        <div className="w-full lg:w-64 lg:flex-shrink-0 bg-white border border-gray-200 rounded-2xl overflow-hidden">
-          <div className="px-4 py-3.5 border-b border-gray-100 bg-gray-50">
-            <p className="text-sm font-bold text-gray-800">✅ Daily Checklist</p>
-            <p className="text-xs text-gray-400 mt-0.5">{todayFmt}</p>
-          </div>
-
-          {kpiConfig!.checklists.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-8">No checklist items configured.</p>
-          ) : (
-            <>
-              <div className="px-4 py-3 space-y-2.5">
-                {kpiConfig!.checklists.map((item, i) => (
-                  <label key={i} className="flex items-start gap-2.5 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={checklistDone[i] ?? false}
-                      onChange={e => {
-                        const updated = [...checklistDone]
-                        updated[i] = e.target.checked
-                        setChecklistDone(updated)
-                      }}
-                      className="mt-0.5 w-4 h-4 accent-violet-600 flex-shrink-0"
-                    />
-                    <span className={`text-xs leading-relaxed transition-colors ${checklistDone[i] ? 'text-gray-300 line-through' : 'text-gray-700 group-hover:text-gray-900'}`}>
-                      {item}
-                    </span>
-                  </label>
+        {/* ══ LEFT: Daily Check List ══ */}
+        <div className="w-full lg:w-72 lg:flex-shrink-0">
+          <div className="border border-purple-300 rounded-xl overflow-hidden shadow-sm">
+            {/* Header */}
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr>
+                  <th colSpan={2} className="bg-gray-700 text-white px-4 py-2.5 text-left font-bold text-sm tracking-wide">
+                    Daily Check List
+                  </th>
+                  <th className="bg-gray-700 text-white px-3 py-2.5 text-left font-bold text-sm">Remarks</th>
+                </tr>
+                <tr className="bg-sky-50 border-b border-sky-100">
+                  <td colSpan={2} className="px-4 py-2 text-xs font-semibold text-gray-600">{todayFmt()}</td>
+                  <td className="px-3 py-2 text-xs font-semibold text-gray-600" />
+                </tr>
+              </thead>
+              <tbody>
+                {checklist.length === 0 ? (
+                  <tr><td colSpan={3} className="px-4 py-8 text-xs text-gray-400 text-center">No checklist items. Ask your manager to configure them.</td></tr>
+                ) : checklist.map((item, i) => (
+                  <tr key={i} className={`border-b border-gray-100 ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}>
+                    <td className="w-8 pl-3 pr-1 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={checkDone[i] ?? false}
+                        onChange={() => toggleCheck(i)}
+                        className="w-4 h-4 accent-violet-600 cursor-pointer"
+                      />
+                    </td>
+                    <td className="py-2.5 pr-2">
+                      <span className={`text-xs leading-relaxed ${checkDone[i] ? 'line-through text-gray-300' : 'text-gray-700'}`}>
+                        {item}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="text"
+                        value={checkRemarks[i] ?? ''}
+                        onChange={e => updateCheckRemark(i, e.target.value)}
+                        placeholder="—"
+                        className="w-full text-xs border-0 bg-transparent outline-none text-gray-600 placeholder-gray-300 focus:ring-0 p-0"
+                      />
+                    </td>
+                  </tr>
                 ))}
-              </div>
+              </tbody>
+            </table>
 
-              {/* Progress footer */}
-              <div className="px-4 pb-4">
+            {/* Progress footer */}
+            {checklist.length > 0 && (
+              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
                 <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
-                  <span>Progress</span>
-                  <span className="font-semibold text-violet-700">{checkDone}/{checkTotal}</span>
+                  <span>Progress {savingCheck && <span className="text-violet-400 animate-pulse">· saving…</span>}</span>
+                  <span className="font-semibold text-violet-700">{checkDoneCount}/{checklist.length}</span>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all ${checkDone === checkTotal && checkTotal > 0 ? 'bg-green-500' : 'bg-violet-500'}`}
-                    style={{ width: `${checkTotal > 0 ? Math.round((checkDone / checkTotal) * 100) : 0}%` }}
+                    className={`h-full rounded-full transition-all ${checkDoneCount === checklist.length && checklist.length > 0 ? 'bg-green-500' : 'bg-violet-500'}`}
+                    style={{ width: `${checklist.length > 0 ? Math.round((checkDoneCount / checklist.length) * 100) : 0}%` }}
                   />
                 </div>
-                {checkDone === checkTotal && checkTotal > 0 && (
-                  <p className="text-xs text-green-600 font-semibold mt-1.5 text-center">All done! 🎉</p>
+                {checkDoneCount === checklist.length && checklist.length > 0 && (
+                  <p className="text-xs text-green-600 font-semibold mt-1 text-center">All done! 🎉</p>
                 )}
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* ── RIGHT: 3 Main Sections ── */}
+        {/* ══ RIGHT: Duties + EOD ══ */}
         <div className="flex-1 min-w-0 space-y-5">
 
-          {/* ── Section 1: Your Objectives ── */}
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-gray-800">🎯 Your Objectives</p>
-                <p className="text-xs text-gray-400 mt-0.5">Enter your actual figures for today's report</p>
-              </div>
-              {kpiConfig!.kpi_items.length > 0 && (
-                <span className="text-xs bg-violet-50 text-violet-600 font-semibold px-2.5 py-1 rounded-full border border-violet-100">
-                  {kpiConfig!.kpi_items.length} metric{kpiConfig!.kpi_items.length !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-
-            {kpiConfig!.kpi_items.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-8">No KPI metrics configured yet.</p>
-            ) : (
-              <div className="overflow-x-auto">
-              <div className="divide-y divide-gray-50 min-w-[560px]">
-                {/* Table header */}
-                <div className="grid grid-cols-[1fr_90px_120px_180px] gap-4 px-5 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                  <span>Objective</span>
-                  <span>Period</span>
-                  <span className="text-right">Target / Actual</span>
-                  <span>Progress</span>
-                </div>
-                {kpiConfig!.kpi_items.map((m, i) => {
-                  const actualStr = metricActuals[m.id] ?? ''
-                  const actual = actualStr !== '' ? Number(actualStr) : undefined
-                  return (
-                    <div key={m.id} className={`grid grid-cols-[1fr_90px_120px_180px] gap-4 items-center px-5 py-3 ${i % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{m.name}</p>
-                        <p className="text-xs text-gray-400">{m.unit}</p>
+          {/* ── Duties & Responsibilities ── */}
+          <div className="border border-purple-300 rounded-xl overflow-hidden shadow-sm">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr>
+                  <th colSpan={2} className="bg-violet-800 text-white px-4 py-2.5 text-left font-bold text-sm tracking-wide">
+                    Main Duties and Responsibilities
+                  </th>
+                </tr>
+                <tr className="bg-sky-50 border-b border-sky-100">
+                  <td className="px-4 py-2 text-xs font-semibold text-gray-700">Duties &amp; responsibilities</td>
+                  <td className="px-4 py-2 text-xs font-semibold text-gray-700 w-32">Remarks</td>
+                </tr>
+              </thead>
+              <tbody>
+                {duties.length === 0 ? (
+                  <tr><td colSpan={2} className="px-4 py-8 text-xs text-gray-400 text-center">No duties configured. Ask your manager to set them up.</td></tr>
+                ) : duties.map((duty, i) => (
+                  <tr key={i} className={`border-b border-gray-100 ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-start gap-2.5">
+                        <span className="text-[11px] font-bold text-gray-400 mt-0.5 w-4 flex-shrink-0">{i + 1}.</span>
+                        <span className="text-xs text-gray-700 leading-relaxed">{duty}</span>
                       </div>
-                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full w-fit">{m.period}</span>
-                      <div className="flex items-center justify-end gap-1.5">
-                        <span className="text-xs text-gray-400">{m.target} /</span>
-                        <input
-                          type="number" min="0"
-                          value={actualStr}
-                          onChange={e => setMetricActuals(prev => ({ ...prev, [m.id]: e.target.value }))}
-                          placeholder="—"
-                          className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-sm text-right font-semibold focus:outline-none focus:ring-2 focus:ring-violet-400"
-                        />
-                      </div>
-                      <div>
-                        {actual != null
-                          ? <ProgressBar value={actual} max={m.target} />
-                          : <span className="text-xs text-gray-300">Enter actual above</span>
-                        }
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── Section 2: Your Duties & Responsibilities ── */}
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-gray-800">📋 Your Duties & Responsibilities</p>
-                <p className="text-xs text-gray-400 mt-0.5">Your assigned role and responsibilities</p>
-              </div>
-              {kpiConfig!.duties.length > 0 && (
-                <span className="text-xs bg-blue-50 text-blue-600 font-semibold px-2.5 py-1 rounded-full border border-blue-100">
-                  {kpiConfig!.duties.length} dut{kpiConfig!.duties.length !== 1 ? 'ies' : 'y'}
-                </span>
-              )}
-            </div>
-
-            {kpiConfig!.duties.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-8">No duties configured yet.</p>
-            ) : (
-              <div className="divide-y divide-gray-50">
-                {kpiConfig!.duties.map((duty, i) => (
-                  <div key={i} className={`flex items-start gap-4 px-5 py-3.5 ${i % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
-                    <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
-                      {i + 1}
-                    </span>
-                    <p className="text-sm text-gray-700 leading-relaxed">{duty}</p>
-                  </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-400" />
+                  </tr>
                 ))}
-              </div>
-            )}
+              </tbody>
+            </table>
           </div>
 
-          {/* ── Section 3: Your Daily Report ── */}
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-gray-800">📝 Your Daily Report</p>
-                <p className="text-xs text-gray-400 mt-0.5">{todayFmt}</p>
-              </div>
-              {submitted && todayLog && (
-                <span className="text-xs bg-green-50 text-green-700 border border-green-200 font-semibold px-2.5 py-1 rounded-full">
-                  ✓ Submitted {new Date(todayLog.submitted_at).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                </span>
-              )}
-            </div>
+          {/* ── EOD Report ── */}
+          <div className="border border-pink-300 rounded-xl overflow-hidden shadow-sm">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr>
+                  <th className="bg-pink-600 text-white px-4 py-2.5 text-left font-bold text-sm tracking-wide">
+                    End of the day – Report
+                  </th>
+                  <th className="bg-pink-600 text-white px-4 py-2.5 text-right text-xs font-normal opacity-80">
+                    {eodSubmitted && eodSavedAt && (
+                      <span>✓ Saved {new Date(eodSavedAt).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+                    )}
+                  </th>
+                </tr>
+                <tr className="bg-sky-50 border-b border-sky-100">
+                  <td className="px-4 py-2 text-xs font-semibold text-gray-700">Duties &amp; Task performed</td>
+                  <td className="px-4 py-2 text-xs font-semibold text-gray-700 w-44">Remarks / Checked</td>
+                </tr>
+              </thead>
+              <tbody>
+                {eodRows.map((row, i) => (
+                  <tr key={i} className={`border-b border-gray-100 ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}>
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="text"
+                        value={row.task}
+                        onChange={e => updateRow(i, 'task', e.target.value)}
+                        placeholder={`Task ${i + 1}…`}
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={row.remarks}
+                          onChange={e => updateRow(i, 'remarks', e.target.value)}
+                          placeholder="Remarks…"
+                          className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white"
+                        />
+                        {eodRows.length > 1 && (
+                          <button
+                            onClick={() => removeRow(i)}
+                            className="text-gray-300 hover:text-red-400 text-base leading-none flex-shrink-0 ml-1"
+                            title="Remove row"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-            <div className="px-5 py-4 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
-                  Summary / Highlights
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  rows={4}
-                  placeholder="What did you accomplish today? Any blockers, wins, or important updates?"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
-                />
-              </div>
-
-              {/* Checklist summary row */}
-              {checkTotal > 0 && (
-                <div className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl text-xs text-gray-600">
-                  <span>✅ Checklist</span>
-                  <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${checkDone === checkTotal ? 'bg-green-500' : 'bg-violet-400'}`}
-                      style={{ width: `${Math.round((checkDone / checkTotal) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="font-semibold">{checkDone}/{checkTotal} done</span>
-                </div>
-              )}
-
+            {/* Footer actions */}
+            <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3">
               <button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className="w-full py-3 bg-violet-600 text-white font-semibold rounded-xl hover:bg-violet-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-sm"
+                onClick={addRow}
+                className="text-xs text-pink-600 font-semibold hover:text-pink-700 flex items-center gap-1"
               >
-                {submitting ? (
-                  <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Submitting…</>
-                ) : submitted ? '✓ Update Daily Report' : '✓ Submit Daily Report'}
+                <span className="text-base leading-none">+</span> Add Row
               </button>
-              <p className="text-xs text-center text-gray-400">
-                {submitted ? 'Resubmit to update your report for today.' : 'Submit this before clocking out.'}
-              </p>
+              <div className="flex items-center gap-3">
+                {eodMsg && <span className="text-xs text-green-600 font-medium">{eodMsg}</span>}
+                <p className="text-xs text-gray-400">Min. 3 tasks recommended</p>
+                <button
+                  onClick={submitEOD}
+                  disabled={submitting}
+                  className="bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold px-4 py-2 rounded-lg disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                >
+                  {submitting
+                    ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving…</>
+                    : eodSubmitted ? '↺ Update EOD Report' : '✓ Submit EOD Report'
+                  }
+                </button>
+              </div>
             </div>
           </div>
 
         </div>{/* end right column */}
-      </div>{/* end 2-col */}
+      </div>{/* end 3-section layout */}
     </div>
   )
 }

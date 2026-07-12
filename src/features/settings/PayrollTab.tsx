@@ -69,12 +69,11 @@ export function PayrollTab() {
   useEffect(() => {
     void fetchEntries()
     if (isManager && user) {
-      void supabase
-        .from('users')
-        .select('id, name, email, role')
-        .eq('sub_account', user.sub_account)
-        .order('name')
-        .then(({ data }) => setUsers((data as User[]) ?? []))
+      const q = supabase.from('users').select('id, name, email, role')
+      const scoped = user.role === 'Manager'
+        ? q.eq('manager_id', user.id)
+        : q.eq('sub_account', user.sub_account)
+      void scoped.order('name').then(({ data }) => setUsers((data as User[]) ?? []))
     }
   }, [fetchEntries, isManager, user])
 

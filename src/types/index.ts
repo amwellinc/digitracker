@@ -115,14 +115,31 @@ export interface KPI {
   updated_at: string
 }
 
+export interface EODRow {
+  task: string
+  remarks: string
+}
+
 export interface KPIDailyLog {
   id: string
   user_id: string
   date: string
   metric_actuals: Record<string, number>
   checklist_done: boolean[]
+  checklist_remarks: string[]
+  eod_rows: EODRow[]
   notes: string | null
   submitted_at: string
+}
+
+export interface PerformancePoints {
+  id: string
+  user_id: string
+  manager_id: string
+  week_start: string
+  points: number
+  notes: string | null
+  created_at: string
 }
 
 export interface Subscription {

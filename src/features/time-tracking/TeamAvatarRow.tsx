@@ -20,7 +20,7 @@ export function TeamAvatarRow() {
     const { data: users } = await supabase
       .from('users')
       .select('*')
-      .eq('sub_account', user.sub_account)
+      .eq('manager_id', user.id)
       .order('name')
 
     const { data: active } = await supabase

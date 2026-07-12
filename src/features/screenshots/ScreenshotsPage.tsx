@@ -121,15 +121,14 @@ export function ScreenshotsPage() {
   const [loading, setLoading] = useState(true)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
 
-  // Load team members for admin / manager
+  // Load team members for admin / manager — managers see only their assigned staff
   useEffect(() => {
     if (!user || !canManage) return
-    void supabase
-      .from('users')
-      .select('*')
-      .eq('sub_account', user.sub_account)
-      .order('name')
-      .then(({ data }) => setMembers((data ?? []) as User[]))
+    const q = supabase.from('users').select('*')
+    const scoped = user.role === 'Manager'
+      ? q.eq('manager_id', user.id)
+      : q.eq('sub_account', user.sub_account)
+    void scoped.order('name').then(({ data }) => setMembers((data ?? []) as User[]))
   }, [user, canManage])
 
   const loadShots = useCallback(async (uid: string, date: string) => {

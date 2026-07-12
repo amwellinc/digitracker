@@ -40,13 +40,14 @@ function ClockStatusBadge() {
 }
 
 function LayoutInner() {
-  const { user, isSuperAdmin, visitingAccount, exitVisit, signOut } = useAuth()
+  const { user, isSuperAdmin, visitingAccount, exitVisit, viewAsUser, exitViewAs, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  const isVisiting = isSuperAdmin && !!visitingAccount
-  const NAV = (isSuperAdmin && !isVisiting) ? SUPER_ADMIN_NAV : STAFF_NAV
+  const isViewingAs = isSuperAdmin && !!viewAsUser
+  const isVisiting  = isSuperAdmin && !!visitingAccount && !isViewingAs
+  const NAV = (isSuperAdmin && !isVisiting && !isViewingAs) ? SUPER_ADMIN_NAV : STAFF_NAV
 
   // Close sidebar on route change (mobile nav)
   useEffect(() => {
@@ -60,6 +61,11 @@ function LayoutInner() {
 
   const handleExitVisit = () => {
     exitVisit()
+    navigate('/platform')
+  }
+
+  const handleExitViewAs = () => {
+    exitViewAs()
     navigate('/platform')
   }
 
@@ -102,7 +108,14 @@ function LayoutInner() {
           </button>
         </div>
 
-        {isVisiting && (
+        {isViewingAs && (
+          <div className="mx-3 mt-3 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 flex-shrink-0">
+            <p className="text-xs font-semibold text-indigo-700">👁 Viewing As</p>
+            <p className="text-xs text-indigo-600 font-medium truncate">{viewAsUser!.name}</p>
+            <p className="text-xs text-indigo-400 truncate">{viewAsUser!.role} · {viewAsUser!.sub_account}</p>
+          </div>
+        )}
+        {isVisiting && !isViewingAs && (
           <div className="mx-3 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex-shrink-0">
             <p className="text-xs font-semibold text-amber-700">Admin Visit Mode</p>
             <p className="text-xs text-amber-600 font-mono truncate">{visitingAccount!.code}</p>
@@ -174,11 +187,14 @@ function LayoutInner() {
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
               <p className="text-xs text-gray-400 truncate">
-                {isVisiting ? `Admin · ${visitingAccount!.code}` : isSuperAdmin ? 'Super Admin' : user?.role}
+                {isViewingAs ? `${viewAsUser!.role} · ${viewAsUser!.sub_account}`
+                  : isVisiting ? `Admin · ${visitingAccount!.code}`
+                  : isSuperAdmin ? 'Super Admin'
+                  : user?.role}
               </p>
             </div>
           </div>
-          {(!isSuperAdmin || isVisiting) && (
+          {(!isSuperAdmin || isVisiting || isViewingAs) && (
             <NavLink
               to="/settings"
               className={({ isActive }) =>
@@ -190,6 +206,15 @@ function LayoutInner() {
             >
               <span>⚙</span> Settings
             </NavLink>
+          )}
+          {isViewingAs && (
+            <button
+              onClick={handleExitViewAs}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-indigo-600 hover:bg-indigo-50 w-full"
+              style={{ minHeight: '44px' }}
+            >
+              <span>👁</span> Exit View As
+            </button>
           )}
           {isVisiting && (
             <button
@@ -212,6 +237,29 @@ function LayoutInner() {
 
       {/* Main area */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {isViewingAs && (
+          <div className="bg-indigo-600 text-white px-4 sm:px-6 py-2 flex items-center justify-between flex-shrink-0 gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <span className="text-sm">👁</span>
+              <span className="text-sm font-semibold truncate">
+                Viewing as: {viewAsUser!.name}
+              </span>
+              <span className="text-xs bg-indigo-700 px-2 py-0.5 rounded hidden sm:inline">
+                {viewAsUser!.role}
+              </span>
+              <span className="font-mono text-xs bg-indigo-700 px-2 py-0.5 rounded hidden sm:inline">
+                {viewAsUser!.sub_account}
+              </span>
+              <span className="text-xs text-indigo-300 hidden md:inline">— read-only preview</span>
+            </div>
+            <button
+              onClick={handleExitViewAs}
+              className="text-sm font-semibold bg-white text-indigo-700 hover:bg-indigo-50 px-3 py-1 rounded-lg transition-colors flex-shrink-0"
+            >
+              Exit View As
+            </button>
+          </div>
+        )}
         {isVisiting && (
           <div className="bg-amber-500 text-white px-4 sm:px-6 py-2 flex items-center justify-between flex-shrink-0 gap-3">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -244,7 +292,9 @@ function LayoutInner() {
           </button>
 
           <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate flex-1">
-            {isVisiting ? `${visitingAccount!.company_name || visitingAccount!.code}` : 'DIGITRACKER'}
+            {isViewingAs ? `${viewAsUser!.name}'s View`
+              : isVisiting ? `${visitingAccount!.company_name || visitingAccount!.code}`
+              : 'DIGITRACKER'}
           </h1>
 
           <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">

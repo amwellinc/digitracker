@@ -26,6 +26,10 @@ export interface AuthContextValue {
   visitingAccount: SubAccount | null
   visitSubAccount: (account: SubAccount) => void
   exitVisit: () => void
+  // View As — Super Admin impersonates a staff/manager to see their exact view
+  viewAsUser: User | null
+  startViewAs: (targetUser: User) => void
+  exitViewAs: () => void
   // Magic-link (OTP) — kept for Super Admin and first-time access
   signIn: (email: string, subAccount: string) => Promise<{ error: string | null }>
   // Email + password
@@ -41,12 +45,13 @@ export const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, { user: null, loading: true })
   const [visitingAccount, setVisitingAccount] = useState<SubAccount | null>(null)
+  const [viewAsUser, setViewAsUser] = useState<User | null>(null)
 
-  const loadUser = useCallback(async (authId: string) => {
+  const loadUser = useCallback(async (authEmail: string) => {
     const { data } = await supabase
       .from('users')
       .select('*')
-      .eq('id', authId)
+      .eq('email', authEmail.toLowerCase().trim())
       .single()
     if (data) dispatch({ type: 'SIGNED_IN', user: data as User })
     else dispatch({ type: 'SIGNED_OUT' })
@@ -54,12 +59,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) void loadUser(session.user.id)
+      if (session?.user?.email) void loadUser(session.user.email)
       else dispatch({ type: 'SIGNED_OUT' })
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (session?.user) void loadUser(session.user.id)
+      if (session?.user?.email) void loadUser(session.user.email)
       else dispatch({ type: 'SIGNED_OUT' })
     })
 
@@ -111,22 +116,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     setVisitingAccount(null)
+    setViewAsUser(null)
     await supabase.auth.signOut()
     dispatch({ type: 'SIGNED_OUT' })
   }, [])
 
   const refreshUser = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
-    if (session?.user) await loadUser(session.user.id)
+    if (session?.user?.email) await loadUser(session.user.email)
   }, [loadUser])
 
-  const visitSubAccount  = useCallback((account: SubAccount) => setVisitingAccount(account), [])
-  const exitVisit        = useCallback(() => setVisitingAccount(null), [])
-  const isSuperAdmin     = state.user?.role === 'Super-Admin'
+  const visitSubAccount = useCallback((account: SubAccount) => setVisitingAccount(account), [])
+  const exitVisit       = useCallback(() => setVisitingAccount(null), [])
+  const startViewAs     = useCallback((targetUser: User) => {
+    setVisitingAccount(null)
+    setViewAsUser(targetUser)
+  }, [])
+  const exitViewAs      = useCallback(() => setViewAsUser(null), [])
+  const isSuperAdmin    = state.user?.role === 'Super-Admin'
 
-  const effectiveUser: User | null = visitingAccount && state.user
-    ? { ...state.user, sub_account: visitingAccount.code, role: 'Admin' }
-    : state.user
+  let effectiveUser: User | null = state.user
+  if (viewAsUser) {
+    effectiveUser = viewAsUser
+  } else if (visitingAccount && state.user) {
+    effectiveUser = { ...state.user, sub_account: visitingAccount.code, role: 'Admin' }
+  }
 
   return (
     <AuthContext.Provider value={{
@@ -136,6 +150,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       visitingAccount,
       visitSubAccount,
       exitVisit,
+      viewAsUser,
+      startViewAs,
+      exitViewAs,
       signIn,
       signInWithPassword,
       sendPasswordReset,
