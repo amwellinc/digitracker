@@ -18,8 +18,9 @@ type Period = typeof PERIODS[number]
 type MetricForm = { name: string; target: string; unit: string; period: Period }
 const EMPTY_METRIC: MetricForm = { name: '', target: '', unit: '', period: 'daily' }
 
-function getMonday(): string {
-  const today = new Date()
+function getMonday(from?: Date): string {
+  const today = from ?? new Date()
+  today.setHours(0, 0, 0, 0)
   const day = today.getDay()
   const diff = day === 0 ? -6 : 1 - day
   const mon = new Date(today)
@@ -27,8 +28,38 @@ function getMonday(): string {
   return mon.toISOString().slice(0, 10)
 }
 
+function getWeekDays(weekStart: string): string[] {
+  const base = new Date(weekStart + 'T00:00:00')
+  return Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(base)
+    d.setDate(base.getDate() + i)
+    return d.toISOString().slice(0, 10)
+  })
+}
+
+function shiftWeek(weekStart: string, weeks: number): string {
+  const d = new Date(weekStart + 'T00:00:00')
+  d.setDate(d.getDate() + weeks * 7)
+  return d.toISOString().slice(0, 10)
+}
+
+function weekStartOf(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  const day = d.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  d.setDate(d.getDate() + diff)
+  return d.toISOString().slice(0, 10)
+}
+
 function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+function fmtWeekRange(weekStart: string) {
+  const days = getWeekDays(weekStart)
+  const from = new Date(days[0] + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })
+  const to   = new Date(days[4] + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })
+  return `${from} – ${to}`
 }
 
 function pct(actual: number, target: number) {
@@ -40,6 +71,7 @@ function pointsColor(p: number) {
   if (p < 0) return 'text-red-600'
   return 'text-gray-500'
 }
+
 function pointsBg(p: number) {
   if (p > 3)  return 'bg-green-100 border-green-300'
   if (p > 0)  return 'bg-green-50 border-green-200'
@@ -72,18 +104,20 @@ export function KPIAdminPanel() {
   const [logsLoading,   setLogsLoading]   = useState(false)
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null)
 
-  // Performance points tab
-  const [weekStart,    setWeekStart]    = useState(getMonday())
-  const [perfPoints,   setPerfPoints]   = useState<PerformancePoints[]>([])  // all members' points for this week
-  const [draftPoints,  setDraftPoints]  = useState<Record<string, number>>({})  // userId → points draft
-  const [draftNotes,   setDraftNotes]   = useState<Record<string, string>>({})
-  const [savingPoints, setSavingPoints] = useState<string | null>(null)
-  const [savedPoints,  setSavedPoints]  = useState<Record<string, boolean>>({})
+  // Performance points tab — daily model
+  const today = new Date().toISOString().slice(0, 10)
+  const [selectedDate,     setSelectedDate]     = useState(today)
+  const [viewWeekStart,    setViewWeekStart]    = useState(() => getMonday())
+  const [memberPerfPoints, setMemberPerfPoints] = useState<PerformancePoints[]>([])
+  const [draftVal,         setDraftVal]         = useState(0)
+  const [draftNote,        setDraftNote]        = useState('')
+  const [savingPts,        setSavingPts]        = useState(false)
+  const [savedPts,         setSavedPts]         = useState(false)
 
   const dutyRef  = useRef<HTMLInputElement>(null)
   const checkRef = useRef<HTMLInputElement>(null)
 
-  // Load team — Manager: assigned staff only; Admin: full sub-account
+  // Load team
   useEffect(() => {
     if (!user) return
     const q = supabase.from('users').select('*')
@@ -116,22 +150,25 @@ export function KPIAdminPanel() {
       .then(({ data }) => { setLogs((data ?? []) as KPIDailyLog[]); setLogsLoading(false) })
   }, [tab, selectedUserId])
 
-  // Load performance points for all members for selected week
+  // Load all performance points for selected member when on points tab
   useEffect(() => {
-    if (tab !== 'points' || members.length === 0) return
-    const ids = members.map(m => m.id)
+    if (tab !== 'points' || !selectedUserId) return
     void supabase.from('performance_points').select('*')
-      .in('user_id', ids).eq('week_start', weekStart)
+      .eq('user_id', selectedUserId)
+      .order('date', { ascending: false })
       .then(({ data }) => {
         const rows = (data ?? []) as PerformancePoints[]
-        setPerfPoints(rows)
-        const drafts: Record<string, number> = {}
-        const notes: Record<string, string> = {}
-        for (const r of rows) { drafts[r.user_id] = r.points; notes[r.user_id] = r.notes ?? '' }
-        setDraftPoints(drafts)
-        setDraftNotes(notes)
+        setMemberPerfPoints(rows)
       })
-  }, [tab, weekStart, members])
+  }, [tab, selectedUserId])
+
+  // Sync draft from loaded data when selectedDate or memberPerfPoints changes
+  useEffect(() => {
+    const existing = memberPerfPoints.find(p => p.date === selectedDate)
+    setDraftVal(existing ? existing.points : 0)
+    setDraftNote(existing?.notes ?? '')
+    setSavedPts(false)
+  }, [selectedDate, memberPerfPoints])
 
   async function saveConfig(updates: Partial<Pick<KPI, 'kpi_items' | 'duties' | 'checklists'>>) {
     setSaving(true)
@@ -201,20 +238,51 @@ export function KPIAdminPanel() {
     await saveConfig({ checklists: (kpiConfig?.checklists ?? []).filter((_, j) => j !== i) })
   }
 
-  async function savePerformancePoints(memberId: string) {
+  async function saveDailyPoints() {
     if (!user) return
-    const points = draftPoints[memberId] ?? 0
-    setSavingPoints(memberId)
-    await supabase.from('performance_points').upsert({
-      user_id: memberId,
+    setSavingPts(true)
+    const { data } = await supabase.from('performance_points').upsert({
+      user_id:    selectedUserId,
       manager_id: user.id,
-      week_start: weekStart,
-      points,
-      notes: draftNotes[memberId]?.trim() || null,
-    }, { onConflict: 'user_id,week_start' })
-    setSavingPoints(null)
-    setSavedPoints(s => ({ ...s, [memberId]: true }))
-    setTimeout(() => setSavedPoints(s => { const n = { ...s }; delete n[memberId]; return n }), 2000)
+      date:       selectedDate,
+      points:     draftVal,
+      notes:      draftNote.trim() || null,
+    }, { onConflict: 'user_id,date' }).select().single()
+    if (data) {
+      setMemberPerfPoints(prev => {
+        const without = prev.filter(p => p.date !== selectedDate)
+        return [data as PerformancePoints, ...without].sort((a, b) => b.date.localeCompare(a.date))
+      })
+    }
+    setSavingPts(false)
+    setSavedPts(true)
+    setTimeout(() => setSavedPts(false), 2500)
+  }
+
+  // Compute week total for viewWeekStart
+  function weekTotal(ws: string): number {
+    const days = new Set(getWeekDays(ws))
+    return memberPerfPoints
+      .filter(p => days.has(p.date))
+      .reduce((s, p) => s + p.points, 0)
+  }
+
+  // Group past entries by week for history
+  function historyWeeks(): { weekStart: string; entries: PerformancePoints[]; total: number }[] {
+    const map = new Map<string, PerformancePoints[]>()
+    for (const p of memberPerfPoints) {
+      const ws = weekStartOf(p.date)
+      const arr = map.get(ws) ?? []
+      arr.push(p)
+      map.set(ws, arr)
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([ws, entries]) => ({
+        weekStart: ws,
+        entries:   entries.sort((a, b) => a.date.localeCompare(b.date)),
+        total:     entries.reduce((s, e) => s + e.points, 0),
+      }))
   }
 
   const selectedUser    = members.find(m => m.id === selectedUserId)
@@ -222,6 +290,12 @@ export function KPIAdminPanel() {
     const q = search.toLowerCase()
     return m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)
   })
+
+  const weekDays      = getWeekDays(viewWeekStart)
+  const viewWeekTotal = weekTotal(viewWeekStart)
+  const existingForDate = memberPerfPoints.find(p => p.date === selectedDate)
+
+  const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 
   return (
     <div className="flex gap-5">
@@ -492,7 +566,6 @@ export function KPIAdminPanel() {
 
                               {expanded && (
                                 <div className="px-5 pb-4 pt-1 bg-gray-50 space-y-4">
-                                  {/* EOD rows */}
                                   {filledRows.length > 0 && (
                                     <div>
                                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">EOD Report</p>
@@ -514,7 +587,6 @@ export function KPIAdminPanel() {
                                       </table>
                                     </div>
                                   )}
-                                  {/* Checklist */}
                                   {checkItems.length > 0 && (
                                     <div>
                                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Checklist ({doneCount}/{checkItems.length} done)</p>
@@ -528,7 +600,6 @@ export function KPIAdminPanel() {
                                       </div>
                                     </div>
                                   )}
-                                  {/* KPI metrics */}
                                   {metrics.length > 0 && (
                                     <div>
                                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">KPI Actuals</p>
@@ -568,96 +639,159 @@ export function KPIAdminPanel() {
 
                 {/* ─── PERFORMANCE POINTS TAB ─── */}
                 {tab === 'points' && (
-                  <div>
-                    <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-3 flex-wrap">
-                      <p className="text-sm font-semibold text-gray-700">Week of</p>
-                      <input
-                        type="date"
-                        value={weekStart}
-                        onChange={e => { setWeekStart(e.target.value); setSavedPoints({}) }}
-                        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-                      />
-                      <p className="text-xs text-gray-500">Assign performance points for {selectedUser.name} for this week.</p>
+                  <div className="p-5 space-y-5">
+
+                    {/* Week navigation + total */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setViewWeekStart(w => shiftWeek(w, -1))}
+                          className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 text-xs">◀</button>
+                        <div className="text-center px-1">
+                          <p className="text-sm font-semibold text-gray-800">{fmtWeekRange(viewWeekStart)}</p>
+                          <p className="text-[11px] text-gray-400">Week</p>
+                        </div>
+                        <button onClick={() => setViewWeekStart(w => shiftWeek(w, 1))}
+                          disabled={viewWeekStart >= getMonday()}
+                          className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 text-xs disabled:opacity-30">▶</button>
+                      </div>
+                      <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border ${pointsBg(viewWeekTotal)}`}>
+                        <span className="text-xs text-gray-500 font-medium">Week Total</span>
+                        <span className={`font-bold text-xl ${pointsColor(viewWeekTotal)}`}>
+                          {viewWeekTotal > 0 ? '+' : ''}{viewWeekTotal}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="px-5 py-5 space-y-4">
-                      {/* Points slider for selected member */}
-                      <div className={`rounded-xl border p-4 ${pointsBg(draftPoints[selectedUserId] ?? 0)}`}>
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className="w-8 h-8 rounded-full bg-violet-100 text-violet-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                            {selectedUser.name.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-gray-900 text-sm">{selectedUser.name}</p>
-                            <p className="text-xs text-gray-400">{selectedUser.role}</p>
-                          </div>
-                          <span className={`ml-auto font-bold text-2xl ${pointsColor(draftPoints[selectedUserId] ?? 0)}`}>
-                            {(draftPoints[selectedUserId] ?? 0) > 0 ? '+' : ''}{draftPoints[selectedUserId] ?? 0}
-                          </span>
-                        </div>
-
-                        {/* Slider */}
-                        <div className="mb-3">
-                          <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-                            <span className="text-red-500 font-medium">-10 (Poor)</span>
-                            <span className="text-gray-400">0 (Neutral)</span>
-                            <span className="text-green-500 font-medium">+10 (Excellent)</span>
-                          </div>
-                          <input
-                            type="range" min="-10" max="10" step="1"
-                            value={draftPoints[selectedUserId] ?? 0}
-                            onChange={e => setDraftPoints(p => ({ ...p, [selectedUserId]: Number(e.target.value) }))}
-                            className="w-full accent-violet-600 cursor-pointer"
-                          />
-                          <div className="flex items-center justify-between text-xs text-gray-400 mt-0.5 px-0.5">
-                            {[-10,-9,-8,-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10].filter(v => v % 5 === 0).map(v => (
-                              <span key={v} className={v === (draftPoints[selectedUserId] ?? 0) ? 'text-violet-600 font-bold' : ''}>{v > 0 ? `+${v}` : v}</span>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Optional notes */}
-                        <input
-                          type="text"
-                          value={draftNotes[selectedUserId] ?? ''}
-                          onChange={e => setDraftNotes(p => ({ ...p, [selectedUserId]: e.target.value }))}
-                          placeholder="Optional note (e.g. 'Great week, hit all targets')"
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
-                        />
-
-                        <div className="flex items-center justify-between mt-3">
-                          <p className="text-xs text-gray-500">
-                            {(draftPoints[selectedUserId] ?? 0) < 0 ? '⚠️ Negative rating — member will see this.' :
-                             (draftPoints[selectedUserId] ?? 0) > 0 ? '🌟 Positive rating!' : '⊙ Neutral — no strong signal.'}
-                          </p>
+                    {/* Mon–Fri day strip */}
+                    <div className="grid grid-cols-5 gap-2">
+                      {weekDays.map((d, i) => {
+                        const entry   = memberPerfPoints.find(p => p.date === d)
+                        const isToday = d === today
+                        const isFuture = d > today
+                        const isSelected = d === selectedDate
+                        return (
                           <button
-                            onClick={() => void savePerformancePoints(selectedUserId)}
-                            disabled={savingPoints === selectedUserId}
-                            className="bg-violet-600 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                            key={d}
+                            disabled={isFuture}
+                            onClick={() => {
+                              setSelectedDate(d)
+                              // snap view week if needed
+                              const ws = weekStartOf(d)
+                              if (ws !== viewWeekStart) setViewWeekStart(ws)
+                            }}
+                            className={`flex flex-col items-center gap-1 py-3 px-2 rounded-xl border-2 transition-all
+                              ${isSelected ? 'border-violet-500 bg-violet-50' : 'border-gray-200 bg-white hover:border-violet-300 hover:bg-gray-50'}
+                              ${isFuture ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}
+                            `}
                           >
-                            {savingPoints === selectedUserId ? 'Saving…'
-                              : savedPoints[selectedUserId] ? '✓ Saved!'
-                              : 'Save Points'}
+                            <span className={`text-[11px] font-semibold uppercase tracking-wide ${isSelected ? 'text-violet-600' : 'text-gray-400'}`}>
+                              {DAY_LABELS[i]}
+                            </span>
+                            {isToday && <span className="text-[9px] bg-violet-100 text-violet-600 rounded-full px-1.5 font-semibold">Today</span>}
+                            {entry ? (
+                              <span className={`font-bold text-base ${pointsColor(entry.points)}`}>
+                                {entry.points > 0 ? '+' : ''}{entry.points}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 text-sm font-medium">—</span>
+                            )}
                           </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Entry form for selectedDate */}
+                    <div className={`rounded-xl border-2 p-4 space-y-3 ${pointsBg(draftVal)}`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-800">{fmtDate(selectedDate)}</p>
+                          {existingForDate ? (
+                            <p className="text-[11px] text-gray-400">Rating saved — edit below to update</p>
+                          ) : (
+                            <p className="text-[11px] text-gray-400">No rating yet</p>
+                          )}
+                        </div>
+                        <span className={`font-bold text-3xl ${pointsColor(draftVal)}`}>
+                          {draftVal > 0 ? '+' : ''}{draftVal}
+                        </span>
+                      </div>
+
+                      {/* Slider */}
+                      <div>
+                        <div className="flex items-center justify-between text-[11px] text-gray-400 mb-1">
+                          <span className="text-red-400 font-medium">-10 Poor</span>
+                          <span>0 Neutral</span>
+                          <span className="text-green-500 font-medium">+10 Excellent</span>
+                        </div>
+                        <input
+                          type="range" min="-10" max="10" step="1"
+                          value={draftVal}
+                          onChange={e => setDraftVal(Number(e.target.value))}
+                          className="w-full accent-violet-600 cursor-pointer"
+                        />
+                        <div className="flex items-center justify-between text-[10px] text-gray-400 mt-0.5">
+                          {[-10, -5, 0, 5, 10].map(v => (
+                            <span key={v} className={v === draftVal ? 'text-violet-600 font-bold' : ''}>
+                              {v > 0 ? `+${v}` : v}
+                            </span>
+                          ))}
                         </div>
                       </div>
 
-                      {/* Past weeks history */}
-                      {perfPoints.filter(p => p.user_id === selectedUserId).length > 0 && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">History</p>
-                          {perfPoints.filter(p => p.user_id === selectedUserId).map(p => (
-                            <div key={p.id} className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg mb-1.5 text-xs">
-                              <span className="text-gray-500">Week of {p.week_start}</span>
-                              <span className={`font-bold ml-auto ${pointsColor(p.points)}`}>
-                                {p.points > 0 ? '+' : ''}{p.points}
-                              </span>
-                              {p.notes && <span className="text-gray-400 truncate max-w-xs">· {p.notes}</span>}
+                      {/* Note */}
+                      <input
+                        type="text"
+                        value={draftNote}
+                        onChange={e => setDraftNote(e.target.value)}
+                        placeholder="Note (e.g. 'Hit all targets today')"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                      />
+
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-500">
+                          {draftVal < 0 ? '⚠️ Negative — staff will see this.' :
+                           draftVal > 0 ? '🌟 Positive rating!' :
+                           '⊙ Neutral.'}
+                        </p>
+                        <button
+                          onClick={() => void saveDailyPoints()}
+                          disabled={savingPts}
+                          className="bg-violet-600 text-white text-xs font-semibold px-5 py-2 rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                        >
+                          {savingPts ? 'Saving…' : savedPts ? '✓ Saved!' : existingForDate ? 'Update' : 'Save Points'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* History — past weeks grouped */}
+                    {historyWeeks().length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">History</p>
+                        <div className="space-y-3">
+                          {historyWeeks().map(wk => (
+                            <div key={wk.weekStart} className="rounded-xl border border-gray-200 overflow-hidden">
+                              <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                                <p className="text-xs font-semibold text-gray-600">{fmtWeekRange(wk.weekStart)}</p>
+                                <span className={`font-bold text-sm ${pointsColor(wk.total)}`}>
+                                  Total: {wk.total > 0 ? '+' : ''}{wk.total}
+                                </span>
+                              </div>
+                              <div className="divide-y divide-gray-100">
+                                {wk.entries.map(e => (
+                                  <div key={e.id} className="flex items-center gap-3 px-4 py-2 text-xs">
+                                    <span className="text-gray-500 w-24 flex-shrink-0">{fmtDate(e.date)}</span>
+                                    <span className={`font-bold w-10 flex-shrink-0 ${pointsColor(e.points)}`}>
+                                      {e.points > 0 ? '+' : ''}{e.points}
+                                    </span>
+                                    {e.notes && <span className="text-gray-400 truncate">· {e.notes}</span>}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           ))}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { KPIDailyLog, PerformancePoints, User } from '@/types'
 
-function getWeekBounds(): { weekStart: string; weekDays: string[] } {
+function getWeekBounds(): { weekStart: string; weekEnd: string; weekDays: string[] } {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const day = today.getDay()
@@ -16,29 +16,41 @@ function getWeekBounds(): { weekStart: string; weekDays: string[] } {
     d.setDate(monday.getDate() + i)
     if (d <= today) weekDays.push(d.toISOString().slice(0, 10))
   }
-  return { weekStart: monday.toISOString().slice(0, 10), weekDays }
+
+  const friday = new Date(monday)
+  friday.setDate(monday.getDate() + 4)
+
+  return {
+    weekStart: monday.toISOString().slice(0, 10),
+    weekEnd:   friday.toISOString().slice(0, 10),
+    weekDays,
+  }
 }
 
 interface Stats {
   attendance: { present: number; onTime: number; hours8: number; total: number }
   checklist:  { days5: number; total: number }
   eod:        { days3: number; total: number }
-  points:     number | null
+  weekTotal:  number | null
+  entryCount: number
 }
 
 export function KPIIndicators({ user }: { user: User }) {
   const [stats, setStats] = useState<Stats | null>(null)
 
   useEffect(() => {
-    const { weekStart, weekDays } = getWeekBounds()
+    const { weekStart, weekEnd, weekDays } = getWeekBounds()
     const total = weekDays.length
 
     Promise.all([
       supabase.from('time_logs').select('date,clock_in,total_minutes').eq('user_id', user.id).in('date', weekDays),
       supabase.from('kpi_daily_logs').select('date,checklist_done,eod_rows').eq('user_id', user.id).in('date', weekDays),
-      supabase.from('performance_points').select('points').eq('user_id', user.id).eq('week_start', weekStart).maybeSingle(),
-    ]).then(([{ data: timeLogs }, { data: kpiLogs }, { data: perf }]) => {
-      // Group time_logs by date
+      supabase.from('performance_points').select('date,points')
+        .eq('user_id', user.id)
+        .gte('date', weekStart)
+        .lte('date', weekEnd),
+    ]).then(([{ data: timeLogs }, { data: kpiLogs }, { data: perfEntries }]) => {
+      // Attendance
       const byDate: Record<string, { clockIn: string; totalMins: number }[]> = {}
       for (const l of (timeLogs ?? [])) {
         if (!byDate[l.date]) byDate[l.date] = []
@@ -58,6 +70,7 @@ export function KPIIndicators({ user }: { user: User }) {
         }
       }
 
+      // Checklist & EOD
       let days5 = 0, days3 = 0
       for (const l of (kpiLogs as KPIDailyLog[] ?? [])) {
         const done = Array.isArray(l.checklist_done) ? (l.checklist_done as boolean[]).filter(Boolean).length : 0
@@ -66,17 +79,33 @@ export function KPIIndicators({ user }: { user: User }) {
         if (rows.length >= 3) days3++
       }
 
+      // Performance points: sum all daily entries this week
+      const entries = (perfEntries ?? []) as PerformancePoints[]
+      const weekTotal = entries.length > 0
+        ? entries.reduce((sum, e) => sum + e.points, 0)
+        : null
+
       setStats({
         attendance: { present, onTime, hours8, total },
         checklist:  { days5, total },
         eod:        { days3, total },
-        points:     (perf as PerformancePoints | null)?.points ?? null,
+        weekTotal,
+        entryCount: entries.length,
       })
     })
   }, [user.id, user.reporting_time_in])
 
   if (!stats) return null
-  const { attendance, checklist, eod, points } = stats
+  const { attendance, checklist, eod, weekTotal, entryCount } = stats
+
+  const pointsStatus = weekTotal === null ? 'gray'
+    : weekTotal > 5  ? 'green'
+    : weekTotal >= 0 ? 'amber'
+    : 'red'
+
+  const pointsLabel = weekTotal === null
+    ? 'Awaiting manager rating'
+    : `${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} this week`
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -99,10 +128,10 @@ export function KPIIndicators({ user }: { user: User }) {
         status={eod.days3 >= eod.total ? 'green' : eod.days3 > 0 ? 'amber' : 'red'}
       />
       <Card
-        icon="⭐" label="Performance Points"
-        main={points !== null ? `${points > 0 ? '+' : ''}${points}` : '—'}
-        sub={points !== null ? `This week (${points > 0 ? 'high' : points < 0 ? 'needs improvement' : 'neutral'})` : 'Awaiting manager rating'}
-        status={points === null ? 'gray' : points > 3 ? 'green' : points < 0 ? 'red' : 'amber'}
+        icon="⭐" label="Perf. Points (week total)"
+        main={weekTotal !== null ? `${weekTotal > 0 ? '+' : ''}${weekTotal}` : '—'}
+        sub={pointsLabel}
+        status={pointsStatus}
         bigMain
       />
     </div>

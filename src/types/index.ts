@@ -136,7 +136,7 @@ export interface PerformancePoints {
   id: string
   user_id: string
   manager_id: string
-  week_start: string
+  date: string
   points: number
   notes: string | null
   created_at: string
