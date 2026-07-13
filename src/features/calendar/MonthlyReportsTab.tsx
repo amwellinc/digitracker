@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { User, TimeLog, LeaveRequest } from '@/types'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
@@ -15,7 +16,13 @@ interface UserReport {
   avgHoursPerDay: string
 }
 
-function isoDate(d: Date) { return d.toISOString().split('T')[0] }
+// Use local-timezone components — toISOString() is UTC and gives wrong date for UTC+ users
+function isoDate(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 function isWeekend(d: Date) { const day = d.getDay(); return day === 0 || day === 6 }
 
 function workdaysInMonth(year: number, month: number): number {
@@ -28,11 +35,14 @@ function workdaysInMonth(year: number, month: number): number {
   return count
 }
 
-export function MonthlyReportsTab() {
+export function MonthlyReportsTab({ timezone = DEFAULT_TIMEZONE }: { timezone?: string }) {
   const { user } = useAuth()
-  const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth())
+  const [year, setYear] = useState(() => {
+    const t = todayInTz(timezone); return parseInt(t.slice(0, 4))
+  })
+  const [month, setMonth] = useState(() => {
+    const t = todayInTz(timezone); return parseInt(t.slice(5, 7)) - 1
+  })
   const [reports, setReports] = useState<UserReport[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -53,7 +63,7 @@ export function MonthlyReportsTab() {
       const allLogs = (logs.data ?? []) as TimeLog[]
       const allLeaves = (lv.data ?? []) as LeaveRequest[]
 
-      const todayStr = isoDate(today)
+      const todayStr = todayInTz(timezone)
       const totalWorkdays = workdaysInMonth(year, month)
 
       const rpts: UserReport[] = members.map(m => {

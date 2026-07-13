@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Screenshot } from '@/types'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 export function RecentScreenshots({ userId }: { userId: string }) {
   const [shots, setShots] = useState<Screenshot[]>([])
@@ -8,7 +9,7 @@ export function RecentScreenshots({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!userId) return
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayInTz(DEFAULT_TIMEZONE)
     void supabase
       .from('screenshots')
       .select('*')

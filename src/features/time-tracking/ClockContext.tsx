@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { useScreenCapture } from '@/hooks/useScreenCapture'
 import type { TimeLog } from '@/types'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
@@ -74,7 +75,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
   // ── On mount: restore today's session + detect stale abandoned logs ────
   useEffect(() => {
     if (!user) return
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayInTz(DEFAULT_TIMEZONE)
 
     async function init() {
       const { data } = await supabase
@@ -179,7 +180,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
       .from('time_logs')
       .insert({
         user_id:      u.id,
-        date:         now.split('T')[0],
+        date:         todayInTz(DEFAULT_TIMEZONE),
         clock_in:     now,
         status:       'working',
         last_seen_at: now,
@@ -195,7 +196,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     if (!log || !u) return
 
     // Warn if KPI daily update not submitted (non-blocking)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayInTz(DEFAULT_TIMEZONE)
     const [{ data: kpiLog }, { data: kpiCfg }] = await Promise.all([
       supabase.from('kpi_daily_logs').select('id').eq('user_id', u.id).eq('date', today).maybeSingle(),
       supabase.from('kpis').select('kpi_items, checklists').eq('user_id', u.id).maybeSingle(),

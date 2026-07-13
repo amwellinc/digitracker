@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from './useAuth'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 interface CaptureState {
   isCapturing: boolean
@@ -76,7 +77,7 @@ export function useScreenCapture(onForcedClockOut: () => void) {
         user_id:   u.id,
         url:       signed.signedUrl,
         timestamp: new Date().toISOString(),
-        date:      new Date().toISOString().split('T')[0],
+        date:      todayInTz(DEFAULT_TIMEZONE),
       })
 
       if (insertErr) console.warn('[capture] insert error:', insertErr.message)

@@ -1,4 +1,5 @@
 import type { TimeLog, LeaveRequest, PublicHoliday } from '@/types'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 export type DayStatus =
   | 'worked_full'   | 'worked_half'
@@ -13,7 +14,7 @@ const DAY_STYLES: Record<DayStatus, string> = {
   medical_leave: 'bg-orange-400 text-white hover:bg-orange-500',
   time_off:      'bg-violet-500 text-white hover:bg-violet-600',
   absent:        'bg-red-400 text-white hover:bg-red-500',
-  holiday:       'bg-gray-200 text-gray-600 hover:bg-gray-300',
+  holiday:       'bg-amber-400 text-white hover:bg-amber-500',
   weekend:       'text-gray-400 hover:bg-gray-50',
   future:        'text-gray-700 hover:bg-gray-50',
   today:         'bg-violet-100 text-violet-800 ring-2 ring-violet-500 hover:bg-violet-200',
@@ -31,7 +32,11 @@ export interface DayInfo {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function isoDate(d: Date): string {
-  return d.toISOString().split('T')[0]
+  // Use local-timezone components — toISOString() returns UTC which is wrong for SGT/UTC+ users
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function isWeekend(d: Date): boolean {
@@ -51,13 +56,12 @@ function getHoliday(dateStr: string, holidays: PublicHoliday[]): PublicHoliday |
 
 function classifyDay(
   date: Date,
-  today: Date,
+  todayStr: string,
   logs: TimeLog[],
   leaves: LeaveRequest[],
   holidays: PublicHoliday[],
 ): DayInfo {
   const dateStr = isoDate(date)
-  const todayStr = isoDate(today)
   const isFuture = dateStr > todayStr
   const isToday = dateStr === todayStr
   const weekend = isWeekend(date)
@@ -102,6 +106,7 @@ interface Props {
   timeLogs: TimeLog[]
   leaves: LeaveRequest[]
   holidays: PublicHoliday[]
+  timezone?: string
   onPrev: () => void
   onNext: () => void
   onDayClick?: (info: DayInfo) => void
@@ -110,17 +115,27 @@ interface Props {
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa']
 
-export function CalendarGrid({ year, month, timeLogs, leaves, holidays, onPrev, onNext, onDayClick }: Props) {
-  const today = new Date()
-  const firstDay = new Date(year, month, 1)
+// Returns 0=Sun,1=Mon,...6=Sat for the first day of the month in the given timezone.
+// Uses Intl instead of Date.getDay() so the result is always correct regardless of the
+// browser's local clock or system timezone.
+function firstDayOfWeekInTz(y: number, m: number, tz: string): number {
+  // Noon UTC keeps us well away from midnight DST transitions in any ±12h timezone
+  const d = new Date(Date.UTC(y, m, 1, 12))
+  const short = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d)
+  return ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as Record<string, number>)[short] ?? 0
+}
+
+export function CalendarGrid({ year, month, timeLogs, leaves, holidays, timezone, onPrev, onNext, onDayClick }: Props) {
+  const tz = timezone ?? DEFAULT_TIMEZONE
+  const todayStr = todayInTz(tz)
   const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const startOffset = firstDay.getDay() // 0=Sun
+  const startOffset = firstDayOfWeekInTz(year, month, tz)
 
   const cells: (DayInfo | null)[] = [
     ...Array(startOffset).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => {
       const d = new Date(year, month, i + 1)
-      return classifyDay(d, today, timeLogs, leaves, holidays)
+      return classifyDay(d, todayStr, timeLogs, leaves, holidays)
     }),
   ]
 
@@ -149,7 +164,7 @@ export function CalendarGrid({ year, month, timeLogs, leaves, holidays, onPrev, 
           if (!info) {
             return <div key={`empty-${idx}`} />
           }
-          const dayNum = new Date(info.date).getDate()
+          const dayNum = Number(info.date.slice(8, 10))
           return (
             <button
               key={info.date}

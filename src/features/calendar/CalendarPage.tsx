@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import { supabase } from '@/lib/supabase'
 import { MyCalendarTab } from './MyCalendarTab'
 import { TeamCalendarTab } from './TeamCalendarTab'
@@ -72,6 +73,7 @@ function PublicHolidayModal({ subAccount, onClose }: { subAccount: string; onClo
 
 export function CalendarPage() {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const [tab, setTab] = useState<TabId>('my')
   const [showModal, setShowModal] = useState(false)
 
@@ -93,7 +95,10 @@ export function CalendarPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Activity Calendar</h1>
-          <p className="text-sm text-gray-500 mt-1">View attendance, schedules, and reports.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            View attendance, schedules, and reports.
+            <span className="ml-2 text-xs text-gray-400 font-mono">{timezone}</span>
+          </p>
         </div>
         {isSuperAdmin && (
           <button
@@ -125,11 +130,11 @@ export function CalendarPage() {
         </nav>
       </div>
 
-      {/* Tab Content */}
-      {tab === 'my'      && <MyCalendarTab />}
-      {tab === 'team'    && <TeamCalendarTab />}
-      {tab === 'user'    && isSuperAdmin && <UserCalendarTab />}
-      {tab === 'reports' && isSuperAdmin && <MonthlyReportsTab />}
+      {/* Tab Content — timezone threaded to every tab */}
+      {tab === 'my'      && <MyCalendarTab timezone={timezone} />}
+      {tab === 'team'    && <TeamCalendarTab timezone={timezone} />}
+      {tab === 'user'    && isSuperAdmin && <UserCalendarTab timezone={timezone} />}
+      {tab === 'reports' && isSuperAdmin && <MonthlyReportsTab timezone={timezone} />}
 
       {showModal && user && (
         <PublicHolidayModal subAccount={user.sub_account} onClose={() => setShowModal(false)} />

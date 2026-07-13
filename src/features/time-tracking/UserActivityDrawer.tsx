@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { TimeLog, User } from '@/types'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 interface Props {
   user: User & { isOnline?: boolean }
@@ -15,7 +16,7 @@ export function UserActivityDrawer({ user, onClose }: Props) {
   const [logs, setLogs] = useState<TimeLog[]>([])
 
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayInTz(DEFAULT_TIMEZONE)
     void supabase
       .from('time_logs')
       .select('*')

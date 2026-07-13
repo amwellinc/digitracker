@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { KPIDailyLog, PerformancePoints, User } from '@/types'
 
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function getWeekBounds(): { weekStart: string; weekEnd: string; weekDays: string[] } {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -14,15 +21,15 @@ function getWeekBounds(): { weekStart: string; weekEnd: string; weekDays: string
   for (let i = 0; i < 5; i++) {
     const d = new Date(monday)
     d.setDate(monday.getDate() + i)
-    if (d <= today) weekDays.push(d.toISOString().slice(0, 10))
+    if (d <= today) weekDays.push(isoDate(d))
   }
 
   const friday = new Date(monday)
   friday.setDate(monday.getDate() + 4)
 
   return {
-    weekStart: monday.toISOString().slice(0, 10),
-    weekEnd:   friday.toISOString().slice(0, 10),
+    weekStart: isoDate(monday),
+    weekEnd:   isoDate(friday),
     weekDays,
   }
 }

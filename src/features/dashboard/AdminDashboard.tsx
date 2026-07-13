@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { useRealtime } from '@/hooks/useRealtime'
 import { Avatar } from '@/components/ui/Avatar'
 import { UserActivityDrawer } from '@/features/time-tracking/UserActivityDrawer'
@@ -84,7 +85,7 @@ export function AdminDashboard() {
 
   const load = useCallback(async () => {
     if (!user) return
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayInTz(DEFAULT_TIMEZONE)
 
     // All users in workspace
     const { data: usersData } = await supabase

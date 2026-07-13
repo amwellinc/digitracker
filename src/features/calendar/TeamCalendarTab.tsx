@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { User, TimeLog, LeaveRequest, PublicHoliday } from '@/types'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
@@ -12,13 +13,18 @@ const CELL: Record<DayStatus, string> = {
   half:    'bg-teal-400',
   leave:   'bg-blue-400',
   absent:  'bg-red-400',
-  holiday: 'bg-gray-200',
+  holiday: 'bg-amber-400',
   weekend: 'bg-gray-50',
   future:  'bg-transparent',
   today:   'bg-violet-400',
 }
 
-function isoDate(d: Date) { return d.toISOString().split('T')[0] }
+function isoDate(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 function isWeekend(d: Date) { const day = d.getDay(); return day === 0 || day === 6 }
 
 function dayStatus(
@@ -41,11 +47,14 @@ function dayStatus(
   return 'absent'
 }
 
-export function TeamCalendarTab() {
+export function TeamCalendarTab({ timezone = DEFAULT_TIMEZONE }: { timezone?: string }) {
   const { user } = useAuth()
-  const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth())
+  const [year, setYear] = useState(() => {
+    const t = todayInTz(timezone); return parseInt(t.slice(0, 4))
+  })
+  const [month, setMonth] = useState(() => {
+    const t = todayInTz(timezone); return parseInt(t.slice(5, 7)) - 1
+  })
   const [members, setMembers] = useState<User[]>([])
   const [allLogs, setAllLogs] = useState<TimeLog[]>([])
   const [allLeaves, setAllLeaves] = useState<LeaveRequest[]>([])
@@ -73,7 +82,7 @@ export function TeamCalendarTab() {
   function prev() { if (month === 0) { setYear(y => y - 1); setMonth(11) } else setMonth(m => m - 1) }
   function next() { if (month === 11) { setYear(y => y + 1); setMonth(0) } else setMonth(m => m + 1) }
 
-  const todayStr = isoDate(today)
+  const todayStr = todayInTz(timezone)
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const days = Array.from({ length: daysInMonth }, (_, i) => {
     const d = new Date(year, month, i + 1)
@@ -102,7 +111,7 @@ export function TeamCalendarTab() {
           { cls: 'bg-teal-400',  label: 'Half Day' },
           { cls: 'bg-blue-400',  label: 'On Leave' },
           { cls: 'bg-red-400',   label: 'Absent' },
-          { cls: 'bg-gray-200',  label: 'Holiday' },
+          { cls: 'bg-amber-400', label: 'Holiday' },
           { cls: 'bg-violet-400',label: 'Today' },
         ].map(l => (
           <div key={l.label} className="flex items-center gap-1.5">

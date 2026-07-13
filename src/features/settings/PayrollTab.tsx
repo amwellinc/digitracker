@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { User } from '@/types'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 const CURRENCIES = ['SGD', 'MYR', 'PHP', 'USD', 'GBP', 'AUD', 'INR', 'AED', 'IDR', 'THB', 'VND', 'CNY', 'JPY']
 const PAYMENT_MODES = ['Bank Transfer', 'Cash', 'Cheque', 'PayNow', 'FAST', 'NEFT', 'RTGS', 'Wire Transfer', 'Crypto', 'Other']
@@ -31,7 +32,7 @@ interface EntryForm {
 
 const emptyForm = (userId: string): EntryForm => ({
   user_id: userId,
-  payment_date: new Date().toISOString().split('T')[0],
+  payment_date: todayInTz(DEFAULT_TIMEZONE),
   description: '',
   amount: '',
   currency: 'SGD',

@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import type { TimeLog, LeaveRequest, PublicHoliday } from '@/types'
 import { CalendarGrid } from './CalendarGrid'
 import type { DayInfo } from './CalendarGrid'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 const LEGEND = [
   { label: 'Full-day Worked',  cls: 'bg-green-500' },
@@ -12,7 +13,7 @@ const LEGEND = [
   { label: 'Medical Leave',    cls: 'bg-orange-400' },
   { label: 'Time-off',         cls: 'bg-violet-500' },
   { label: 'Annual Leave',     cls: 'bg-blue-500' },
-  { label: 'Public Holiday',   cls: 'bg-gray-200' },
+  { label: 'Public Holiday',   cls: 'bg-amber-400' },
 ]
 
 function fmtTime(ts: string | null) {
@@ -31,7 +32,7 @@ interface DayModalProps {
 }
 
 function DayModal({ info, onClose }: DayModalProps) {
-  const d = new Date(info.date)
+  const d = new Date(info.date + 'T00:00:00')
   const label = d.toLocaleDateString('en-SG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   const statusLabel: Record<string, string> = {
     worked_full: 'Full Day Worked', worked_half: 'Half Day Worked',
@@ -73,11 +74,11 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function MyCalendarTab() {
+export function MyCalendarTab({ timezone = DEFAULT_TIMEZONE }: { timezone?: string }) {
   const { user } = useAuth()
-  const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth())
+  const todayStr = todayInTz(timezone)
+  const [year, setYear] = useState(() => parseInt(todayStr.slice(0, 4)))
+  const [month, setMonth] = useState(() => parseInt(todayStr.slice(5, 7)) - 1)
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([])
   const [leaves, setLeaves] = useState<LeaveRequest[]>([])
   const [holidays, setHolidays] = useState<PublicHoliday[]>([])
@@ -124,6 +125,7 @@ export function MyCalendarTab() {
         <CalendarGrid
           year={year} month={month}
           timeLogs={timeLogs} leaves={leaves} holidays={holidays}
+          timezone={timezone}
           onPrev={prev} onNext={next}
           onDayClick={setSelected}
         />

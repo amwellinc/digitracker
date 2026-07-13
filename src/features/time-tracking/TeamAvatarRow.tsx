@@ -5,6 +5,7 @@ import { useRealtime } from '@/hooks/useRealtime'
 import { Avatar } from '@/components/ui/Avatar'
 import type { User } from '@/types'
 import { UserActivityDrawer } from './UserActivityDrawer'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 type Member = User & { isOnline: boolean }
 
@@ -15,7 +16,7 @@ export function TeamAvatarRow() {
 
   const load = useCallback(async () => {
     if (!user) return
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayInTz(DEFAULT_TIMEZONE)
 
     const { data: users } = await supabase
       .from('users')

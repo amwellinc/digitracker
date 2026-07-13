@@ -2,15 +2,23 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { Screenshot, User } from '@/types'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 function todayStr() {
-  return new Date().toISOString().split('T')[0]
+  return todayInTz(DEFAULT_TIMEZONE)
 }
 
 function yesterdayStr() {
   const d = new Date()
   d.setDate(d.getDate() - 1)
-  return d.toISOString().split('T')[0]
+  return isoDate(d)
 }
 
 function fmtTime(ts: string) {

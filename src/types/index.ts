@@ -162,6 +162,7 @@ export interface SubAccount {
   plan: 'free' | 'basic' | 'business' | 'professional'
   seats: number
   status: 'active' | 'trialing' | 'cancelled' | 'suspended'
+  timezone: string
   notes: string | null
   created_at: string
   updated_at: string

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 interface Props {
   onClose: () => void
@@ -10,7 +11,7 @@ interface Props {
 type LeaveType = 'Annual' | 'Medical' | 'Time-off'
 
 function today() {
-  return new Date().toISOString().split('T')[0]
+  return todayInTz(DEFAULT_TIMEZONE)
 }
 
 export function RequestLeaveModal({ onClose, onSuccess }: Props) {

@@ -2,6 +2,14 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 import { useClockContext } from './ClockContext'
 import type { Screenshot } from '@/types'
 import { StatCards } from './StatCards'
@@ -46,8 +54,8 @@ function monthRange(offset: 0 | -1): { start: string; end: string; label: string
   const first = new Date(year, month, 1)
   const last = new Date(year, month + 1, 0)
   return {
-    start: first.toISOString().split('T')[0],
-    end:   last.toISOString().split('T')[0],
+    start: isoDate(first),
+    end:   isoDate(last),
     label: first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
   }
 }
@@ -95,7 +103,7 @@ export function TimeTrackingPage() {
   // Recent screenshots for today
   useEffect(() => {
     if (!user) return
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayInTz(DEFAULT_TIMEZONE)
     void supabase
       .from('screenshots')
       .select('*')
@@ -109,7 +117,7 @@ export function TimeTrackingPage() {
   // Refresh screenshots every minute while capturing
   useEffect(() => {
     if (!isCapturing || !user) return
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayInTz(DEFAULT_TIMEZONE)
     const id = setInterval(() => {
       void supabase
         .from('screenshots')
@@ -152,7 +160,7 @@ export function TimeTrackingPage() {
   // Upcoming holidays
   useEffect(() => {
     if (!user) return
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayInTz(DEFAULT_TIMEZONE)
     void supabase
       .from('public_holidays')
       .select('id, date, name')
