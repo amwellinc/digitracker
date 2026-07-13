@@ -129,11 +129,18 @@ export function ResetPasswordPage() {
       <Screen>
         <div className="text-center space-y-4">
           <div className="text-5xl">🔗</div>
-          <h2 className="text-xl font-bold text-gray-900">Link expired</h2>
+          <h2 className="text-xl font-bold text-gray-900">Link expired or invalid</h2>
           <p className="text-sm text-gray-500">
-            This reset link has expired or has already been used.
-            Reset links are valid for <strong>1 hour</strong> and can only be clicked once.
+            This reset link has expired, already been used, or was opened in a
+            different browser than where you requested it.
+            Links are valid for <strong>1 hour</strong>.
           </p>
+          <div className="text-xs text-gray-500 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-left space-y-1">
+            <p className="font-semibold text-amber-700">Tips for success:</p>
+            <p>• Click "Request a new link" in <strong>this browser</strong></p>
+            <p>• Open the email and click the link in <strong>this same browser</strong></p>
+            <p>• Do not forward or copy the link to a different device</p>
+          </div>
           <button
             onClick={() => navigate('/login')}
             className="inline-flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors"

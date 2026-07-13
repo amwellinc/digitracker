@@ -120,6 +120,14 @@ export function useScreenCapture(onForcedClockOut: () => void) {
 
   // ── start ──────────────────────────────────────────────────────────────
   const start = useCallback(async (): Promise<boolean> => {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setState({
+        isCapturing: false,
+        error: 'Screen sharing is not available on this device. Please use Chrome, Edge, or Firefox on a desktop or laptop to clock in.',
+      })
+      return false
+    }
+
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor' } as MediaTrackConstraints,
@@ -178,8 +186,17 @@ export function useScreenCapture(onForcedClockOut: () => void) {
 
       setState({ isCapturing: true, error: null })
       return true
-    } catch {
-      setState({ isCapturing: false, error: 'Screen sharing was cancelled.' })
+    } catch (err) {
+      const errName = (err as Error)?.name
+      let msg: string
+      if (errName === 'NotAllowedError') {
+        msg = 'Screen sharing access was denied. Click "Clock In" again, then select a screen or window in the dialog that appears.'
+      } else if (errName === 'NotSupportedError') {
+        msg = 'Screen sharing is not supported on this browser. Please use Chrome, Edge, or Firefox on a desktop computer.'
+      } else {
+        msg = 'Screen sharing was cancelled. Click "Clock In" again and choose a screen to share when prompted.'
+      }
+      setState({ isCapturing: false, error: msg })
       return false
     }
   }, [stop, onForcedClockOut])

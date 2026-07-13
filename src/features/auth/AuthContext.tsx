@@ -104,8 +104,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Send password reset email.
-  // Redirects to /auth/reset (a plain path) so index.html can bridge
-  // the PKCE ?code= into the HashRouter before ResetPasswordPage loads.
+  // Redirects to /auth/reset (served by public/404.html on GitHub Pages).
+  // 404.html bridges the PKCE ?code= or implicit #access_token= into the
+  // HashRouter at /#/reset-password where ResetPasswordPage handles it.
+  //
+  // IMPORTANT: https://digitracker.digi5y.co/auth/reset must be added to
+  // Supabase → Authentication → URL Configuration → Redirect URLs.
   const sendPasswordReset = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.toLowerCase().trim(),

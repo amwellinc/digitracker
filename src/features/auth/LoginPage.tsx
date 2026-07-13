@@ -90,8 +90,11 @@ export function LoginPage() {
           <div className="text-4xl mb-3">🔑</div>
           <h2 className="text-xl font-semibold mb-2">Password reset email sent</h2>
           <p className="text-gray-500 text-sm">
-            Check <strong>{email}</strong> for a link to set your password.<br />
-            The link expires in 1 hour.
+            Check <strong>{email}</strong> for a reset link. The link expires in 1 hour.
+          </p>
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3 text-left">
+            Important: Open the email and click the link in <strong>this same browser</strong>.
+            Opening it in a different browser will not work.
           </p>
           <button onClick={() => switchMode('password')} className="mt-5 text-sm text-violet-600 hover:underline">
             ← Back to login
