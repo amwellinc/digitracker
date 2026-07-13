@@ -4,6 +4,68 @@ import { useAuth } from '@/hooks/useAuth'
 import type { Document, DocumentType, User } from '@/types'
 import { UploadDocumentModal } from './UploadDocumentModal'
 
+function fileExtension(url: string): string {
+  const path = url.split('?')[0]
+  return (path.split('.').pop() ?? '').toLowerCase()
+}
+
+function DocViewerModal({ doc, onClose }: { doc: Document; onClose: () => void }) {
+  const ext = fileExtension(doc.url)
+  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)
+  const isPdf   = ext === 'pdf'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        style={{ width: '90vw', maxWidth: 960, height: '90vh' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-xl">{TYPE_META[doc.type]?.icon ?? '📄'}</span>
+            <div className="min-w-0">
+              <p className="font-semibold text-gray-900 truncate">{doc.title}</p>
+              <p className="text-xs text-gray-400">{doc.type} · {fmtSize(doc.size)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+            <a href={doc.url} target="_blank" rel="noreferrer"
+              className="text-xs font-medium text-violet-600 hover:text-violet-800 border border-violet-200 rounded-lg px-3 py-1.5 transition-colors">
+              Download
+            </a>
+            <button onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1 transition-colors">✕</button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-hidden bg-gray-100 flex items-center justify-center">
+          {isPdf && (
+            <iframe src={doc.url} title={doc.title} className="w-full h-full border-0" />
+          )}
+          {isImage && (
+            <img src={doc.url} alt={doc.title}
+              className="max-w-full max-h-full object-contain p-4 rounded" />
+          )}
+          {!isPdf && !isImage && (
+            <div className="text-center text-gray-500 p-10">
+              <span className="text-6xl block mb-4">📄</span>
+              <p className="font-semibold text-gray-700 mb-1">Preview not available</p>
+              <p className="text-sm mb-5 text-gray-400">
+                .{ext || 'unknown'} files cannot be previewed in the browser.
+              </p>
+              <a href={doc.url} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-2 bg-violet-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-violet-700 transition-colors">
+                ↓ Download to view
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const TYPE_META: Record<DocumentType, { icon: string; color: string }> = {
   Medical:     { icon: '🏥', color: 'bg-rose-50 text-rose-700' },
   Employment:  { icon: '📋', color: 'bg-blue-50 text-blue-700' },
@@ -43,6 +105,7 @@ export function HRDocumentsPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [search, setSearch] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [viewDoc, setViewDoc] = useState<Document | null>(null)
   const [tick, setTick] = useState(0)
 
   // Load members (admin/manager) or init to self (staff)
@@ -287,6 +350,12 @@ export function HRDocumentsPage() {
                       </div>
 
                       <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => setViewDoc(doc)}
+                          className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          View
+                        </button>
                         <a
                           href={doc.url}
                           target="_blank"
@@ -321,6 +390,10 @@ export function HRDocumentsPage() {
           onClose={() => setShowUpload(false)}
           onUploaded={onUploaded}
         />
+      )}
+
+      {viewDoc && (
+        <DocViewerModal doc={viewDoc} onClose={() => setViewDoc(null)} />
       )}
     </div>
   )

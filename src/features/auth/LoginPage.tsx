@@ -54,16 +54,29 @@ export function LoginPage() {
     return (
       <Screen>
         <Logo />
-        <div className="text-center">
-          <div className="text-4xl mb-3">📬</div>
-          <h2 className="text-xl font-semibold mb-2">Check your email</h2>
-          <p className="text-gray-500 text-sm">
+        <div className="text-center space-y-3">
+          <div className="text-4xl">📬</div>
+          <h2 className="text-xl font-semibold">Check your email</h2>
+          <p className="text-gray-600 text-sm">
             We sent a magic link to <strong>{email}</strong>.<br />
-            Click it to sign in.
+            Click the link to sign in instantly.
           </p>
-          <button onClick={() => setStatus('idle')} className="mt-5 text-sm text-violet-600 hover:underline">
-            ← Back to login
-          </button>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700 text-left">
+            <strong>Not in your inbox?</strong> Check your <strong>Spam</strong> or <strong>Junk</strong> folder.
+            The email comes from <em>noreply@mail.supabase.io</em>.
+          </div>
+          <p className="text-xs text-gray-400">Link expires in 1 hour. Only one active link at a time.</p>
+          <div className="flex flex-col gap-2 pt-1">
+            <button
+              onClick={() => { setStatus('idle'); setMode('magic') }}
+              className="text-sm text-violet-600 hover:underline"
+            >
+              Resend magic link
+            </button>
+            <button onClick={() => setStatus('idle')} className="text-xs text-gray-400 hover:text-gray-600">
+              ← Back to login
+            </button>
+          </div>
         </div>
       </Screen>
     )
