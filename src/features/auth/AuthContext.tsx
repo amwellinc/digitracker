@@ -64,6 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      // Password recovery: Supabase auto-exchanges the ?code= from the email link.
+      // Don't treat this as a normal sign-in — redirect to the reset page instead.
+      if (_e === 'PASSWORD_RECOVERY') {
+        if (!window.location.hash.startsWith('#/reset-password')) {
+          window.location.replace(window.location.origin + '/#/reset-password')
+        }
+        return
+      }
       if (session?.user?.email) void loadUser(session.user.email)
       else dispatch({ type: 'SIGNED_OUT' })
     })
@@ -104,16 +112,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Send password reset email.
-  // Redirects to /auth/reset (served by public/404.html on GitHub Pages).
-  // 404.html bridges the PKCE ?code= or implicit #access_token= into the
-  // HashRouter at /#/reset-password where ResetPasswordPage handles it.
-  //
-  // IMPORTANT: https://digitracker.digi5y.co/auth/reset must be added to
-  // Supabase → Authentication → URL Configuration → Redirect URLs.
+  // No custom redirectTo — Supabase uses the project's configured Site URL
+  // (https://digitracker.digi5y.co), which requires no allowlist entry.
+  // Supabase JS auto-exchanges the PKCE code on load and fires PASSWORD_RECOVERY.
+  // The onAuthStateChange handler above catches that and redirects to /#/reset-password.
   const sendPasswordReset = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.toLowerCase().trim(),
-      { redirectTo: `${window.location.origin}/auth/reset` },
     )
     return { error: error?.message ?? null }
   }, [])

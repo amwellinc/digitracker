@@ -63,7 +63,7 @@ export function LoginPage() {
           </p>
           <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700 text-left">
             <strong>Not in your inbox?</strong> Check your <strong>Spam</strong> or <strong>Junk</strong> folder.
-            The email comes from <em>noreply@mail.supabase.io</em>.
+            The email comes from <em>digitracker@digi5y.com</em>.
           </div>
           <p className="text-xs text-gray-400">Link expires in 1 hour. Only one active link at a time.</p>
           <div className="flex flex-col gap-2 pt-1">
