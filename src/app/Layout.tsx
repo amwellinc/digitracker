@@ -42,6 +42,7 @@ function ClockStatusBadge() {
 
 function LayoutInner() {
   const { user, isSuperAdmin, visitingAccount, exitVisit, viewAsUser, exitViewAs, signOut } = useAuth()
+  const { activeLog } = useClockContext()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -85,6 +86,16 @@ function LayoutInner() {
   }, [user, fetchTaskCount])
 
   const handleSignOut = async () => {
+    // Clock out before signing out so the session is saved while the auth
+    // token is still valid. The pagehide keepalive cannot fire after
+    // supabase.auth.signOut() clears the token.
+    if (activeLog) {
+      const now     = new Date().toISOString()
+      const elapsed = Math.round((Date.now() - new Date(activeLog.clock_in).getTime()) / 60000)
+      await supabase.from('time_logs')
+        .update({ clock_out: now, status: 'clocked_out', total_minutes: elapsed })
+        .eq('id', activeLog.id)
+    }
     await signOut()
     navigate('/login')
   }
