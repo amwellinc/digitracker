@@ -25,8 +25,26 @@ function PublicHolidayModal({ subAccount, onClose }: { subAccount: string; onClo
     const { error } = await supabase.from('public_holidays').insert({
       date, name: name.trim(), country, sub_account: subAccount,
     })
+    if (error) { setMsg(error.message); setSaving(false); return }
+
+    // Notify all users in this sub-account
+    const { data: members } = await supabase
+      .from('users')
+      .select('id')
+      .eq('sub_account', subAccount)
+    if (members && members.length > 0) {
+      const fmtd = new Date(date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+      await supabase.from('notifications').insert(
+        members.map(m => ({
+          user_id: (m as { id: string }).id,
+          type: 'holiday_added',
+          message: `Public holiday added: "${name.trim()}" on ${fmtd}`,
+          read: false,
+        }))
+      )
+    }
+
     setSaving(false)
-    if (error) { setMsg(error.message); return }
     onClose()
   }
 
@@ -38,6 +56,9 @@ function PublicHolidayModal({ subAccount, onClose }: { subAccount: string; onClo
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
         <form onSubmit={handleSave} className="px-6 py-5 space-y-4">
+          <p className="text-xs text-gray-500 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
+            This holiday will appear on all team members' calendars in your workspace.
+          </p>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
             <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="input" />
@@ -51,7 +72,7 @@ function PublicHolidayModal({ subAccount, onClose }: { subAccount: string; onClo
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Country / Region</label>
             <select value={country} onChange={e => setCountry(e.target.value as Country)} className="input">
               <option value="SG">🇸🇬 Singapore (SG)</option>
               <option value="MY">🇲🇾 Malaysia (MY)</option>
@@ -100,7 +121,7 @@ export function CalendarPage() {
             <span className="ml-2 text-xs text-gray-400 font-mono">{timezone}</span>
           </p>
         </div>
-        {isSuperAdmin && (
+        {(isSuperAdmin || isManager) && (
           <button
             onClick={() => setShowModal(true)}
             className="flex items-center gap-2 bg-violet-600 text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-violet-700 transition-colors self-start"
@@ -136,7 +157,7 @@ export function CalendarPage() {
       {tab === 'user'    && isSuperAdmin && <UserCalendarTab timezone={timezone} />}
       {tab === 'reports' && isSuperAdmin && <MonthlyReportsTab timezone={timezone} />}
 
-      {showModal && user && (
+      {showModal && user && (isSuperAdmin || isManager) && (
         <PublicHolidayModal subAccount={user.sub_account} onClose={() => setShowModal(false)} />
       )}
     </div>

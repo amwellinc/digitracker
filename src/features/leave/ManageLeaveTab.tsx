@@ -147,6 +147,7 @@ export function ManageLeaveTab() {
   async function approve(id: string) {
     setActing(id)
     setError(null)
+    const leave = leaves.find(l => l.id === id)
     const { error: err } = await supabase
       .from('leave_requests')
       .update({ status: 'approved', remarks: null })
@@ -154,6 +155,17 @@ export function ManageLeaveTab() {
     if (err) {
       setError(`Approve failed: ${err.message}`)
     } else {
+      if (leave) {
+        const dateStr = leave.start_date === leave.end_date
+          ? new Date(leave.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+          : `${new Date(leave.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${new Date(leave.end_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+        await supabase.from('notifications').insert({
+          user_id: leave.user_id,
+          type: 'leave_approved',
+          message: `Your ${leave.type} leave request (${dateStr}) has been approved.`,
+          read: false,
+        })
+      }
       await load()
     }
     setActing(null)
@@ -162,6 +174,7 @@ export function ManageLeaveTab() {
   async function reject(id: string, remarks: string) {
     setActing(id)
     setError(null)
+    const leave = leaves.find(l => l.id === id)
     const { error: err } = await supabase
       .from('leave_requests')
       .update({ status: 'rejected', remarks: remarks || null })
@@ -170,6 +183,19 @@ export function ManageLeaveTab() {
     if (err) {
       setError(`Reject failed: ${err.message}`)
     } else {
+      if (leave) {
+        const dateStr = leave.start_date === leave.end_date
+          ? new Date(leave.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+          : `${new Date(leave.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${new Date(leave.end_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+        await supabase.from('notifications').insert({
+          user_id: leave.user_id,
+          type: 'leave_rejected',
+          message: remarks
+            ? `Your ${leave.type} leave request (${dateStr}) was rejected. Reason: ${remarks}`
+            : `Your ${leave.type} leave request (${dateStr}) has been rejected.`,
+          read: false,
+        })
+      }
       await load()
     }
     setActing(null)

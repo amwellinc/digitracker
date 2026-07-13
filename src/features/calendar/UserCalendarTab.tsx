@@ -85,7 +85,7 @@ export function UserCalendarTab({ timezone = DEFAULT_TIMEZONE }: { timezone?: st
     void Promise.all([
       supabase.from('time_logs').select('*').eq('user_id', selectedUser.id).gte('date', from).lte('date', to),
       supabase.from('leave_requests').select('*').eq('user_id', selectedUser.id).eq('status', 'approved').lte('start_date', to).gte('end_date', from),
-      supabase.from('public_holidays').select('*').eq('sub_account', user.sub_account).eq('country', selectedUser.country ?? 'SG').gte('date', from).lte('date', to),
+      supabase.from('public_holidays').select('*').eq('sub_account', user.sub_account).gte('date', from).lte('date', to),
     ]).then(([logs, lv, hols]) => {
       setTimeLogs((logs.data ?? []) as TimeLog[])
       setLeaves((lv.data ?? []) as LeaveRequest[])

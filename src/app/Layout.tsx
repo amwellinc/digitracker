@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { supabase } from '@/lib/supabase'
 import { ClockProvider, useClockContext } from '@/features/time-tracking/ClockContext'
 
 const STAFF_NAV = [
@@ -44,6 +45,7 @@ function LayoutInner() {
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [pendingTaskCount, setPendingTaskCount] = useState(0)
 
   const isViewingAs = isSuperAdmin && !!viewAsUser
   const isVisiting  = isSuperAdmin && !!visitingAccount && !isViewingAs
@@ -53,6 +55,34 @@ function LayoutInner() {
   useEffect(() => {
     setSidebarOpen(false)
   }, [location.pathname, location.hash])
+
+  // Pending task count for sidebar badge
+  const fetchTaskCount = useCallback(async () => {
+    if (!user) return
+    const { data: assignments } = await supabase
+      .from('task_assignees')
+      .select('task_id')
+      .eq('user_id', user.id)
+    const ids = (assignments ?? []).map(a => (a as { task_id: string }).task_id)
+    if (ids.length === 0) { setPendingTaskCount(0); return }
+    const { count } = await supabase
+      .from('tasks')
+      .select('id', { count: 'exact', head: true })
+      .in('id', ids)
+      .in('status', ['pending', 'in_progress'])
+    setPendingTaskCount(count ?? 0)
+  }, [user])
+
+  useEffect(() => {
+    void fetchTaskCount()
+    if (!user) return
+    const ch = supabase
+      .channel('layout-task-count')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => void fetchTaskCount())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_assignees' }, () => void fetchTaskCount())
+      .subscribe()
+    return () => { void supabase.removeChannel(ch) }
+  }, [user, fetchTaskCount])
 
   const handleSignOut = async () => {
     await signOut()
@@ -144,7 +174,12 @@ function LayoutInner() {
                   style={{ minHeight: '44px' }}
                 >
                   <span className="text-base w-5 text-center">{item.icon}</span>
-                  {item.label}
+                  <span className="flex-1">{item.label}</span>
+                  {item.to === '/tasks' && pendingTaskCount > 0 && (
+                    <span className="bg-violet-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full leading-none min-w-[18px] text-center">
+                      {pendingTaskCount > 99 ? '99+' : pendingTaskCount}
+                    </span>
+                  )}
                 </NavLink>
                 {item.children && item.children.length > 0 && sectionOpen && (
                   <div className="ml-3 mt-0.5 space-y-0.5 border-l-2 border-violet-100 pl-3">

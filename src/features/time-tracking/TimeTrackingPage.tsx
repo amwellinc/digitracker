@@ -157,13 +157,14 @@ export function TimeTrackingPage() {
 
   useEffect(() => { void fetchLogs() }, [fetchLogs])
 
-  // Upcoming holidays
+  // Upcoming holidays — scoped to this sub-account, no country filter (all users see all)
   useEffect(() => {
     if (!user) return
     const today = todayInTz(DEFAULT_TIMEZONE)
     void supabase
       .from('public_holidays')
       .select('id, date, name')
+      .eq('sub_account', user.sub_account)
       .gte('date', today)
       .order('date', { ascending: true })
       .limit(8)
@@ -214,8 +215,12 @@ export function TimeTrackingPage() {
     switch (type) {
       case 'task_assigned':  return '✅'
       case 'task_reply':     return '💬'
+      case 'task_completed': return '🏁'
+      case 'task_closed':    return '🔒'
       case 'leave_request':  return '📋'
-      case 'leave_approved': return '✓'
+      case 'leave_approved': return '✅'
+      case 'leave_rejected': return '❌'
+      case 'holiday_added':  return '🗓'
       default:               return '🔔'
     }
   }
