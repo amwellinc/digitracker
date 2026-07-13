@@ -21,9 +21,8 @@ export function KPIStaffView() {
   const [loading,    setLoading]    = useState(true)
 
   // Checklist
-  const [checkDone,    setCheckDone]    = useState<boolean[]>([])
-  const [checkRemarks, setCheckRemarks] = useState<string[]>([])
-  const [savingCheck,  setSavingCheck]  = useState(false)
+  const [checkDone,   setCheckDone]   = useState<boolean[]>([])
+  const [savingCheck, setSavingCheck] = useState(false)
 
   // EOD
   const [eodRows,      setEodRows]      = useState<EODRow[]>([emptyRow(), emptyRow(), emptyRow()])
@@ -46,7 +45,6 @@ export function KPIStaffView() {
 
     if (config) {
       setCheckDone(config.checklists.map((_, i) => dayLog?.checklist_done?.[i] ?? false))
-      setCheckRemarks(config.checklists.map((_, i) => (dayLog?.checklist_remarks as string[] | undefined)?.[i] ?? ''))
     }
 
     const rows: EODRow[] = Array.isArray(dayLog?.eod_rows) && (dayLog!.eod_rows as EODRow[]).some(r => r.task?.trim())
@@ -63,14 +61,14 @@ export function KPIStaffView() {
 
   useEffect(() => { void loadData() }, [loadData])
 
-  async function saveChecklist(done: boolean[], remarks: string[]) {
+  async function saveChecklist(done: boolean[]) {
     if (!user) return
     setSavingCheck(true)
     const payload = {
       user_id: user.id, date: today,
       metric_actuals: todayLog?.metric_actuals ?? {},
       checklist_done: done,
-      checklist_remarks: remarks,
+      checklist_remarks: [],
       eod_rows: eodRows,
       notes: null,
       submitted_at: todayLog?.submitted_at ?? new Date().toISOString(),
@@ -83,12 +81,7 @@ export function KPIStaffView() {
 
   function toggleCheck(i: number) {
     const done = checkDone.map((v, j) => j === i ? !v : v)
-    setCheckDone(done); void saveChecklist(done, checkRemarks)
-  }
-
-  function updateCheckRemark(i: number, val: string) {
-    const remarks = checkRemarks.map((v, j) => j === i ? val : v)
-    setCheckRemarks(remarks); void saveChecklist(checkDone, remarks)
+    setCheckDone(done); void saveChecklist(done)
   }
 
   function updateRow(i: number, field: keyof EODRow, val: string) {
@@ -113,7 +106,7 @@ export function KPIStaffView() {
       user_id: user.id, date: today,
       metric_actuals: todayLog?.metric_actuals ?? {},
       checklist_done: checkDone,
-      checklist_remarks: checkRemarks,
+      checklist_remarks: [],
       eod_rows: eodRows,
       notes: null,
       submitted_at: now,
@@ -171,29 +164,22 @@ export function KPIStaffView() {
               <thead>
                 <tr>
                   <th colSpan={2} className="bg-gray-700 text-white px-4 py-2.5 text-left font-bold text-sm tracking-wide">Daily Check List</th>
-                  <th className="bg-gray-700 text-white px-3 py-2.5 text-left font-bold text-sm">Remarks</th>
                 </tr>
                 <tr className="bg-sky-50 border-b border-sky-100">
                   <td colSpan={2} className="px-4 py-2 text-xs font-semibold text-gray-600">{todayFmt()}</td>
-                  <td className="px-3 py-2 text-xs font-semibold text-gray-600" />
                 </tr>
               </thead>
               <tbody>
                 {checklist.length === 0 ? (
-                  <tr><td colSpan={3} className="px-4 py-8 text-xs text-gray-400 text-center">No checklist items configured.</td></tr>
+                  <tr><td colSpan={2} className="px-4 py-8 text-xs text-gray-400 text-center">No checklist items configured.</td></tr>
                 ) : checklist.map((item, i) => (
                   <tr key={i} className={`border-b border-gray-100 ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}>
                     <td className="w-8 pl-3 pr-1 py-2.5">
                       <input type="checkbox" checked={checkDone[i] ?? false} onChange={() => toggleCheck(i)}
                         className="w-4 h-4 accent-violet-600 cursor-pointer" />
                     </td>
-                    <td className="py-2.5 pr-2">
+                    <td className="py-2.5 pr-3">
                       <span className={`text-xs leading-relaxed ${checkDone[i] ? 'line-through text-gray-300' : 'text-gray-700'}`}>{item}</span>
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <input type="text" value={checkRemarks[i] ?? ''} onChange={e => updateCheckRemark(i, e.target.value)}
-                        placeholder="—"
-                        className="w-full text-xs border-0 bg-transparent outline-none text-gray-600 placeholder-gray-300 focus:ring-0 p-0" />
                     </td>
                   </tr>
                 ))}

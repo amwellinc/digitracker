@@ -321,12 +321,10 @@ export function KPIAdminPanel() {
                   <thead>
                     <tr>
                       <th className="bg-gray-700 text-white text-left px-4 py-3 text-sm font-bold">Daily Check List</th>
-                      <th className="bg-gray-700 text-white text-center px-3 py-3 text-sm font-bold w-28">Remarks</th>
                       <th className="bg-gray-700 w-8" />
                     </tr>
                     <tr>
                       <td className={subHdr}>Checklist Item</td>
-                      <td className={`${subHdr} text-center`}>Staff Remarks</td>
                       <td className="bg-cyan-50" />
                     </tr>
                   </thead>
@@ -334,7 +332,6 @@ export function KPIAdminPanel() {
                     {checklists.map((item, i) => (
                       <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
                         <td className="px-4 py-2.5 text-sm text-gray-800">{item}</td>
-                        <td className="px-3 py-2.5 text-center text-xs text-gray-300 italic">—</td>
                         <td className="px-2 py-2.5 text-center">
                           <button onClick={() => void deleteCheckItem(i)}
                             className="text-gray-300 hover:text-red-500 text-sm transition-colors" title="Remove">✕</button>
@@ -344,7 +341,7 @@ export function KPIAdminPanel() {
                     {Array.from({ length: checkPad }).map((_, i) => (
                       <tr key={`cp-${i}`} className="border-t border-gray-100">
                         <td className="px-4 py-3 text-gray-200 text-xs italic">{i === 0 && checklists.length === 0 ? 'No items yet — add below' : ''}</td>
-                        <td /><td />
+                        <td />
                       </tr>
                     ))}
                   </tbody>
