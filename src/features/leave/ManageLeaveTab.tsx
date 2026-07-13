@@ -4,20 +4,83 @@ import { useAuth } from '@/hooks/useAuth'
 import type { LeaveRequest, User } from '@/types'
 
 function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function diffDays(start: string, end: string) {
-  const ms = new Date(end).getTime() - new Date(start).getTime()
+  const ms = new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()
   return Math.max(1, Math.round(ms / 86400000) + 1)
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  pending:  'bg-amber-50 text-amber-700',
-  approved: 'bg-green-50 text-green-700',
-  rejected: 'bg-red-50 text-red-700',
+  pending:  'bg-amber-50 text-amber-700 border border-amber-200',
+  approved: 'bg-green-50 text-green-700 border border-green-200',
+  rejected: 'bg-red-50 text-red-700 border border-red-200',
 }
 
+// ─── Reject Modal ─────────────────────────────────────────────────────────────
+interface RejectTarget { id: string; memberName: string }
+
+function RejectModal({
+  target, onConfirm, onCancel,
+}: {
+  target: RejectTarget
+  onConfirm: (id: string, remarks: string) => Promise<void>
+  onCancel: () => void
+}) {
+  const [remarks, setRemarks] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function submit() {
+    setBusy(true)
+    await onConfirm(target.id, remarks.trim())
+    setBusy(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={e => { if (e.target === e.currentTarget) onCancel() }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900">Reject Leave Request</h3>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <p className="text-sm text-gray-600">
+            Rejecting leave request for <strong>{target.memberName}</strong>.
+            Add a remark to explain the decision (optional).
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Rejection Remarks
+            </label>
+            <textarea
+              value={remarks}
+              onChange={e => setRemarks(e.target.value)}
+              rows={3}
+              placeholder="e.g. Insufficient notice period, project deadline conflict…"
+              className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-1">
+            <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800">
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy}
+              className="px-5 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {busy ? 'Rejecting…' : 'Confirm Reject'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export function ManageLeaveTab() {
   const { user } = useAuth()
   const [leaves, setLeaves] = useState<LeaveRequest[]>([])
@@ -25,20 +88,20 @@ export function ManageLeaveTab() {
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending')
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null)
 
   const load = useCallback(async () => {
     if (!user) return
 
     if (user.role === 'Admin' || user.role === 'Super-Admin') {
-      // Fetch all members then all their leaves
       const { data: members } = await supabase
         .from('users')
         .select('*')
         .eq('sub_account', user.sub_account)
         .neq('id', user.id)
       const users = (members ?? []) as User[]
-      const map = Object.fromEntries(users.map(u => [u.id, u]))
-      setMemberMap(map)
+      setMemberMap(Object.fromEntries(users.map(u => [u.id, u])))
 
       const ids = users.map(u => u.id)
       if (ids.length === 0) { setLeaves([]); setLoading(false); return }
@@ -49,14 +112,13 @@ export function ManageLeaveTab() {
         .order('created_at', { ascending: false })
       setLeaves((lv ?? []) as LeaveRequest[])
     } else {
-      // Manager: fetch direct reports
+      // Manager: only direct reports
       const { data: reports } = await supabase
         .from('users')
         .select('*')
         .eq('manager_id', user.id)
       const users = (reports ?? []) as User[]
-      const map = Object.fromEntries(users.map(u => [u.id, u]))
-      setMemberMap(map)
+      setMemberMap(Object.fromEntries(users.map(u => [u.id, u])))
 
       const ids = users.map(u => u.id)
       if (ids.length === 0) { setLeaves([]); setLoading(false); return }
@@ -82,25 +144,56 @@ export function ManageLeaveTab() {
     return () => { void supabase.removeChannel(ch) }
   }, [user, load])
 
-  async function decide(id: string, status: 'approved' | 'rejected') {
+  async function approve(id: string) {
     setActing(id)
-    await supabase.from('leave_requests').update({ status }).eq('id', id)
+    setError(null)
+    const { error: err } = await supabase
+      .from('leave_requests')
+      .update({ status: 'approved', remarks: null })
+      .eq('id', id)
+    if (err) {
+      setError(`Approve failed: ${err.message}`)
+    } else {
+      await load()
+    }
+    setActing(null)
+  }
+
+  async function reject(id: string, remarks: string) {
+    setActing(id)
+    setError(null)
+    const { error: err } = await supabase
+      .from('leave_requests')
+      .update({ status: 'rejected', remarks: remarks || null })
+      .eq('id', id)
+    setRejectTarget(null)
+    if (err) {
+      setError(`Reject failed: ${err.message}`)
+    } else {
+      await load()
+    }
     setActing(null)
   }
 
   const visible = filter === 'all' ? leaves : leaves.filter(l => l.status === filter)
   const pendingCount = leaves.filter(l => l.status === 'pending').length
 
-  if (loading) return <div className="flex justify-center py-16"><div className="w-6 h-6 border-4 border-violet-600 border-t-transparent rounded-full animate-spin" /></div>
+  if (loading) return (
+    <div className="flex justify-center py-16">
+      <div className="w-6 h-6 border-4 border-violet-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
 
   return (
     <div className="space-y-4">
       {/* Header + filter */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <h3 className="font-semibold text-gray-900">Team Leave Requests</h3>
           {pendingCount > 0 && (
-            <span className="bg-amber-100 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full">{pendingCount} pending</span>
+            <span className="bg-amber-100 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full">
+              {pendingCount} pending
+            </span>
           )}
         </div>
         <div className="flex gap-1.5">
@@ -118,6 +211,13 @@ export function ManageLeaveTab() {
         </div>
       </div>
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-4 text-lg leading-none">&times;</button>
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         {visible.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
@@ -129,7 +229,7 @@ export function ManageLeaveTab() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                 <tr>
-                  {['Employee', 'Type', 'Date(s)', 'Duration', 'Reason', 'Submitted', 'Status', 'Action'].map(h => (
+                  {['Employee', 'Type', 'Date(s)', 'Duration', 'Reason', 'Submitted', 'Status', 'Remarks', 'Action'].map(h => (
                     <th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -153,14 +253,14 @@ export function ManageLeaveTab() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-700 font-medium">{l.type}</td>
+                      <td className="px-4 py-3 text-gray-700 font-medium whitespace-nowrap">{l.type}</td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                         {l.type === 'Time-off' || l.start_date === l.end_date
                           ? fmtDate(l.start_date)
                           : `${fmtDate(l.start_date)} – ${fmtDate(l.end_date)}`}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{dur}</td>
-                      <td className="px-4 py-3 text-gray-600 max-w-[180px] truncate">{l.reason}</td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{dur}</td>
+                      <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate" title={l.reason}>{l.reason}</td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-xs">
                         {new Date(l.created_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}
                       </td>
@@ -169,20 +269,29 @@ export function ManageLeaveTab() {
                           {l.status}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs max-w-[160px]">
+                        {l.remarks ? (
+                          <span className="italic" title={l.remarks}>
+                            {l.remarks.length > 60 ? l.remarks.slice(0, 60) + '…' : l.remarks}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         {l.status === 'pending' && (
                           <div className="flex gap-1.5">
                             <button
-                              onClick={() => void decide(l.id, 'approved')}
+                              onClick={() => void approve(l.id)}
                               disabled={acting === l.id}
-                              className="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50"
+                              className="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
                             >
-                              Approve
+                              {acting === l.id ? '…' : 'Approve'}
                             </button>
                             <button
-                              onClick={() => void decide(l.id, 'rejected')}
+                              onClick={() => setRejectTarget({ id: l.id, memberName: member?.name ?? 'this employee' })}
                               disabled={acting === l.id}
-                              className="px-2.5 py-1 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-50"
+                              className="px-2.5 py-1 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
                             >
                               Reject
                             </button>
@@ -197,6 +306,14 @@ export function ManageLeaveTab() {
           </div>
         )}
       </div>
+
+      {rejectTarget && (
+        <RejectModal
+          target={rejectTarget}
+          onConfirm={reject}
+          onCancel={() => setRejectTarget(null)}
+        />
+      )}
     </div>
   )
 }

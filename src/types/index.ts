@@ -74,6 +74,7 @@ export interface LeaveRequest {
   hours: number | null
   reason: string
   status: 'pending' | 'approved' | 'rejected'
+  remarks: string | null
   created_at: string
 }
 

@@ -11,7 +11,7 @@ function diffDays(start: string, end: string) {
 }
 
 function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -134,7 +134,7 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                 <tr>
-                  {['Type', 'Date(s)', 'Duration', 'Reason', 'Status', ''].map(h => (
+                  {['Type', 'Date(s)', 'Duration', 'Reason', 'Status', 'Remarks', ''].map(h => (
                     <th key={h} className="px-5 py-3 text-left font-medium">{h}</th>
                   ))}
                 </tr>
@@ -158,6 +158,15 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_STYLE[l.status]}`}>
                         {l.status}
                       </span>
+                    </td>
+                    <td className="px-5 py-3 text-xs max-w-[200px]">
+                      {l.status === 'rejected' && l.remarks ? (
+                        <span className="text-red-600 italic" title={l.remarks}>
+                          {l.remarks.length > 80 ? l.remarks.slice(0, 80) + '…' : l.remarks}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
                     </td>
                     <td className="px-5 py-3">
                       {l.status === 'pending' && (
