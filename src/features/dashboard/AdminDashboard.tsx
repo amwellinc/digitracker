@@ -5,7 +5,7 @@ import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { useRealtime } from '@/hooks/useRealtime'
 import { Avatar } from '@/components/ui/Avatar'
 import { UserActivityDrawer } from '@/features/time-tracking/UserActivityDrawer'
-import type { User, LeaveRequest, Screenshot, TimeLog } from '@/types'
+import type { User, LeaveRequest, Screenshot } from '@/types'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 type WorkStatus = 'working' | 'lunch' | 'absent'
@@ -13,7 +13,21 @@ type WorkStatus = 'working' | 'lunch' | 'absent'
 interface MemberRow extends User {
   workStatus: WorkStatus
   clockIn: string | null
-  hoursToday: number
+  lastSeenAt: string | null
+  completedMins: number
+}
+
+interface TeamStatusRow {
+  user_id: string
+  name: string
+  email: string
+  role: string
+  sub_account: string
+  profile_image: string | null
+  log_status: string | null
+  clock_in: string | null
+  last_seen_at: string | null
+  completed_mins: number
 }
 
 interface PendingLeave extends LeaveRequest {
@@ -87,7 +101,7 @@ export function AdminDashboard() {
     if (!user) return
     const today = todayInTz(DEFAULT_TIMEZONE)
 
-    // All users in workspace
+    // All users in workspace — needed for leave + screenshot queries
     const { data: usersData } = await supabase
       .from('users')
       .select('*')
@@ -97,32 +111,32 @@ export function AdminDashboard() {
     const allUsers = (usersData ?? []) as User[]
     const userIds = allUsers.map(u => u.id)
 
-    // Today's time logs
-    const { data: logsData } = await supabase
-      .from('time_logs')
-      .select('*')
-      .eq('date', today)
-      .in('user_id', userIds)
+    // Team status via SECURITY DEFINER RPC — bypasses all RLS edge cases.
+    // Guarantees the admin sees every staff member's live session regardless
+    // of how the user was created (admin UI vs self-registration).
+    const { data: statusData, error: statusError } = await supabase
+      .rpc('get_team_status', { p_sub_account: user.sub_account, p_date: today })
 
-    const logs = (logsData ?? []) as TimeLog[]
+    if (statusError) {
+      console.error('[AdminDashboard] get_team_status RPC error:', statusError)
+    }
 
-    // Map to MemberRow
+    // Build a map keyed by user_id for O(1) lookup
+    const statusMap = new Map<string, TeamStatusRow>()
+    ;((statusData ?? []) as TeamStatusRow[]).forEach(r => statusMap.set(r.user_id, r))
+
+    // Map to MemberRow — hoursToday is computed live in render via useLiveClock
     const rows: MemberRow[] = allUsers.map(u => {
-      const userLogs = logs.filter(l => l.user_id === u.id)
-      const activeLog = userLogs.find(l => l.status === 'working' || l.status === 'lunch')
-      const totalMins = userLogs.reduce((s, l) => s + (l.total_minutes ?? 0), 0)
-
-      // Add running minutes for active session
-      let runningMins = 0
-      if (activeLog?.status === 'working') {
-        runningMins = (Date.now() - new Date(activeLog.clock_in).getTime()) / 60000
-      }
-
+      const s = statusMap.get(u.id)
+      const ws: WorkStatus = s?.log_status === 'working' ? 'working'
+                           : s?.log_status === 'lunch'   ? 'lunch'
+                           : 'absent'
       return {
         ...u,
-        workStatus: activeLog ? (activeLog.status as WorkStatus) : 'absent',
-        clockIn: activeLog?.clock_in ?? null,
-        hoursToday: Math.round(totalMins + runningMins),
+        workStatus:    ws,
+        clockIn:       s?.clock_in     ?? null,
+        lastSeenAt:    s?.last_seen_at ?? null,
+        completedMins: s?.completed_mins ?? 0,
       }
     })
 
@@ -158,7 +172,16 @@ export function AdminDashboard() {
   }, [user])
 
   useEffect(() => { void load() }, [load])
-  useRealtime({ table: 'time_logs', onInsert: () => void load(), onUpdate: () => void load() })
+
+  // Stable callbacks — inline arrows recreate on every render and tear the channel down constantly
+  const handleDbChange = useCallback(() => { void load() }, [load])
+  useRealtime({ table: 'time_logs', onInsert: handleDbChange, onUpdate: handleDbChange })
+
+  // 30-second polling fallback: ensures dashboard stays current even when Realtime misses events
+  useEffect(() => {
+    const id = setInterval(() => { void load() }, 30_000)
+    return () => clearInterval(id)
+  }, [load])
 
   async function handleLeave(id: string, status: 'approved' | 'rejected') {
     setActioning(id)
@@ -244,6 +267,22 @@ export function AdminDashboard() {
                 ? new Date(m.clockIn).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: true })
                 : null
 
+              // Compute live elapsed minutes — updates every second via useLiveClock.
+              // Applies to both 'working' and 'lunch' statuses so the Today column
+              // shows accumulated time even when the staff member is on a lunch break.
+              // Caps at last_seen_at + 10 min so closed-laptop sessions don't inflate.
+              const STALE_CAP_MS = 10 * 60 * 1000
+              const runningMins = (m.workStatus === 'working' || m.workStatus === 'lunch') && m.clockIn
+                ? (() => {
+                    const lastSeenMs = m.lastSeenAt
+                      ? new Date(m.lastSeenAt).getTime()
+                      : new Date(m.clockIn!).getTime()
+                    const effectiveNow = Math.min(now.getTime(), lastSeenMs + STALE_CAP_MS)
+                    return (effectiveNow - new Date(m.clockIn!).getTime()) / 60000
+                  })()
+                : 0
+              const hoursToday = Math.round(m.completedMins + runningMins)
+
               return (
                 <tr key={m.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-3.5">
@@ -271,13 +310,13 @@ export function AdminDashboard() {
                     {clockInTime ?? <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-6 py-3.5">
-                    {m.hoursToday > 0 ? (
+                    {hoursToday > 0 ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-800">{fmtHours(m.hoursToday)}</span>
+                        <span className="text-sm font-medium text-gray-800">{fmtHours(hoursToday)}</span>
                         <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-green-400 rounded-full"
-                            style={{ width: `${Math.min(100, (m.hoursToday / (8 * 60)) * 100)}%` }}
+                            style={{ width: `${Math.min(100, (hoursToday / (8 * 60)) * 100)}%` }}
                           />
                         </div>
                       </div>

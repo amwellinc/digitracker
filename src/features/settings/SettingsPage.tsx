@@ -29,7 +29,7 @@ export function SettingsPage() {
       ? [
           { id: 'users' as TabId,        label: 'Users & Roles' },
           { id: 'subscription' as TabId, label: 'Subscription' },
-          { id: 'ghl' as TabId,          label: '🔗 GHL Integration' },
+          { id: 'ghl' as TabId,          label: '🔗 DIGI5Y-CRM Integration' },
         ]
       : []),
   ]

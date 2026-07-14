@@ -51,10 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data } = await supabase
       .from('users')
       .select('*')
-      .eq('email', authEmail.toLowerCase().trim())
+      .ilike('email', authEmail.trim())  // case-insensitive — DB may store mixed-case emails
       .single()
     if (data) dispatch({ type: 'SIGNED_IN', user: data as User })
-    else dispatch({ type: 'SIGNED_OUT' })
+    else {
+      // Valid Supabase auth session but no matching app user — sign out cleanly
+      await supabase.auth.signOut()
+      dispatch({ type: 'SIGNED_OUT' })
+    }
   }, [])
 
   useEffect(() => {

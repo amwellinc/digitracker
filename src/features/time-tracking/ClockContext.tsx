@@ -118,6 +118,56 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     void init()
   }, [user])
 
+  // ── Visibility change: re-validate session when page becomes visible ─────
+  // Handles the laptop-close scenario: the page lives in background (BFCache),
+  // the keepalive fired and wrote clocked_out to DB, but React state still
+  // holds the old activeLog. When the lid opens and tab regains focus,
+  // re-check DB so the UI reflects the actual current state.
+  useEffect(() => {
+    if (!user) return
+
+    const handleVisible = async () => {
+      if (document.visibilityState !== 'visible') return
+      const log = activeLogRef.current
+      if (!log) return
+
+      const { data } = await supabase
+        .from('time_logs')
+        .select('*')
+        .eq('id', log.id)
+        .single()
+
+      if (!data) return
+      const fresh = data as TimeLog
+
+      if (fresh.status === 'clocked_out') {
+        setDayMinutes(p => p + (fresh.total_minutes ?? 0))
+        setActiveLog(null)
+        setLunchStart(null)
+        return
+      }
+
+      if (fresh.last_seen_at) {
+        const gapMs = Date.now() - new Date(fresh.last_seen_at).getTime()
+        if (gapMs > STALE_MS) {
+          const clockOut = fresh.last_seen_at
+          const total    = Math.round(
+            (new Date(clockOut).getTime() - new Date(fresh.clock_in).getTime()) / 60000,
+          )
+          await supabase.from('time_logs')
+            .update({ clock_out: clockOut, status: 'clocked_out', total_minutes: total })
+            .eq('id', fresh.id)
+          setDayMinutes(p => p + total)
+          setActiveLog(null)
+          setLunchStart(null)
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisible)
+    return () => document.removeEventListener('visibilitychange', handleVisible)
+  }, [user])
+
   // ── Heartbeat: stamp last_seen_at every 2 min while clocked in ─────────
   useEffect(() => {
     if (!activeLog || activeLog.status === 'clocked_out') return
@@ -173,6 +223,23 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
   const handleClockIn = useCallback(async () => {
     const u = userRef.current
     if (!u) return
+
+    const today = todayInTz(DEFAULT_TIMEZONE)
+
+    // Prevent duplicate: if an active session already exists in DB, restore it
+    const { data: existing } = await supabase
+      .from('time_logs')
+      .select('*')
+      .eq('user_id', u.id)
+      .eq('date', today)
+      .in('status', ['working', 'lunch'])
+      .maybeSingle()
+
+    if (existing) {
+      setActiveLog(existing as TimeLog)
+      return
+    }
+
     const ok = await startCapture()
     if (!ok) return
     const now = new Date().toISOString()
@@ -180,7 +247,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
       .from('time_logs')
       .insert({
         user_id:      u.id,
-        date:         todayInTz(DEFAULT_TIMEZONE),
+        date:         today,
         clock_in:     now,
         status:       'working',
         last_seen_at: now,

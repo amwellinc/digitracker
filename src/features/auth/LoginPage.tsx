@@ -21,10 +21,23 @@ export function LoginPage() {
   async function handlePasswordSignIn(e: React.FormEvent) {
     e.preventDefault()
     setStatus('loading')
+    setErrorMsg('')
     const code = isPlatform ? '__saas__' : subAccount
     const { error } = await signInWithPassword(email, code, password)
-    if (error) { setErrorMsg(error); setStatus('error') }
-    // on success auth listener redirects automatically
+    if (error) {
+      setErrorMsg(error)
+      setStatus('error')
+      return
+    }
+    // Auth succeeded — onAuthStateChange handles the redirect.
+    // If it doesn't arrive within 6 s the app user wasn't found; show a clear error.
+    setTimeout(() => {
+      setStatus(prev => {
+        if (prev !== 'loading') return prev   // already redirected or errored
+        setErrorMsg('Account not found in the system. Try a magic link or contact your administrator.')
+        return 'error'
+      })
+    }, 6000)
   }
 
   async function handleMagicLink(e: React.FormEvent) {
