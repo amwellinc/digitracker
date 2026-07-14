@@ -48,11 +48,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [viewAsUser, setViewAsUser] = useState<User | null>(null)
 
   const loadUser = useCallback(async (authEmail: string) => {
+    // Use limit(1) + maybeSingle() instead of single() so we never error when
+    // the same email appears in multiple sub-account rows. maybeSingle() returns
+    // null (not an error) for 0 rows; limit(1) prevents the "multiple rows" error.
     const { data } = await supabase
       .from('users')
       .select('*')
-      .ilike('email', authEmail.trim())  // case-insensitive — DB may store mixed-case emails
-      .single()
+      .ilike('email', authEmail.trim())   // case-insensitive match
+      .order('created_at', { ascending: true })  // deterministic pick if multiple rows exist
+      .limit(1)
+      .maybeSingle()
     if (data) dispatch({ type: 'SIGNED_IN', user: data as User })
     else {
       // Valid Supabase auth session but no matching app user — sign out cleanly
