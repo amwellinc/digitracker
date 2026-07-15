@@ -22,22 +22,39 @@ export function LoginPage() {
     e.preventDefault()
     setStatus('loading')
     setErrorMsg('')
+
+    // Start a fallback timer NOW — before the await — so the UI never stays
+    // frozen if the Supabase call or the subsequent user-lookup stalls.
+    // AuthContext already race-times the auth call at 15 s; this 20 s guard
+    // covers the full auth + user-lookup pipeline.
+    const fallback = setTimeout(() => {
+      setStatus(prev => {
+        if (prev !== 'loading') return prev
+        setErrorMsg('Login is taking too long. Check your connection, or use a magic link.')
+        return 'error'
+      })
+    }, 20_000)
+
     const code = isPlatform ? '__saas__' : subAccount
     const { error } = await signInWithPassword(email, code, password)
+
     if (error) {
+      clearTimeout(fallback)
       setErrorMsg(error)
       setStatus('error')
       return
     }
+
     // Auth succeeded — onAuthStateChange handles the redirect.
-    // If it doesn't arrive within 6 s the app user wasn't found; show a clear error.
+    // If it doesn't arrive within 6 s the app user wasn't found.
+    clearTimeout(fallback)
     setTimeout(() => {
       setStatus(prev => {
         if (prev !== 'loading') return prev   // already redirected or errored
         setErrorMsg('Account not found in the system. Try a magic link or contact your administrator.')
         return 'error'
       })
-    }, 6000)
+    }, 6_000)
   }
 
   async function handleMagicLink(e: React.FormEvent) {

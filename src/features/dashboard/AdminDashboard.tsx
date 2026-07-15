@@ -270,8 +270,9 @@ export function AdminDashboard() {
               // Compute live elapsed minutes — updates every second via useLiveClock.
               // Applies to both 'working' and 'lunch' statuses so the Today column
               // shows accumulated time even when the staff member is on a lunch break.
-              // Caps at last_seen_at + 10 min so closed-laptop sessions don't inflate.
-              const STALE_CAP_MS = 10 * 60 * 1000
+              // Caps at last_seen_at + 20 min (matches ClockContext STALE_MS) so
+              // closed-laptop sessions don't inflate.
+              const STALE_CAP_MS = 20 * 60 * 1000
               const runningMins = (m.workStatus === 'working' || m.workStatus === 'lunch') && m.clockIn
                 ? (() => {
                     const lastSeenMs = m.lastSeenAt

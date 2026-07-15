@@ -8,7 +8,7 @@ import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 const HEARTBEAT_MS      = 2 * 60 * 1000   // ping DB every 2 min while clocked in
-const STALE_MS          = 10 * 60 * 1000  // >10 min gap = abandoned session
+const STALE_MS          = 20 * 60 * 1000  // >20 min gap = abandoned session (raised from 10 for resilience)
 
 // Module-level token cache — kept fresh by the Supabase auth listener so
 // pagehide/beforeunload handlers can call fetch() without an async look-up.
@@ -78,6 +78,19 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     const today = todayInTz(DEFAULT_TIMEZONE)
 
     async function init() {
+      // Detect page reload (F5/Ctrl+R) vs first-time navigation.
+      // We use this below to restore a session that the pagehide keepalive
+      // may have falsely clocked out during the reload.
+      const navEntry = (
+        performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+      )
+      const wasReloaded = navEntry?.type === 'reload'
+
+      // If the user explicitly clicked Clock Out, a sessionStorage flag is set so we
+      // don't accidentally restore that intentional clock-out on a subsequent reload.
+      const hadExplicitClkout = sessionStorage.getItem('__dt_explicit_clkout') === 'true'
+      sessionStorage.removeItem('__dt_explicit_clkout')
+
       const { data } = await supabase
         .from('time_logs')
         .select('*')
@@ -91,7 +104,33 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
       setDayMinutes(completed.reduce((s, l) => s + (l.total_minutes ?? 0), 0))
 
       const active = logs.find(l => l.status !== 'clocked_out')
-      if (!active) return
+
+      if (!active) {
+        // On a page reload the pagehide keepalive may have clocked out a session
+        // that was genuinely live. Detect this by finding a session clocked out
+        // within the last 30 s and no explicit user clock-out.
+        if (wasReloaded && !hadExplicitClkout) {
+          const justClkedOut = logs.find(l =>
+            l.status === 'clocked_out' &&
+            l.clock_out &&
+            Date.now() - new Date(l.clock_out).getTime() < 30_000,
+          )
+          if (justClkedOut) {
+            const { data: restored } = await supabase
+              .from('time_logs')
+              .update({ status: 'working', clock_out: null, total_minutes: null })
+              .eq('id', justClkedOut.id)
+              .select()
+              .single()
+            if (restored) {
+              // Subtract the (now-invalid) total_minutes that was tallied above
+              setDayMinutes(prev => Math.max(0, prev - (justClkedOut.total_minutes ?? 0)))
+              setActiveLog(restored as TimeLog)
+            }
+          }
+        }
+        return
+      }
 
       // Detect abandoned session (browser/laptop closed without clock-out)
       if (active.last_seen_at) {
@@ -172,24 +211,29 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!activeLog || activeLog.status === 'clocked_out') return
 
-    // Fire once immediately so the very first heartbeat is recorded
-    void supabase.from('time_logs')
-      .update({ last_seen_at: new Date().toISOString() })
-      .eq('id', activeLog.id)
-
-    const id = setInterval(() => {
-      void supabase.from('time_logs')
+    const beat = async () => {
+      const { error } = await supabase.from('time_logs')
         .update({ last_seen_at: new Date().toISOString() })
         .eq('id', activeLog.id)
-    }, HEARTBEAT_MS)
+      // On failure the most common cause is an expired auth token.
+      // Refresh the session so the next beat succeeds.
+      if (error) await supabase.auth.refreshSession()
+    }
 
+    void beat()  // immediate first beat
+    const id = setInterval(beat, HEARTBEAT_MS)
     return () => clearInterval(id)
   }, [activeLog?.id, activeLog?.status])  // re-run when log changes, not on every render
 
-  // ── Keepalive clock-out: fires when browser/tab closes ─────────────────
+  // ── Keepalive clock-out: fires when browser/tab truly closes ───────────
   // fetch with keepalive:true is the only reliable way to send a request
-  // during page unload — XMLHttpRequest sync and navigator.sendBeacon
-  // can't include Authorization headers cleanly.
+  // during page unload.
+  //
+  // beforeunload is intentionally NOT registered here: it fires on every
+  // F5/Ctrl+R page reload too, which would clock out staff who refresh the
+  // page.  pagehide with persisted=false is the correct signal for a genuine
+  // page unload (close/navigate away).  init() handles the reload edge case
+  // by detecting a recently clocked-out session and restoring it.
   useEffect(() => {
     const clockOutNow = () => {
       const log = activeLogRef.current
@@ -209,13 +253,16 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {})
     }
 
-    // pagehide fires for tab close, browser close, and back-forward cache eviction
-    // beforeunload fires for explicit closes/refreshes — belt & suspenders
-    window.addEventListener('pagehide',     clockOutNow)
-    window.addEventListener('beforeunload', clockOutNow)
+    const handlePageHide = (e: PageTransitionEvent) => {
+      // persisted=true means the page is entering the BFCache (tab switch on
+      // some browsers) — the user will return, so don't clock them out.
+      if (e.persisted) return
+      clockOutNow()
+    }
+
+    window.addEventListener('pagehide', handlePageHide as EventListener)
     return () => {
-      window.removeEventListener('pagehide',     clockOutNow)
-      window.removeEventListener('beforeunload', clockOutNow)
+      window.removeEventListener('pagehide', handlePageHide as EventListener)
     }
   }, [])
 
@@ -261,6 +308,10 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     const log = activeLogRef.current
     const u   = userRef.current
     if (!log || !u) return
+
+    // Mark as user-initiated so init() won't restore this session on a
+    // subsequent page reload (distinguishes from keepalive clock-outs).
+    sessionStorage.setItem('__dt_explicit_clkout', 'true')
 
     // Warn if KPI daily update not submitted (non-blocking)
     const today = todayInTz(DEFAULT_TIMEZONE)

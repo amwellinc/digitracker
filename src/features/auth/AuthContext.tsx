@@ -101,23 +101,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Email + password sign-in
+  // Promise.race with a 15-second timeout prevents the button from hanging
+  // forever when the Supabase endpoint is unreachable (network issue, DNS, etc.)
   const signInWithPassword = useCallback(async (
     email: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _subAccount: string,
     password: string,
-  ) => {
-    const { error } = await supabase.auth.signInWithPassword({
+  ): Promise<{ error: string | null }> => {
+    type Result = { error: string | null }
+
+    const timeout: Promise<Result> = new Promise(resolve =>
+      setTimeout(
+        () => resolve({ error: 'Login request timed out. Check your internet connection and try again.' }),
+        15_000,
+      )
+    )
+
+    const auth: Promise<Result> = supabase.auth.signInWithPassword({
       email: email.toLowerCase().trim(),
       password,
-    })
-    if (error) {
+    }).then(({ error }) => {
+      if (!error) return { error: null }
       if (error.message.includes('Invalid login credentials')) {
         return { error: 'Incorrect password. Use "Forgot password?" to set one, or sign in with a magic link.' }
       }
       return { error: error.message }
-    }
-    return { error: null }
+    })
+
+    return Promise.race([auth, timeout])
   }, [])
 
   // Send password reset email.
