@@ -1,11 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 
 type Mode     = 'password' | 'magic' | 'forgot'
 type AccountType = 'team' | 'platform'
 
 export function LoginPage() {
-  const { signIn, signInWithPassword, sendPasswordReset } = useAuth()
+  const { signIn, signInWithPassword, sendPasswordReset, user } = useAuth()
+  const navigate = useNavigate()
+
+  // Redirect to app once auth state is set (covers both password and magic-link flows)
+  useEffect(() => {
+    if (user) navigate('/', { replace: true })
+  }, [user, navigate])
 
   const [accountType, setAccountType] = useState<AccountType>('team')
   const [mode, setMode]               = useState<Mode>('password')
