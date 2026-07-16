@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 const N8N_EXCHANGE_URL = 'https://amwellinc.app.n8n.cloud/webhook/ghl-oauth-exchange'
 
 // OAuth redirect URI registered in GHL Marketplace App settings.
-const GHL_REDIRECT_URI = 'https://login.digitracker.digi5y.co/ghl/callback'
+const GHL_REDIRECT_URI = 'https://digitracker-app.digi5y.co/ghl/callback'
 
 interface ExchangeResult {
   success: boolean

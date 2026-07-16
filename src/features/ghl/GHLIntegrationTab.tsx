@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth'
 
 // Redirect URI registered in the GHL Marketplace App.
 // GHL redirects here after the user authorizes; index.html bridges it into HashRouter.
-const GHL_REDIRECT_URI = 'https://login.digitracker.digi5y.co/ghl/callback'
+const GHL_REDIRECT_URI = 'https://digitracker-app.digi5y.co/ghl/callback'
 
 // N8N live-status endpoint — returns connection info + contacts for the AM333 location.
 const GHL_STATUS_URL = 'https://amwellinc.app.n8n.cloud/webhook/digitracker-ghl-status'

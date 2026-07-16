@@ -151,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Send password reset email.
   // No custom redirectTo — Supabase uses the project's configured Site URL
-  // (https://login.digitracker.digi5y.co), which requires no allowlist entry.
+  // (https://digitracker-app.digi5y.co), which requires no allowlist entry.
   // Supabase JS auto-exchanges the PKCE code on load and fires PASSWORD_RECOVERY.
   // The onAuthStateChange handler above catches that and redirects to /#/reset-password.
   const sendPasswordReset = useCallback(async (email: string) => {
