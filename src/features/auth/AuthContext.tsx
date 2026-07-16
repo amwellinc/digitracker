@@ -48,22 +48,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [viewAsUser, setViewAsUser] = useState<User | null>(null)
 
   const loadUser = useCallback(async (authEmail: string) => {
-    // Use limit(1) + maybeSingle() instead of single() so we never error when
-    // the same email appears in multiple sub-account rows. maybeSingle() returns
-    // null (not an error) for 0 rows; limit(1) prevents the "multiple rows" error.
-    const { data } = await supabase
+    // Primary: email lookup (case-insensitive, handles users where auth.uid ≠ users.id)
+    const { data: byEmail } = await supabase
       .from('users')
       .select('*')
-      .ilike('email', authEmail.trim())   // case-insensitive match
-      .order('created_at', { ascending: true })  // deterministic pick if multiple rows exist
+      .ilike('email', authEmail.trim())
+      .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle()
-    if (data) dispatch({ type: 'SIGNED_IN', user: data as User })
-    else {
-      // Valid Supabase auth session but no matching app user — sign out cleanly
-      await supabase.auth.signOut()
-      dispatch({ type: 'SIGNED_OUT' })
+
+    if (byEmail) {
+      dispatch({ type: 'SIGNED_IN', user: byEmail as User })
+      return
     }
+
+    // Fallback: match by the Supabase auth UID directly.
+    // Covers cases where the email lookup is blocked by RLS or the stored
+    // email has encoding differences — if users.id was set to match auth.uid()
+    // the row is always visible under the standard "id = auth.uid()" RLS policy.
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (authUser?.id) {
+      const { data: byId } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .maybeSingle()
+
+      if (byId) {
+        dispatch({ type: 'SIGNED_IN', user: byId as User })
+        return
+      }
+    }
+
+    // Valid Supabase auth session but no matching app user — sign out cleanly
+    await supabase.auth.signOut()
+    dispatch({ type: 'SIGNED_OUT' })
   }, [])
 
   useEffect(() => {
