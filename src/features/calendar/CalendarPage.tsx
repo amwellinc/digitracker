@@ -9,19 +9,22 @@ import { MonthlyReportsTab } from './MonthlyReportsTab'
 
 type TabId = 'my' | 'team' | 'user' | 'reports'
 
-const COUNTRIES = ['SG', 'MY', 'PH'] as const
-type Country = typeof COUNTRIES[number]
+function countryFromTimezone(tz: string): 'SG' | 'MY' | 'PH' {
+  if (tz.includes('Kuala_Lumpur') || tz.includes('Malaysia')) return 'MY'
+  if (tz.includes('Manila') || tz.includes('Philippines')) return 'PH'
+  return 'SG'
+}
 
-function PublicHolidayModal({ subAccount, onClose }: { subAccount: string; onClose: () => void }) {
+function PublicHolidayModal({ subAccount, timezone, onClose }: { subAccount: string; timezone: string; onClose: () => void }) {
   const [date, setDate] = useState('')
   const [name, setName] = useState('')
-  const [country, setCountry] = useState<Country>('SG')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
+    const country = countryFromTimezone(timezone)
     const { error } = await supabase.from('public_holidays').insert({
       date, name: name.trim(), country, sub_account: subAccount,
     })
@@ -70,14 +73,6 @@ function PublicHolidayModal({ subAccount, onClose }: { subAccount: string; onClo
               placeholder="e.g. National Day, Hari Raya…"
               className="input"
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Country / Region</label>
-            <select value={country} onChange={e => setCountry(e.target.value as Country)} className="input">
-              <option value="SG">🇸🇬 Singapore (SG)</option>
-              <option value="MY">🇲🇾 Malaysia (MY)</option>
-              <option value="PH">🇵🇭 Philippines (PH)</option>
-            </select>
           </div>
           {msg && <p className="text-sm text-red-600">{msg}</p>}
           <div className="flex justify-end gap-3 pt-2">
@@ -158,7 +153,7 @@ export function CalendarPage() {
       {tab === 'reports' && isSuperAdmin && <MonthlyReportsTab timezone={timezone} />}
 
       {showModal && user && (isSuperAdmin || isManager) && (
-        <PublicHolidayModal subAccount={user.sub_account} onClose={() => setShowModal(false)} />
+        <PublicHolidayModal subAccount={user.sub_account} timezone={timezone} onClose={() => setShowModal(false)} />
       )}
     </div>
   )

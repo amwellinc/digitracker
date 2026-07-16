@@ -207,6 +207,8 @@ export function TimeTrackingPage() {
   const isWorking    = activeLog?.status === 'working'
   const isOnLunch    = activeLog?.status === 'lunch'
   const isSuperAdmin = user?.role === 'Admin' || user?.role === 'Super-Admin'
+  const todayStr     = todayInTz(DEFAULT_TIMEZONE)
+  const todayHoliday = holidays.find(h => h.date === todayStr) ?? null
 
   const { label: monthLabel } = monthRange(showPrevMonth ? -1 : 0)
   const totalMonthMins = dayLogs.reduce((acc, d) => acc + d.total_minutes, 0)
@@ -243,6 +245,16 @@ export function TimeTrackingPage() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Time Tracking</h2>
           <p className="text-sm text-gray-500 mt-1">Manage your daily shift and view your activity.</p>
+        </div>
+      )}
+
+      {todayHoliday && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 flex items-start gap-3">
+          <span className="text-2xl flex-shrink-0" aria-hidden="true">🗓</span>
+          <div>
+            <p className="font-semibold text-amber-900">Public Holiday — {todayHoliday.name}</p>
+            <p className="text-sm text-amber-700 mt-0.5">Today is a public holiday. No clock-in is required.</p>
+          </div>
         </div>
       )}
 
