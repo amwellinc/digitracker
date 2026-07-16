@@ -47,15 +47,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [visitingAccount, setVisitingAccount] = useState<SubAccount | null>(null)
   const [viewAsUser, setViewAsUser] = useState<User | null>(null)
 
-  const loadUser = useCallback(async (_authEmail: string) => {
-    // Use a SECURITY DEFINER RPC so this lookup is never blocked by RLS,
-    // regardless of how the user was created or what policies exist.
-    // Matches by auth.uid() OR auth.email() — covers all creation paths.
-    const { data, error } = await supabase.rpc('get_my_user_profile')
+  const loadUser = useCallback(async (authEmail: string) => {
+    // Primary: email lookup — works for all users regardless of how they were created
+    const { data: byEmail } = await supabase
+      .from('users')
+      .select('*')
+      .ilike('email', authEmail.trim())
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
 
-    if (!error && Array.isArray(data) && data.length > 0) {
-      dispatch({ type: 'SIGNED_IN', user: data[0] as User })
+    if (byEmail) {
+      dispatch({ type: 'SIGNED_IN', user: byEmail as User })
       return
+    }
+
+    // Fallback: match by Supabase auth UID — works when users.id = auth.uid()
+    // (password-login users created via the platform, not admin-created)
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (authUser?.id) {
+      const { data: byId } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .maybeSingle()
+
+      if (byId) {
+        dispatch({ type: 'SIGNED_IN', user: byId as User })
+        return
+      }
     }
 
     // Valid Supabase auth session but no matching app user — sign out cleanly
