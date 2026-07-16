@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { PLAN_LABELS } from '@/lib/constants'
 
 interface DashStats {
   totalAccounts: number
@@ -148,7 +149,7 @@ export function PlatformDashboard() {
             {(['professional', 'business', 'basic', 'free'] as const).map(plan => (
               <div key={plan}>
                 <div className="flex justify-between text-xs text-gray-600 mb-1">
-                  <span className={`font-medium capitalize ${PLAN_TEXT[plan]}`}>{plan}</span>
+                  <span className={`font-medium ${PLAN_TEXT[plan]}`}>{PLAN_LABELS[plan] ?? plan}</span>
                   <span className="font-bold text-gray-800">{stats.planDist[plan] ?? 0}</span>
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -249,9 +250,9 @@ export function PlatformDashboard() {
                     <span className="text-sm text-gray-700">{a.company_name || a.code}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${PLAN_TEXT[a.plan]} bg-opacity-10`}
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${PLAN_TEXT[a.plan]} bg-opacity-10`}
                       style={{ background: 'rgb(var(--color-bg, 240 240 240))' }}>
-                      {a.plan}
+                      {PLAN_LABELS[a.plan] ?? a.plan}
                     </span>
                     <span className="text-xs text-gray-400">
                       {new Date(a.created_at).toLocaleDateString('en-SG', { month: 'short', day: 'numeric' })}

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { SubAccount, Subscription, User } from '@/types'
 import type { UserRole } from '@/types'
-import { COUNTRY_OPTIONS } from '@/lib/constants'
+import { COUNTRY_OPTIONS, PLAN_LABELS } from '@/lib/constants'
 import { useAuth } from '@/hooks/useAuth'
 
 interface TimeLog {
@@ -74,6 +74,12 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
 
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Inline subscription change state
+  const [subEditPlan, setSubEditPlan] = useState<Subscription['plan'] | null>(null)
+  const [subPaymentMode, setSubPaymentMode] = useState<'nil' | 'yes'>('nil')
+  const [subSaving, setSubSaving] = useState(false)
+  const [subMsg, setSubMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -253,7 +259,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                   <div className="bg-gray-50 rounded-xl p-4">
                     <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Account Details</h4>
                     <dl className="space-y-2 text-sm">
-                      <Row label="Plan" value={<span className="capitalize font-semibold text-violet-700">{account.plan}</span>} />
+                      <Row label="Plan" value={<span className="font-semibold text-violet-700">{PLAN_LABELS[account.plan] ?? account.plan}</span>} />
                       <Row label="Seats used" value={`${users.length} / ${account.seats}`} />
                       <Row label="Monthly value" value={`$${PLAN_MRR[account.plan]?.toFixed(2) ?? '0.00'}`} />
                       <Row label="Admin email" value={account.admin_email ?? '—'} />
@@ -420,7 +426,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                     <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Account Info (read-only)</h4>
                     <dl className="space-y-2 text-sm">
                       <Row label="Sub-Account Code" value={<span className="font-mono font-bold text-gray-800">{account.code}</span>} />
-                      <Row label="Plan" value={<span className="capitalize font-semibold text-violet-700">{account.plan}</span>} />
+                      <Row label="Plan" value={<span className="font-semibold text-violet-700">{PLAN_LABELS[account.plan] ?? account.plan}</span>} />
                       <Row label="Seats" value={`${users.length} used / ${account.seats} total`} />
                       <Row label="Status" value={<span className="capitalize">{account.status}</span>} />
                       <Row label="Created" value={new Date(account.created_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })} />
@@ -446,7 +452,12 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                       <div className="bg-white rounded-xl border border-gray-200 p-5">
                         <h4 className="text-sm font-semibold text-gray-700 mb-3">Current Subscription</h4>
                         <dl className="space-y-2 text-sm">
-                          <Row label="Plan" value={<span className="capitalize font-semibold text-violet-700">{sub.plan}</span>} />
+                          <Row label="Plan" value={<span className="font-semibold text-violet-700">{PLAN_LABELS[sub.plan] ?? sub.plan}</span>} />
+                          <Row label="Payment" value={
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${sub.status === 'trialing' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
+                              {sub.status === 'trialing' ? 'YES — trial active' : 'NIL — no payment required'}
+                            </span>
+                          } />
                           <Row label="Status" value={
                             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${
                               sub.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
@@ -458,10 +469,71 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                           <Row label="Billing cycle" value={<span className="capitalize">{sub.billing_cycle ?? 'monthly'}</span>} />
                           <Row label="MRR value" value={`$${PLAN_MRR[sub.plan]?.toFixed(2) ?? '0.00'}/mo`} />
                           {sub.billing_date && (
-                            <Row label="Next billing" value={new Date(sub.billing_date).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })} />
+                            <Row label="Trial ends / Next billing" value={new Date(sub.billing_date).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })} />
                           )}
                           {sub.notes && <Row label="Notes" value={sub.notes} />}
                         </dl>
+                      </div>
+
+                      {/* Change Plan & Payment */}
+                      <div className="bg-violet-50 rounded-xl border border-violet-200 p-5">
+                        <h4 className="text-sm font-semibold text-gray-800 mb-4">Change Plan &amp; Payment</h4>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1.5">Subscription Plan</label>
+                            <select
+                              value={subEditPlan ?? sub.plan}
+                              onChange={e => setSubEditPlan(e.target.value as Subscription['plan'])}
+                              className="input text-sm"
+                            >
+                              <option value="free">Free</option>
+                              <option value="basic">Standard</option>
+                              <option value="business">Business</option>
+                              <option value="professional">Professional</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-2">Payment Required</label>
+                            <div className="flex gap-6">
+                              <label className="flex items-start gap-2 cursor-pointer">
+                                <input type="radio" name="sub_payment" checked={subPaymentMode === 'nil'} onChange={() => setSubPaymentMode('nil')} className="mt-0.5 accent-violet-600" />
+                                <div>
+                                  <p className="text-sm font-medium text-gray-800">NIL</p>
+                                  <p className="text-xs text-gray-500">Active immediately, no payment needed</p>
+                                </div>
+                              </label>
+                              <label className="flex items-start gap-2 cursor-pointer">
+                                <input type="radio" name="sub_payment" checked={subPaymentMode === 'yes'} onChange={() => setSubPaymentMode('yes')} className="mt-0.5 accent-violet-600" />
+                                <div>
+                                  <p className="text-sm font-medium text-gray-800">YES</p>
+                                  <p className="text-xs text-gray-500">14-day trial then payment required</p>
+                                </div>
+                              </label>
+                            </div>
+                          </div>
+                          {subMsg && <p className={`text-sm ${subMsg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{subMsg.text}</p>}
+                          <button
+                            disabled={subSaving}
+                            onClick={async () => {
+                              setSubSaving(true); setSubMsg(null)
+                              const newPlan = subEditPlan ?? sub.plan
+                              const newStatus: Subscription['status'] = subPaymentMode === 'yes' ? 'trialing' : 'active'
+                              let newBillingDate: string | null = null
+                              if (subPaymentMode === 'yes') {
+                                const trial = new Date(); trial.setDate(trial.getDate() + 14)
+                                newBillingDate = trial.toISOString().split('T')[0]
+                              }
+                              const { error: e1 } = await supabase.from('subscriptions').update({ plan: newPlan, status: newStatus, billing_date: newBillingDate }).eq('id', sub.id)
+                              const { error: e2 } = await supabase.from('sub_accounts').update({ plan: newPlan, status: newStatus }).eq('code', account.code)
+                              setSubSaving(false)
+                              if (e1 || e2) { setSubMsg({ type: 'error', text: (e1 ?? e2)!.message }) }
+                              else { setSubMsg({ type: 'success', text: `Plan updated to ${PLAN_LABELS[newPlan] ?? newPlan} · Payment: ${subPaymentMode.toUpperCase()}` }); void load() }
+                            }}
+                            className="btn-primary text-sm"
+                          >
+                            {subSaving ? 'Saving…' : 'Apply Plan Change'}
+                          </button>
+                        </div>
                       </div>
 
                       <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
@@ -473,14 +545,6 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                               {new Date(sub.created_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })}
                             </span>
                           </div>
-                          {sub.plan !== 'free' && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">Current plan since</span>
-                              <span className="font-medium text-gray-800">
-                                {new Date(sub.created_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })}
-                              </span>
-                            </div>
-                          )}
                         </div>
                         <p className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-200">
                           Full invoice history will appear here once Stripe integration is enabled.

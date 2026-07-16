@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { Subscription } from '@/types'
+import { PLAN_LABELS } from '@/lib/constants'
 
 interface PlanConfig {
   id: string
@@ -105,8 +106,8 @@ export function SubscriptionTab() {
           <div>
             <h2 className="text-lg font-semibold text-gray-900 mb-1">Current Plan</h2>
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="inline-block bg-violet-100 text-violet-700 text-sm font-semibold px-3 py-1 rounded-full capitalize">
-                {currentPlan}
+              <span className="inline-block bg-violet-100 text-violet-700 text-sm font-semibold px-3 py-1 rounded-full">
+                {PLAN_LABELS[currentPlan] ?? currentPlan}
               </span>
               {sub?.status && (
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${

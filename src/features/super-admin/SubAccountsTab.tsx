@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import type { SubAccount } from '@/types'
 import { SubAccountDetailPanel } from './SubAccountDetailPanel'
 import { useAuth } from '@/hooks/useAuth'
+import { PLAN_LABELS } from '@/lib/constants'
 
 const PLAN_OPTIONS = ['free', 'basic', 'business', 'professional'] as const
 const STATUS_OPTIONS = ['active', 'trialing', 'cancelled', 'suspended'] as const
@@ -237,8 +238,8 @@ export function SubAccountsTab() {
                   <td className="px-4 py-3 font-medium text-gray-900">{a.company_name || '—'}</td>
                   <td className="px-4 py-3 text-gray-600 text-xs">{a.admin_email ?? '—'}</td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize ${PLAN_COLORS[a.plan]}`}>
-                      {a.plan}
+                    <span className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${PLAN_COLORS[a.plan]}`}>
+                      {PLAN_LABELS[a.plan] ?? a.plan}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center text-gray-700">{a.seats}</td>
@@ -342,7 +343,7 @@ export function SubAccountsTab() {
                   onChange={e => setCreateForm(f => ({ ...f, plan: e.target.value as CreateForm['plan'] }))}
                   className="input"
                 >
-                  {PLAN_OPTIONS.map(p => <option key={p} value={p} className="capitalize">{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                  {PLAN_OPTIONS.map(p => <option key={p} value={p}>{PLAN_LABELS[p] ?? p}</option>)}
                 </select>
               </div>
               <div>
@@ -395,7 +396,7 @@ export function SubAccountsTab() {
                   onChange={e => setEditForm(f => f ? { ...f, plan: e.target.value as EditForm['plan'] } : f)}
                   className="input"
                 >
-                  {PLAN_OPTIONS.map(p => <option key={p} value={p} className="capitalize">{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                  {PLAN_OPTIONS.map(p => <option key={p} value={p}>{PLAN_LABELS[p] ?? p}</option>)}
                 </select>
               </div>
               <div>

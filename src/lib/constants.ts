@@ -34,7 +34,29 @@ export const ROLE_COLORS: Record<UserRole, string> = {
 
 export const PLAN_LABELS: Record<string, string> = {
   free:         'Free',
-  basic:        'Basic',
+  basic:        'Standard',
   business:     'Business',
   professional: 'Professional',
 }
+
+export interface CurrencyPricing {
+  currency: string
+  symbol: string
+  country: string
+  flag: string
+  prices: { basic: number; business: number; professional: number }
+}
+
+export const PLAN_CURRENCIES: CurrencyPricing[] = [
+  { currency: 'USD', symbol: '$',   country: 'United States', flag: '🇺🇸', prices: { basic: 19.90,   business: 39.90,   professional: 99.90    } },
+  { currency: 'SGD', symbol: 'S$',  country: 'Singapore',     flag: '🇸🇬', prices: { basic: 26.90,   business: 53.90,   professional: 134.90   } },
+  { currency: 'INR', symbol: '₹',   country: 'India',         flag: '🇮🇳', prices: { basic: 1650,    business: 3310,    professional: 8290     } },
+  { currency: 'MYR', symbol: 'RM',  country: 'Malaysia',      flag: '🇲🇾', prices: { basic: 93.90,   business: 187.90,  professional: 469.90   } },
+  { currency: 'PHP', symbol: '₱',   country: 'Philippines',   flag: '🇵🇭', prices: { basic: 1115,    business: 2235,    professional: 5595     } },
+  { currency: 'AUD', symbol: 'A$',  country: 'Australia',     flag: '🇦🇺', prices: { basic: 30.90,   business: 61.90,   professional: 154.90   } },
+  { currency: 'GBP', symbol: '£',   country: 'United Kingdom',flag: '🇬🇧', prices: { basic: 15.90,   business: 31.90,   professional: 79.90    } },
+  { currency: 'AED', symbol: 'AED', country: 'UAE',           flag: '🇦🇪', prices: { basic: 73.90,   business: 147.90,  professional: 369.90   } },
+  { currency: 'IDR', symbol: 'Rp',  country: 'Indonesia',     flag: '🇮🇩', prices: { basic: 315000,  business: 630000,  professional: 1575000  } },
+  { currency: 'THB', symbol: '฿',   country: 'Thailand',      flag: '🇹🇭', prices: { basic: 720,     business: 1440,    professional: 3600     } },
+  { currency: 'JPY', symbol: '¥',   country: 'Japan',         flag: '🇯🇵', prices: { basic: 2990,    business: 5990,    professional: 14990    } },
+]

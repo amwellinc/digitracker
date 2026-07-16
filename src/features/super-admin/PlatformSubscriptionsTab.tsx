@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Subscription } from '@/types'
+import { PLAN_LABELS } from '@/lib/constants'
 
 const PLAN_MRR: Record<string, number> = { free: 0, basic: 19.9, business: 39.9, professional: 99.9 }
+
+function planLabel(plan: string) { return PLAN_LABELS[plan] ?? plan }
 
 const PLAN_COLORS: Record<string, string> = {
   free:         'bg-gray-100 text-gray-600',
@@ -25,6 +28,7 @@ interface EditForm {
   billing_date: string
   company_name: string
   notes: string
+  payment_mode: 'nil' | 'yes'
 }
 
 export function PlatformSubscriptionsTab() {
@@ -59,6 +63,7 @@ export function PlatformSubscriptionsTab() {
       billing_date: s.billing_date ?? '',
       company_name: s.company_name ?? '',
       notes: s.notes ?? '',
+      payment_mode: s.status === 'trialing' ? 'yes' : 'nil',
     })
     setEditSub(s)
     setMsg(null)
@@ -70,14 +75,29 @@ export function PlatformSubscriptionsTab() {
     setSaving(true)
     setMsg(null)
 
+    // Resolve status + billing_date from payment_mode
+    let resolvedStatus = editForm.status
+    let resolvedBillingDate: string | null = editForm.billing_date || null
+    if (editForm.payment_mode === 'nil') {
+      resolvedStatus = 'active'
+      resolvedBillingDate = null
+    } else if (editForm.payment_mode === 'yes' && resolvedStatus !== 'trialing') {
+      resolvedStatus = 'trialing'
+      if (!resolvedBillingDate) {
+        const trial = new Date()
+        trial.setDate(trial.getDate() + 14)
+        resolvedBillingDate = trial.toISOString().split('T')[0]
+      }
+    }
+
     const { error } = await supabase
       .from('subscriptions')
       .update({
         plan: editForm.plan,
         seats: Number(editForm.seats),
-        status: editForm.status,
+        status: resolvedStatus,
         billing_cycle: editForm.billing_cycle,
-        billing_date: editForm.billing_date || null,
+        billing_date: resolvedBillingDate,
         company_name: editForm.company_name.trim() || null,
         notes: editForm.notes.trim() || null,
       })
@@ -86,7 +106,7 @@ export function PlatformSubscriptionsTab() {
     if (!error) {
       await supabase
         .from('sub_accounts')
-        .update({ plan: editForm.plan, seats: Number(editForm.seats), status: editForm.status })
+        .update({ plan: editForm.plan, seats: Number(editForm.seats), status: resolvedStatus })
         .eq('code', editSub.sub_account)
     }
 
@@ -135,7 +155,7 @@ export function PlatformSubscriptionsTab() {
         >
           <option value="all">All Plans</option>
           <option value="free">Free</option>
-          <option value="basic">Basic</option>
+          <option value="basic">Standard</option>
           <option value="business">Business</option>
           <option value="professional">Professional</option>
         </select>
@@ -180,8 +200,8 @@ export function PlatformSubscriptionsTab() {
                   </td>
                   <td className="px-4 py-3 text-gray-700">{s.company_name ?? '—'}</td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize ${PLAN_COLORS[s.plan]}`}>
-                      {s.plan}
+                    <span className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${PLAN_COLORS[s.plan]}`}>
+                      {planLabel(s.plan)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center text-gray-700">{s.seats}</td>
@@ -240,9 +260,10 @@ export function PlatformSubscriptionsTab() {
                     onChange={e => setEditForm(f => f ? { ...f, plan: e.target.value as Subscription['plan'] } : f)}
                     className="input"
                   >
-                    {['free', 'basic', 'business', 'professional'].map(p => (
-                      <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                    ))}
+                    <option value="free">Free</option>
+                    <option value="basic">Standard</option>
+                    <option value="business">Business</option>
+                    <option value="professional">Professional</option>
                   </select>
                 </div>
                 <div>
@@ -256,6 +277,49 @@ export function PlatformSubscriptionsTab() {
                   />
                 </div>
               </div>
+
+              {/* Payment Required */}
+              <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">Payment Required</label>
+                <div className="flex gap-6">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`payment_mode_${editSub.id}`}
+                      checked={editForm.payment_mode === 'nil'}
+                      onChange={() => setEditForm(f => f ? { ...f, payment_mode: 'nil', status: 'active', billing_date: '' } : f)}
+                      className="mt-0.5 accent-violet-600"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">NIL</p>
+                      <p className="text-xs text-gray-500">No payment required — account stays active indefinitely</p>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`payment_mode_${editSub.id}`}
+                      checked={editForm.payment_mode === 'yes'}
+                      onChange={() => {
+                        const trialEnd = new Date()
+                        trialEnd.setDate(trialEnd.getDate() + 14)
+                        setEditForm(f => f ? {
+                          ...f,
+                          payment_mode: 'yes',
+                          status: 'trialing',
+                          billing_date: f.billing_date || trialEnd.toISOString().split('T')[0],
+                        } : f)
+                      }}
+                      className="mt-0.5 accent-violet-600"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">YES</p>
+                      <p className="text-xs text-gray-500">14-day trial, then payment required</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -263,6 +327,7 @@ export function PlatformSubscriptionsTab() {
                     value={editForm.status}
                     onChange={e => setEditForm(f => f ? { ...f, status: e.target.value as Subscription['status'] } : f)}
                     className="input"
+                    disabled={editForm.payment_mode !== 'nil' && editForm.status !== 'cancelled'}
                   >
                     <option value="active">Active</option>
                     <option value="trialing">Trialing</option>

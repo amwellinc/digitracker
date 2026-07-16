@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { PLAN_LABELS, PLAN_CURRENCIES } from '@/lib/constants'
 
 interface PlanConfig {
   id: string
@@ -33,6 +34,11 @@ const PLAN_BADGE: Record<string, string> = {
   basic:        'bg-blue-100 text-blue-700',
   business:     'bg-violet-100 text-violet-700',
   professional: 'bg-amber-100 text-amber-700',
+}
+
+function fmtPrice(symbol: string, price: number) {
+  if (price >= 1000) return `${symbol}${price.toLocaleString()}`
+  return `${symbol}${price.toFixed(2)}`
 }
 
 export function PlansAndPricingTab() {
@@ -111,8 +117,8 @@ export function PlansAndPricingTab() {
             className={`relative bg-white rounded-xl border-2 p-5 flex flex-col ${PLAN_ACCENT[plan.id]} ${!plan.is_active ? 'opacity-50' : ''}`}
           >
             <div className="flex items-start justify-between mb-3">
-              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize ${PLAN_BADGE[plan.id]}`}>
-                {plan.id}
+              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${PLAN_BADGE[plan.id]}`}>
+                {PLAN_LABELS[plan.id] ?? plan.id}
               </span>
               {!plan.is_active && (
                 <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Inactive</span>
@@ -155,13 +161,57 @@ export function PlansAndPricingTab() {
         <strong>Note:</strong> Price changes here update the display and billing records. Connect a Stripe integration to trigger live payment changes automatically.
       </div>
 
+      {/* Multi-Currency Pricing Table */}
+      <div className="mt-8">
+        <h2 className="text-base font-semibold text-gray-900 mb-1">Multi-Currency Pricing</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Reference prices by country and currency. USD is the master rate; local currency amounts are indicative.
+        </p>
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Country</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Currency</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">
+                  <span className="text-blue-600">Standard</span><span className="text-gray-400 text-xs ml-1">/mo</span>
+                </th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">
+                  <span className="text-violet-600">Business</span><span className="text-gray-400 text-xs ml-1">/mo</span>
+                </th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">
+                  <span className="text-amber-600">Professional</span><span className="text-gray-400 text-xs ml-1">/mo</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {PLAN_CURRENCIES.map(c => (
+                <tr key={c.currency} className={`hover:bg-gray-50 ${c.currency === 'USD' ? 'bg-gray-50 font-semibold' : ''}`}>
+                  <td className="px-4 py-2.5 text-gray-800">
+                    <span className="mr-2">{c.flag}</span>{c.country}
+                    {c.currency === 'USD' && <span className="ml-2 text-xs bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">Base</span>}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-gray-500 text-xs">{c.currency}</td>
+                  <td className="px-4 py-2.5 text-right text-blue-700">{fmtPrice(c.symbol, c.prices.basic)}</td>
+                  <td className="px-4 py-2.5 text-right text-violet-700">{fmtPrice(c.symbol, c.prices.business)}</td>
+                  <td className="px-4 py-2.5 text-right text-amber-700">{fmtPrice(c.symbol, c.prices.professional)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          Free plan: always $0 / free across all currencies. Local currency rates are approximate and should be confirmed with your payment processor.
+        </p>
+      </div>
+
       {/* Edit Modal */}
       {editPlan && editForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <h3 className="font-semibold text-gray-900">
-                Edit Plan — <span className={`capitalize ${PLAN_BADGE[editPlan.id].split(' ')[1]}`}>{editPlan.id}</span>
+                Edit Plan — <span className={PLAN_BADGE[editPlan.id].split(' ')[1]}>{PLAN_LABELS[editPlan.id] ?? editPlan.id}</span>
               </h3>
               <button onClick={() => { setEditPlan(null); setEditForm(null) }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
