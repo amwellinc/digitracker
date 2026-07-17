@@ -229,7 +229,7 @@ export function SubscriptionTab() {
               )}
 
               <div className="mb-4">
-                <h4 className="text-base font-bold text-gray-900">{plan.name}</h4>
+                <h4 className="text-base font-bold text-gray-900">{PLAN_LABELS[plan.id] ?? plan.name}</h4>
                 <div className="flex items-end gap-1 mt-1">
                   <span className="text-2xl font-extrabold text-gray-900">
                     {plan.price_monthly === 0 ? 'Free' : `$${plan.price_monthly.toFixed(2)}`}

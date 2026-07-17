@@ -125,7 +125,7 @@ export function PlansAndPricingTab() {
               )}
             </div>
 
-            <h3 className="font-bold text-gray-900 text-lg">{plan.name}</h3>
+            <h3 className="font-bold text-gray-900 text-lg">{PLAN_LABELS[plan.id] ?? plan.name}</h3>
 
             <div className="mt-2 mb-4 space-y-1">
               <div className="flex items-end gap-1">
