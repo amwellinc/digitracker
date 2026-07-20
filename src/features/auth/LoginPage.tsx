@@ -183,11 +183,11 @@ export function LoginPage() {
           </Field>
 
           {!isPlatform && (
-            <Field label="Sub-account code">
+            <Field label="Sub-account code (optional)">
               <input
-                type="text" required
+                type="text"
                 value={subAccount} onChange={e => setSubAccount(e.target.value.toUpperCase().trim())}
-                placeholder="e.g. AM333"
+                placeholder="e.g. AM333 — leave blank if unsure"
                 className="input font-mono"
               />
             </Field>
@@ -260,11 +260,11 @@ export function LoginPage() {
           </Field>
 
           {!isPlatform && (
-            <Field label="Sub-account code">
+            <Field label="Sub-account code (optional)">
               <input
-                type="text" required
+                type="text"
                 value={subAccount} onChange={e => setSubAccount(e.target.value.toUpperCase().trim())}
-                placeholder="e.g. AM333"
+                placeholder="e.g. AM333 — leave blank if unsure"
                 className="input font-mono"
               />
             </Field>
