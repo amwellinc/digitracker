@@ -98,9 +98,10 @@ export function UsersTab() {
     e.preventDefault()
     if (!currentUser) return
     setSaving(true); setMsg(null)
+    const email = form.email.toLowerCase().trim()
     const { error } = await supabase.from('users').insert({
       name: form.name.trim(),
-      email: form.email.toLowerCase().trim(),
+      email,
       role: form.role,
       sub_account: currentUser.sub_account,
       manager_id: form.manager_id || null,
@@ -111,9 +112,23 @@ export function UsersTab() {
       country: form.country,
       phone: form.phone.trim() || null,
     })
+    if (error) {
+      setSaving(false)
+      setMsg({ type: 'error', text: error.message })
+      return
+    }
+
+    // Creating the user record does not give them a way to sign in on its own —
+    // send the magic-link invite immediately so "Add User" actually grants access.
+    const { error: inviteError } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    })
     setSaving(false)
-    if (error) { setMsg({ type: 'error', text: error.message }); return }
-    setMsg({ type: 'success', text: `${form.name} added. They can now log in with their email.` })
+    setMsg(inviteError
+      ? { type: 'error', text: `${form.name} added, but the invite email failed to send: ${inviteError.message}. Use the Invite button on their row to retry.` }
+      : { type: 'success', text: `${form.name} added and invited — check ${email} for a magic link.` }
+    )
     void fetchUsers()
     setTimeout(() => { setShowAddModal(false); setMsg(null) }, 2000)
   }
