@@ -71,7 +71,7 @@ async function fillAndSubmitAddUserForm(name: string, email: string) {
   const emailInput = screen.getByPlaceholderText('jane@company.com')
   const form = emailInput.closest('form')
   if (!form) throw new Error('Add User form not found')
-  await userEvent.click(screen.getByRole('button', { name: 'Add User', exact: true }))
+  await userEvent.click(screen.getByRole('button', { name: 'Add User' }))
   return form
 }
 

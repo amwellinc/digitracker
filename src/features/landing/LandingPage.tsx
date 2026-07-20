@@ -14,7 +14,7 @@ const FEATURES = [
   {
     icon: '📊',
     title: 'Live Team Dashboard',
-    desc: 'Admin sees every team member's status, hours worked, and last heartbeat in real time. No refresh needed — powered by Supabase Realtime.',
+    desc: 'Admin sees every team member\'s status, hours worked, and last heartbeat in real time. No refresh needed — powered by Supabase Realtime.',
   },
   {
     icon: '📋',
