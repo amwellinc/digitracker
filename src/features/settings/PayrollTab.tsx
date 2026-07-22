@@ -5,7 +5,7 @@ import type { User } from '@/types'
 import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 const CURRENCIES = ['SGD', 'MYR', 'PHP', 'USD', 'GBP', 'AUD', 'INR', 'AED', 'IDR', 'THB', 'VND', 'CNY', 'JPY']
-const PAYMENT_MODES = ['Bank Transfer', 'Cash', 'Cheque', 'PayNow', 'FAST', 'NEFT', 'RTGS', 'Wire Transfer', 'Crypto', 'Other']
+const PAYMENT_MODES = ['Bank Transfer', 'Cash', 'Cheque', 'PayNow', 'FAST', 'NEFT', 'RTGS', 'Wise Transfer', 'Crypto', 'Other']
 
 interface PayrollEntry {
   id: string
