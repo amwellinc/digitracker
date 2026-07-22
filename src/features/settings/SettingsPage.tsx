@@ -8,9 +8,10 @@ import { SubscriptionTab } from './SubscriptionTab'
 import { SecurityTab } from './SecurityTab'
 import { BankDetailsTab } from './BankDetailsTab'
 import { PayrollTab } from './PayrollTab'
+import { ArchiveTab } from './ArchiveTab'
 import { GHLIntegrationTab } from '@/features/ghl/GHLIntegrationTab'
 
-type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'subscription' | 'ghl'
+type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'subscription' | 'ghl' | 'archive'
 
 export function SettingsPage() {
   const { user } = useAuth()
@@ -31,6 +32,7 @@ export function SettingsPage() {
     { id: 'users',        label: 'Users & Roles' },
     { id: 'subscription', label: 'Subscription' },
     { id: 'ghl',          label: '🔗 DIGI5Y-CRM Integration' },
+    { id: 'archive',      label: '🗄 Archive' },
   ]
 
   return (
@@ -95,6 +97,7 @@ export function SettingsPage() {
       {activeTab === 'users'        && isAdmin && <UsersTab />}
       {activeTab === 'subscription' && isAdmin && <SubscriptionTab />}
       {activeTab === 'ghl'          && isAdmin && <GHLIntegrationTab />}
+      {activeTab === 'archive'      && isAdmin && <ArchiveTab />}
     </div>
   )
 }

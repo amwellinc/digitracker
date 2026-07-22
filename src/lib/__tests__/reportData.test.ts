@@ -39,7 +39,7 @@ describe('buildUserReport', () => {
     id: 'u1', email: 'staff@test.com', name: 'Test Staff', role: 'Staff',
     sub_account: 'AM333', manager_id: null, annual_leave: 14, time_off: 40,
     profile_image: null, reporting_time_in: '10:00', reporting_time_out: '19:00',
-    country: 'SG', phone: null, created_at: new Date().toISOString(),
+    country: 'SG', phone: null, status: 'active', created_at: new Date().toISOString(),
   }
 
   // Mon Jan 5 – Sun Jan 11, 2026. Weekdays: 5,6,7,8,9.
@@ -107,7 +107,7 @@ describe('toCsv', () => {
       id: 'u1', email: 'a@test.com', name: 'A Name', role: 'Staff', sub_account: 'AM333',
       manager_id: null, annual_leave: 14, time_off: 40, profile_image: null,
       reporting_time_in: '10:00', reporting_time_out: '19:00', country: 'SG', phone: null,
-      created_at: '',
+      status: 'active', created_at: '',
     }
     const csv = toCsv([{
       user, daysWorked: 5, totalMinutes: 2400, totalHours: 40, avgHoursPerDay: '8.0',

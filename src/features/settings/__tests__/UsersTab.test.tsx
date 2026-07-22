@@ -50,6 +50,7 @@ const currentUser: User = {
   reporting_time_out: '19:00',
   country: 'SG',
   phone: null,
+  status: 'active',
   created_at: new Date().toISOString(),
 }
 
@@ -67,12 +68,14 @@ const cecillia: User = {
   reporting_time_out: '19:00',
   country: 'SG',
   phone: null,
+  status: 'active',
   created_at: new Date().toISOString(),
 }
 
 function makeCtx(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
   return {
     user: currentUser, loading: false,
+    accountBlockedMessage: null,
     isSuperAdmin: false,
     visitingAccount: null,
     visitSubAccount: vi.fn(),

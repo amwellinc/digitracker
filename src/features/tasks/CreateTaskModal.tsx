@@ -29,8 +29,16 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
 
   useEffect(() => {
     if (!user) return
-    void supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name')
-      .then(({ data }) => setMembers((data ?? []) as User[]))
+    const q = user.role === 'Manager'
+      ? supabase.rpc('get_manager_downline')
+      : supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name')
+    void q.then(({ data }) => {
+      const scoped = ((data ?? []) as User[]).filter(u => u.status === 'active')
+      // Include self (Manager's own downline RPC excludes them) so you can
+      // assign a task to yourself.
+      const withSelf = scoped.some(u => u.id === user.id) ? scoped : [user, ...scoped]
+      setMembers(withSelf)
+    })
   }, [user])
 
   function toggleUser(id: string) {

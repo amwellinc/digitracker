@@ -2,10 +2,14 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import type { User } from '@/types'
 
 interface Props {
   onClose: () => void
   onSuccess: () => void
+  // When set, an Admin/Manager is filing this request on behalf of one of
+  // their assigned users instead of themselves.
+  targetUser?: User
 }
 
 type LeaveType = 'Annual' | 'Medical' | 'Time-off'
@@ -14,7 +18,7 @@ function today() {
   return todayInTz(DEFAULT_TIMEZONE)
 }
 
-export function RequestLeaveModal({ onClose, onSuccess }: Props) {
+export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
   const { user } = useAuth()
   const [type, setType] = useState<LeaveType>('Annual')
   const [startDate, setStartDate] = useState(today())
@@ -48,7 +52,7 @@ export function RequestLeaveModal({ onClose, onSuccess }: Props) {
     setSaving(true)
 
     const payload = {
-      user_id: user.id,
+      user_id: targetUser?.id ?? user.id,
       type,
       start_date: startDate,
       end_date: type === 'Time-off' ? startDate : endDate,
@@ -70,10 +74,16 @@ export function RequestLeaveModal({ onClose, onSuccess }: Props) {
         className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-1">
           <h2 className="text-lg font-semibold text-gray-900">Request Leave</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
+        {targetUser && (
+          <p className="text-sm text-gray-500 mb-4">
+            On behalf of <span className="font-medium text-gray-800">{targetUser.name}</span>
+          </p>
+        )}
+        {!targetUser && <div className="mb-4" />}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Type */}

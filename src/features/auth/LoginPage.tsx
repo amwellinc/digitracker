@@ -6,7 +6,7 @@ type Mode     = 'password' | 'magic' | 'forgot'
 type AccountType = 'team' | 'platform'
 
 export function LoginPage() {
-  const { signIn, signInWithPassword, sendPasswordReset, user } = useAuth()
+  const { signIn, signInWithPassword, sendPasswordReset, user, accountBlockedMessage } = useAuth()
   const navigate = useNavigate()
 
   // Redirect to app once auth state is set (covers both password and magic-link flows)
@@ -22,6 +22,15 @@ export function LoginPage() {
   const [showPass, setShowPass]       = useState(false)
   const [status, setStatus]           = useState<'idle' | 'loading' | 'sent' | 'error'>('idle')
   const [errorMsg, setErrorMsg]       = useState('')
+
+  // The account was authenticated but blocked post-login (e.g. suspended) —
+  // surface that specific reason instead of leaving the form silently reset.
+  useEffect(() => {
+    if (accountBlockedMessage) {
+      setErrorMsg(accountBlockedMessage)
+      setStatus('error')
+    }
+  }, [accountBlockedMessage])
 
   const isPlatform = accountType === 'platform'
 

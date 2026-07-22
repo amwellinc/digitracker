@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import type { User, UserRole, UserCountry } from '@/types'
 import { COUNTRY_OPTIONS, ROLE_OPTIONS, ROLE_COLORS } from '@/lib/constants'
 import { invalidateReportsAccessCache } from '@/hooks/useReportsAccess'
+import { buildArchiveText, archiveStoragePath, type ArchiveSnapshot } from '@/lib/archiveExport'
 
 const ROLES: UserRole[] = ROLE_OPTIONS
 
@@ -79,6 +80,9 @@ export function UsersTab() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [settingPassword, setSettingPassword] = useState(false)
   const [pwMsg, setPwMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [suspendingId, setSuspendingId] = useState<string | null>(null)
+  const [archiving, setArchiving] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const fetchUsers = useCallback(async () => {
     if (!currentUser) return
@@ -205,12 +209,60 @@ export function UsersTab() {
     setEditUser(null)
   }
 
+  async function toggleSuspend(u: User) {
+    setSuspendingId(u.id)
+    const nextStatus = u.status === 'suspended' ? 'active' : 'suspended'
+    const { error } = await supabase.from('users').update({ status: nextStatus }).eq('id', u.id)
+    setSuspendingId(null)
+    if (error) { setMsg({ type: 'error', text: error.message }); return }
+    void fetchUsers()
+    if (viewUser?.id === u.id) setViewUser({ ...viewUser, status: nextStatus })
+  }
+
+  // Deleting purges the account permanently, so it's only allowed once the
+  // account is suspended, and everything about it is snapshotted into a
+  // downloadable archive file before the row (and everything cascading from
+  // it) is removed.
   async function handleDelete() {
-    if (!deleteUser) return
+    if (!deleteUser || deleteUser.status !== 'suspended' || !currentUser) return
     setDeleting(true)
-    const { error } = await supabase.from('users').delete().eq('id', deleteUser.id)
+    setDeleteError(null)
+
+    const { data: snapshot, error: snapshotError } = await supabase
+      .rpc('build_user_archive_snapshot', { p_user_id: deleteUser.id })
+    if (snapshotError || !snapshot) {
+      setDeleting(false)
+      setDeleteError(snapshotError?.message ?? 'Failed to build archive snapshot.')
+      return
+    }
+
+    setArchiving(true)
+    const archiveText = buildArchiveText(
+      snapshot as ArchiveSnapshot,
+      currentUser.name,
+      currentUser.email,
+    )
+    const path = archiveStoragePath(deleteUser.sub_account, deleteUser.name)
+    const { error: uploadError } = await supabase.storage
+      .from('documents')
+      .upload(path, new Blob([archiveText], { type: 'text/plain' }))
+    if (uploadError) {
+      setArchiving(false)
+      setDeleting(false)
+      setDeleteError(`Failed to save archive file: ${uploadError.message}`)
+      return
+    }
+
+    const { error: purgeError } = await supabase.rpc('archive_and_delete_user', {
+      p_user_id: deleteUser.id,
+      p_archive_url: path,
+      p_archive_size: archiveText.length,
+      p_archive_title: `${deleteUser.name} — Archived ${new Date().toLocaleDateString()}`,
+    })
+    setArchiving(false)
     setDeleting(false)
-    if (error) { alert(error.message); return }
+    if (purgeError) { setDeleteError(purgeError.message); return }
+
     void fetchUsers()
     setDeleteUser(null)
   }
@@ -285,7 +337,7 @@ export function UsersTab() {
     setTimeout(() => { setPasswordUser(null); setPwMsg(null) }, 3000)
   }
 
-  const managers = users.filter(u => u.role === 'Manager' || u.role === 'Admin')
+  const managers = users.filter(u => (u.role === 'Manager' || u.role === 'Admin') && u.status === 'active')
   const filtered = users.filter(u =>
     u.name.toLowerCase().includes(search.toLowerCase()) ||
     u.email.toLowerCase().includes(search.toLowerCase())
@@ -368,6 +420,7 @@ export function UsersTab() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">User</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Email</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Role</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Status</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Manager</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Country</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Actions</th>
@@ -376,7 +429,7 @@ export function UsersTab() {
             <tbody className="divide-y divide-gray-100">
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center py-10 text-gray-400">
+                  <td colSpan={7} className="text-center py-10 text-gray-400">
                     {search ? 'No users match your search.' : 'No users yet. Add your first user.'}
                   </td>
                 </tr>
@@ -419,6 +472,13 @@ export function UsersTab() {
                         {u.role}
                       </span>
                     </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${
+                        u.status === 'suspended' ? 'bg-gray-200 text-gray-600' : 'bg-emerald-50 text-emerald-700'
+                      }`}>
+                        {u.status === 'suspended' ? 'Suspended' : 'Active'}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-gray-600 text-sm whitespace-nowrap">{manager?.name ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1.5 text-sm text-gray-700">
@@ -454,8 +514,24 @@ export function UsersTab() {
                           Edit
                         </button>
                         <button
-                          onClick={() => !isSelf && setDeleteUser(u)}
-                          disabled={isSelf}
+                          onClick={() => !isSelf && window.confirm(
+                            u.status === 'suspended'
+                              ? `Reactivate ${u.name}? They will be able to log in again immediately.`
+                              : `Suspend ${u.name}? They will lose all access immediately. Existing tasks and history are kept and remain visible to you.`
+                          ) && void toggleSuspend(u)}
+                          disabled={isSelf || suspendingId === u.id}
+                          className={`text-xs font-semibold rounded-md px-3 py-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                            u.status === 'suspended'
+                              ? 'text-white bg-emerald-600 hover:bg-emerald-700'
+                              : 'text-amber-700 bg-amber-100 hover:bg-amber-200'
+                          }`}
+                        >
+                          {suspendingId === u.id ? '⏳' : u.status === 'suspended' ? 'Reactivate' : 'Suspend'}
+                        </button>
+                        <button
+                          onClick={() => !isSelf && u.status === 'suspended' && setDeleteUser(u)}
+                          disabled={isSelf || u.status !== 'suspended'}
+                          title={u.status !== 'suspended' ? 'Suspend this user before deleting' : undefined}
                           className="text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-md px-3 py-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                           Delete
@@ -718,7 +794,7 @@ export function UsersTab() {
 
       {/* ── Delete Confirm ─────────────────────────────────────────────── */}
       {deleteUser && (
-        <Modal title="Delete User" onClose={() => setDeleteUser(null)}>
+        <Modal title="Delete User" onClose={() => { setDeleteUser(null); setDeleteError(null) }}>
           <div className="flex items-center gap-4 mb-4">
             <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0 ${avatarBg(deleteUser.role)}`}>
               {initials(deleteUser.name)}
@@ -729,19 +805,21 @@ export function UsersTab() {
             </div>
           </div>
           <p className="text-sm text-gray-600 mb-1">
-            Are you sure you want to remove <strong>{deleteUser.name}</strong> from this workspace?
+            Are you sure you want to permanently delete <strong>{deleteUser.name}</strong>?
           </p>
           <p className="text-xs text-gray-400 mb-5">
-            This deletes their account and all associated data. This action cannot be undone.
+            A full record (profile, time logs, leave, tasks, KPIs, documents) is saved to the Archive
+            first, then everything is permanently purged. This cannot be undone.
           </p>
+          {deleteError && <p className="text-sm text-red-600 mb-4">{deleteError}</p>}
           <div className="flex justify-end gap-3">
-            <button onClick={() => setDeleteUser(null)} className="btn-ghost">Cancel</button>
+            <button onClick={() => { setDeleteUser(null); setDeleteError(null) }} className="btn-ghost">Cancel</button>
             <button
-              onClick={handleDelete}
+              onClick={() => void handleDelete()}
               disabled={deleting}
               className="bg-red-600 text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-red-700 disabled:opacity-50"
             >
-              {deleting ? 'Deleting…' : 'Delete User'}
+              {archiving ? 'Archiving…' : deleting ? 'Deleting…' : 'Archive & Delete'}
             </button>
           </div>
         </Modal>

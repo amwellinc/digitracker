@@ -25,6 +25,7 @@ import type { AuthContextValue } from '../AuthContext'
 function makeCtx(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
   return {
     user: null, loading: false,
+    accountBlockedMessage: null,
     isSuperAdmin: false,
     visitingAccount: null,
     visitSubAccount: vi.fn(),

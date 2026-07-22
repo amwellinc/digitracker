@@ -114,7 +114,7 @@ export function KPIAdminPanel() {
     const scoped = isManager
       ? supabase.rpc('get_manager_downline')
       : supabase.from('users').select('*').eq('sub_account', user.sub_account)
-    void scoped.neq('role', 'Admin').neq('role', 'Super-Admin').order('name')
+    void scoped.neq('role', 'Admin').neq('role', 'Super-Admin').eq('status', 'active').order('name')
       .then(({ data }) => {
         const m = (data ?? []) as User[]
         setMembers(m)

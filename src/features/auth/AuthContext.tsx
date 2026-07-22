@@ -6,22 +6,24 @@ import type { User, SubAccount } from '@/types'
 interface AuthState {
   user: User | null
   loading: boolean
+  accountBlockedMessage: string | null
 }
 
 type AuthAction =
   | { type: 'SIGNED_IN'; user: User }
-  | { type: 'SIGNED_OUT' }
+  | { type: 'SIGNED_OUT'; blockedMessage?: string }
 
 function reducer(_state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
-    case 'SIGNED_IN': return { user: action.user, loading: false }
-    case 'SIGNED_OUT': return { user: null, loading: false }
+    case 'SIGNED_IN': return { user: action.user, loading: false, accountBlockedMessage: null }
+    case 'SIGNED_OUT': return { user: null, loading: false, accountBlockedMessage: action.blockedMessage ?? null }
   }
 }
 
 export interface AuthContextValue {
   user: User | null
   loading: boolean
+  accountBlockedMessage: string | null
   isSuperAdmin: boolean
   visitingAccount: SubAccount | null
   visitSubAccount: (account: SubAccount) => void
@@ -43,7 +45,7 @@ export interface AuthContextValue {
 export const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, { user: null, loading: true })
+  const [state, dispatch] = useReducer(reducer, { user: null, loading: true, accountBlockedMessage: null })
   const [visitingAccount, setVisitingAccount] = useState<SubAccount | null>(null)
   const [viewAsUser, setViewAsUser] = useState<User | null>(null)
 
@@ -78,9 +80,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Valid Supabase auth session but no matching app user — sign out cleanly
+    // Valid Supabase auth session but no accessible app user — either the
+    // account doesn't exist, or (since a suspended user's own RLS lookups
+    // above now resolve to nothing) it's suspended. Check specifically so we
+    // can tell the person why, instead of a silent bounce back to login.
+    const { data: statusCheck } = await supabase.rpc('check_account_status', { p_email: authEmail })
     await supabase.auth.signOut()
-    dispatch({ type: 'SIGNED_OUT' })
+    dispatch({
+      type: 'SIGNED_OUT',
+      blockedMessage: statusCheck === 'suspended'
+        ? 'Your account has been suspended. Contact your Administrator for access.'
+        : undefined,
+    })
   }, [])
 
   useEffect(() => {
@@ -194,6 +205,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user: effectiveUser,
       loading: state.loading,
+      accountBlockedMessage: state.accountBlockedMessage,
       isSuperAdmin,
       visitingAccount,
       visitSubAccount,

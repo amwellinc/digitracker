@@ -16,6 +16,7 @@ export interface User {
   reporting_time_out: string
   country: UserCountry
   phone: string | null
+  status: 'active' | 'suspended'
   created_at: string
 }
 
@@ -184,4 +185,19 @@ export interface EodReport {
   date: string
   body: string
   created_at: string
+}
+
+export interface ArchivedEmployeeFile {
+  id: string
+  sub_account: string
+  original_user_id: string | null
+  original_name: string
+  original_email: string
+  original_role: string
+  title: string
+  url: string
+  size: number
+  archived_by_name: string
+  archived_by_email: string
+  archived_at: string
 }

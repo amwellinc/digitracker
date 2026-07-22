@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { LeaveRequest, User } from '@/types'
+import { RequestLeaveModal } from './RequestLeaveModal'
 
 function fmtDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -90,6 +91,8 @@ export function ManageLeaveTab() {
   const [acting, setActing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null)
+  const [requestForId, setRequestForId] = useState('')
+  const [showRequestModal, setShowRequestModal] = useState(false)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -219,20 +222,51 @@ export function ManageLeaveTab() {
             </span>
           )}
         </div>
-        <div className="flex gap-1.5">
-          {(['pending', 'approved', 'rejected', 'all'] as const).map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
-                filter === f ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1.5">
+            {(['pending', 'approved', 'rejected', 'all'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
+                  filter === f ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          {Object.values(memberMap).some(m => m.status === 'active') && (
+            <div className="flex items-center gap-1.5">
+              <select
+                value={requestForId}
+                onChange={e => setRequestForId(e.target.value)}
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-violet-500"
+              >
+                <option value="">Select team member…</option>
+                {Object.values(memberMap).filter(m => m.status === 'active').map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => requestForId && setShowRequestModal(true)}
+                disabled={!requestForId}
+                className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
+              >
+                + Request on Behalf
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {showRequestModal && memberMap[requestForId] && (
+        <RequestLeaveModal
+          targetUser={memberMap[requestForId]}
+          onClose={() => setShowRequestModal(false)}
+          onSuccess={() => { void load(); setRequestForId('') }}
+        />
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">

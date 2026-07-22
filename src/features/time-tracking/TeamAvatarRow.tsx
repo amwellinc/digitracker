@@ -18,7 +18,8 @@ export function TeamAvatarRow() {
     if (!user) return
     const today = todayInTz(DEFAULT_TIMEZONE)
 
-    const { data: users } = await supabase.rpc('get_manager_downline')
+    const { data: allReports } = await supabase.rpc('get_manager_downline')
+    const users = (allReports ?? []).filter((u: User) => u.status === 'active')
 
     const { data: active } = await supabase
       .from('time_logs')

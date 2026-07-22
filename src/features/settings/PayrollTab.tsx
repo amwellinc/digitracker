@@ -72,8 +72,8 @@ export function PayrollTab() {
     if (isManager && user) {
       const scoped = user.role === 'Manager'
         ? supabase.rpc('get_manager_downline')
-        : supabase.from('users').select('id, name, email, role').eq('sub_account', user.sub_account).order('name')
-      void scoped.then(({ data }) => setUsers((data as User[]) ?? []))
+        : supabase.from('users').select('id, name, email, role, status').eq('sub_account', user.sub_account).order('name')
+      void scoped.then(({ data }) => setUsers(((data as User[]) ?? []).filter(u => u.status === 'active')))
     }
   }, [fetchEntries, isManager, user])
 

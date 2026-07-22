@@ -90,7 +90,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
     const [{ data: usersData }, { data: subData }, { data: logsData }] = await Promise.all([
       supabase
         .from('users')
-        .select('id, name, email, role, sub_account, manager_id, country, created_at, annual_leave, time_off, reporting_time_in, reporting_time_out, profile_image, phone')
+        .select('id, name, email, role, sub_account, manager_id, country, created_at, annual_leave, time_off, reporting_time_in, reporting_time_out, profile_image, phone, status')
         .eq('sub_account', account.code)
         .order('role'),
       supabase.from('subscriptions').select('*').eq('sub_account', account.code).maybeSingle(),
