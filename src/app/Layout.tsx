@@ -351,7 +351,7 @@ function LayoutInner() {
               <img
                 src={isVisiting ? visitingAccount!.logo_url! : branding.logoUrl!}
                 alt=""
-                className="w-7 h-7 rounded-md object-contain flex-shrink-0"
+                className="w-[50px] h-[50px] rounded-md object-contain flex-shrink-0"
               />
             )}
             <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
