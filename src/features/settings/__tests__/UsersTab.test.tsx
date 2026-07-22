@@ -5,11 +5,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const insertMock = vi.fn().mockResolvedValue({ error: null })
 const orderMock = vi.fn().mockResolvedValue({ data: [] })
 const signInWithOtpMock = vi.fn().mockResolvedValue({ error: null })
+const functionsInvokeMock = vi.fn().mockResolvedValue({ data: { success: true }, error: null })
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     auth: {
       signInWithOtp: (...args: unknown[]) => signInWithOtpMock(...args),
+    },
+    functions: {
+      invoke: (...args: unknown[]) => functionsInvokeMock(...args),
     },
     from: vi.fn(() => {
       const qb = {
@@ -33,6 +37,23 @@ const currentUser: User = {
   email: 'admin@amwelltechnology.com',
   name: 'Admin User',
   role: 'Admin',
+  sub_account: 'AM333',
+  manager_id: null,
+  annual_leave: 14,
+  time_off: 40,
+  profile_image: null,
+  reporting_time_in: '10:00',
+  reporting_time_out: '19:00',
+  country: 'SG',
+  phone: null,
+  created_at: new Date().toISOString(),
+}
+
+const cecillia: User = {
+  id: 'user-cecillia',
+  email: 'cecillia@amwelltechnologies.com',
+  name: 'Cecillia',
+  role: 'Staff',
   sub_account: 'AM333',
   manager_id: null,
   annual_leave: 14,
@@ -129,5 +150,88 @@ describe('UsersTab — Add User', () => {
 
     await waitFor(() => expect(screen.getAllByText(/duplicate email/i).length).toBeGreaterThan(0))
     expect(signInWithOtpMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('UsersTab — Set Password', () => {
+  beforeEach(() => {
+    orderMock.mockClear().mockResolvedValue({ data: [cecillia] })
+    functionsInvokeMock.mockClear().mockResolvedValue({ data: { success: true }, error: null })
+  })
+
+  it('calls the admin-set-password function with the target user and new password', async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /set password/i }))
+    await userEvent.type(screen.getByPlaceholderText('At least 8 characters'), 'SuperSecret1')
+    await userEvent.type(screen.getByPlaceholderText('Repeat the password'), 'SuperSecret1')
+    await userEvent.click(screen.getByRole('button', { name: 'Set Password' }))
+
+    await waitFor(() => expect(functionsInvokeMock).toHaveBeenCalledWith('admin-set-password', {
+      body: { targetUserId: 'user-cecillia', password: 'SuperSecret1' },
+    }))
+    await waitFor(() => expect(screen.getByText(/no magic link needed/i)).toBeInTheDocument())
+  })
+
+  it('rejects mismatched passwords without calling the function', async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /set password/i }))
+    await userEvent.type(screen.getByPlaceholderText('At least 8 characters'), 'SuperSecret1')
+    await userEvent.type(screen.getByPlaceholderText('Repeat the password'), 'DoesNotMatch1')
+    await userEvent.click(screen.getByRole('button', { name: 'Set Password' }))
+
+    await waitFor(() => expect(screen.getByText(/passwords do not match/i)).toBeInTheDocument())
+    expect(functionsInvokeMock).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the function error message on failure', async () => {
+    functionsInvokeMock.mockResolvedValueOnce({ data: { error: 'Only Admins can set passwords for other users' }, error: null })
+
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /set password/i }))
+    await userEvent.type(screen.getByPlaceholderText('At least 8 characters'), 'SuperSecret1')
+    await userEvent.type(screen.getByPlaceholderText('Repeat the password'), 'SuperSecret1')
+    await userEvent.click(screen.getByRole('button', { name: 'Set Password' }))
+
+    await waitFor(() => expect(screen.getByText(/only admins can set passwords/i)).toBeInTheDocument())
+  })
+
+  it('surfaces the error message from a non-2xx function response (the real edge-function failure shape)', async () => {
+    const contextResponse = { json: () => Promise.resolve({ error: 'Password must be at least 8 characters' }) }
+    functionsInvokeMock.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'Edge Function returned a non-2xx status code', context: contextResponse },
+    })
+
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /set password/i }))
+    await userEvent.type(screen.getByPlaceholderText('At least 8 characters'), 'SuperSecret1')
+    await userEvent.type(screen.getByPlaceholderText('Repeat the password'), 'SuperSecret1')
+    await userEvent.click(screen.getByRole('button', { name: 'Set Password' }))
+
+    await waitFor(() => expect(screen.getByText(/password must be at least 8 characters/i)).toBeInTheDocument())
   })
 })

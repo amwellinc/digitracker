@@ -78,3 +78,7 @@ jobs:
       - name: Deploy ghl-webhook
         continue-on-error: true
         run: supabase functions deploy ghl-webhook --no-verify-jwt
+
+      - name: Deploy admin-set-password
+        continue-on-error: true
+        run: supabase functions deploy admin-set-password

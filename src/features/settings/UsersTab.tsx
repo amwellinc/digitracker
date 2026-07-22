@@ -38,6 +38,22 @@ function initials(name: string) {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 }
 
+// supabase-js doesn't parse a Functions error response body into `error.message` —
+// the real message lives on `error.context` (the raw Response). Fall back gracefully.
+async function extractFunctionError(error: unknown, data: unknown): Promise<string | undefined> {
+  if (!error) return (data as { error?: string } | null)?.error
+  const ctx = (error as { context?: Response }).context
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const body = await ctx.json() as { error?: string }
+      if (body?.error) return body.error
+    } catch {
+      // fall through to generic message below
+    }
+  }
+  return (error as { message?: string }).message ?? 'Failed to set password.'
+}
+
 export function UsersTab() {
   const { user: currentUser } = useAuth()
   const [users, setUsers]     = useState<User[]>([])
@@ -55,6 +71,11 @@ export function UsersTab() {
   const [msg, setMsg]       = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [inviting, setInviting] = useState<string | null>(null)  // userId being invited
   const [inviteAllBusy, setInviteAllBusy] = useState(false)
+  const [passwordUser, setPasswordUser] = useState<User | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [settingPassword, setSettingPassword] = useState(false)
+  const [pwMsg, setPwMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const fetchUsers = useCallback(async () => {
     if (!currentUser) return
@@ -201,6 +222,39 @@ export function UsersTab() {
     setTimeout(() => setMsg(null), 5000)
   }
 
+  function openSetPassword(u: User) {
+    setPasswordUser(u)
+    setNewPassword('')
+    setConfirmPassword('')
+    setPwMsg(null)
+  }
+
+  async function handleSetPassword(e: React.FormEvent) {
+    e.preventDefault()
+    if (!passwordUser) return
+    if (newPassword !== confirmPassword) {
+      setPwMsg({ type: 'error', text: 'Passwords do not match.' })
+      return
+    }
+    if (newPassword.length < 8) {
+      setPwMsg({ type: 'error', text: 'Password must be at least 8 characters.' })
+      return
+    }
+    setSettingPassword(true); setPwMsg(null)
+    const { data, error } = await supabase.functions.invoke('admin-set-password', {
+      body: { targetUserId: passwordUser.id, password: newPassword },
+    })
+    setSettingPassword(false)
+    const fnError = await extractFunctionError(error, data)
+    if (fnError) {
+      setPwMsg({ type: 'error', text: fnError })
+      return
+    }
+    setPwMsg({ type: 'success', text: `Password set for ${passwordUser.name}. They can now sign in with email + password — no magic link needed.` })
+    setNewPassword(''); setConfirmPassword('')
+    setTimeout(() => { setPasswordUser(null); setPwMsg(null) }, 3000)
+  }
+
   const managers = users.filter(u => u.role === 'Manager' || u.role === 'Admin')
   const filtered = users.filter(u =>
     u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -328,6 +382,12 @@ export function UsersTab() {
                           className="text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-md px-3 py-1.5 transition-colors disabled:opacity-50"
                         >
                           {inviting === u.id ? '⏳' : '📧 Invite'}
+                        </button>
+                        <button
+                          onClick={() => openSetPassword(u)}
+                          className="text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md px-3 py-1.5 transition-colors"
+                        >
+                          🔑 Set Password
                         </button>
                         <button
                           onClick={() => setViewUser(u)}
@@ -557,6 +617,48 @@ export function UsersTab() {
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={() => setEditUser(null)} className="btn-ghost">Cancel</button>
               <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Save Changes'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ── Set Password ───────────────────────────────────────────────── */}
+      {passwordUser && (
+        <Modal title="Set Password" onClose={() => setPasswordUser(null)}>
+          <div className="flex items-center gap-4 mb-4">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0 ${avatarBg(passwordUser.role)}`}>
+              {initials(passwordUser.name)}
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">{passwordUser.name}</p>
+              <p className="text-sm text-gray-500">{passwordUser.email}</p>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mb-4">
+            Sets a password this user can sign in with immediately — no magic-link email required.
+            Share it with them directly (phone, in person, etc.).
+          </p>
+          <form onSubmit={handleSetPassword} className="space-y-4">
+            <FormRow label="New password">
+              <input
+                required type="text" autoComplete="new-password"
+                value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                placeholder="At least 8 characters" className="input font-mono"
+              />
+            </FormRow>
+            <FormRow label="Confirm password">
+              <input
+                required type="text" autoComplete="new-password"
+                value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+                placeholder="Repeat the password" className="input font-mono"
+              />
+            </FormRow>
+            {pwMsg && <p className={`text-sm ${pwMsg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{pwMsg.text}</p>}
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => setPasswordUser(null)} className="btn-ghost">Cancel</button>
+              <button type="submit" disabled={settingPassword} className="btn-primary">
+                {settingPassword ? 'Setting…' : 'Set Password'}
+              </button>
             </div>
           </form>
         </Modal>
