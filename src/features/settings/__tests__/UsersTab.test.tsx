@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const insertMock = vi.fn().mockResolvedValue({ error: null })
 const orderMock = vi.fn().mockResolvedValue({ data: [] })
+const singleMock = vi.fn().mockResolvedValue({ data: { managers_can_view_reports: false } })
+const updateMock = vi.fn().mockResolvedValue({ error: null })
 const signInWithOtpMock = vi.fn().mockResolvedValue({ error: null })
 const functionsInvokeMock = vi.fn().mockResolvedValue({ data: { success: true }, error: null })
 
@@ -21,6 +23,8 @@ vi.mock('@/lib/supabase', () => ({
         eq: vi.fn(() => qb),
         order: (...args: unknown[]) => orderMock(...args),
         insert: (...args: unknown[]) => insertMock(...args),
+        update: (...args: unknown[]) => { updateMock(...args); return qb },
+        single: (...args: unknown[]) => singleMock(...args),
       }
       return qb
     }),

@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { ClockProvider, useClockContext } from '@/features/time-tracking/ClockContext'
+import { useReportsAccess } from '@/hooks/useReportsAccess'
 
 const STAFF_NAV = [
   { to: '/',           end: true,  label: 'Time Tracking',   icon: '⏱',
@@ -13,6 +14,8 @@ const STAFF_NAV = [
   { to: '/documents',  end: false, label: 'HR Documents',     icon: '📁' },
   { to: '/kpis',       end: false, label: 'KPIs',             icon: '📊' },
 ]
+
+const REPORTS_NAV_ITEM = { to: '/reports', end: false, label: 'Reports', icon: '📈', children: [] as { to: string; label: string; icon: string }[] }
 
 const SUPER_ADMIN_NAV = [
   { to: '/platform',  end: true,  label: 'Platform Admin',   icon: '🏢', children: [] },
@@ -47,10 +50,14 @@ function LayoutInner() {
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [pendingTaskCount, setPendingTaskCount] = useState(0)
+  const canViewReports = useReportsAccess()
 
   const isViewingAs = isSuperAdmin && !!viewAsUser
   const isVisiting  = isSuperAdmin && !!visitingAccount && !isViewingAs
-  const NAV = (isSuperAdmin && !isVisiting && !isViewingAs) ? SUPER_ADMIN_NAV : STAFF_NAV
+  const isSuperAdminView = isSuperAdmin && !isVisiting && !isViewingAs
+  const NAV = isSuperAdminView
+    ? SUPER_ADMIN_NAV
+    : canViewReports ? [...STAFF_NAV, REPORTS_NAV_ITEM] : STAFF_NAV
 
   // Close sidebar on route change (mobile nav)
   useEffect(() => {

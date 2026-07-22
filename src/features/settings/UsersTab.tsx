@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { User, UserRole, UserCountry } from '@/types'
 import { COUNTRY_OPTIONS, ROLE_OPTIONS, ROLE_COLORS } from '@/lib/constants'
+import { invalidateReportsAccessCache } from '@/hooks/useReportsAccess'
 
 const ROLES: UserRole[] = ROLE_OPTIONS
 
@@ -72,6 +73,8 @@ export function UsersTab() {
   const [inviting, setInviting] = useState<string | null>(null)  // userId being invited
   const [inviteAllBusy, setInviteAllBusy] = useState(false)
   const [passwordUser, setPasswordUser] = useState<User | null>(null)
+  const [managersCanViewReports, setManagersCanViewReports] = useState(false)
+  const [savingReportsAccess, setSavingReportsAccess] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [settingPassword, setSettingPassword] = useState(false)
@@ -90,6 +93,33 @@ export function UsersTab() {
   }, [currentUser])
 
   useEffect(() => { void fetchUsers() }, [fetchUsers])
+
+  useEffect(() => {
+    if (!currentUser) return
+    void supabase
+      .from('sub_accounts')
+      .select('managers_can_view_reports')
+      .eq('code', currentUser.sub_account)
+      .single()
+      .then(({ data }) => {
+        setManagersCanViewReports(Boolean((data as { managers_can_view_reports?: boolean } | null)?.managers_can_view_reports))
+      })
+  }, [currentUser])
+
+  async function toggleReportsAccess() {
+    if (!currentUser) return
+    const next = !managersCanViewReports
+    setSavingReportsAccess(true)
+    const { error } = await supabase
+      .from('sub_accounts')
+      .update({ managers_can_view_reports: next })
+      .eq('code', currentUser.sub_account)
+    setSavingReportsAccess(false)
+    if (!error) {
+      setManagersCanViewReports(next)
+      invalidateReportsAccessCache(currentUser.sub_account)
+    }
+  }
 
   function openAdd() { setForm(emptyForm()); setMsg(null); setShowAddModal(true) }
 
@@ -293,6 +323,28 @@ export function UsersTab() {
             <span className="text-lg leading-none">+</span> Add User
           </button>
         </div>
+      </div>
+
+      {/* Reports access toggle */}
+      <div className="flex items-center justify-between p-3 mb-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div>
+          <p className="text-sm font-medium text-gray-800">Allow Managers to view Reports</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Admins always have access to Reports. Turn this on to let Managers see it too.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void toggleReportsAccess()}
+          disabled={savingReportsAccess}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+            managersCanViewReports ? 'bg-violet-600' : 'bg-gray-300'
+          }`}
+        >
+          <span className={`inline-block h-5 w-5 rounded-full bg-white shadow mt-0.5 transition-transform ${
+            managersCanViewReports ? 'translate-x-5' : 'translate-x-0.5'
+          }`} />
+        </button>
       </div>
 
       {/* Search */}

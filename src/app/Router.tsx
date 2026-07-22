@@ -8,6 +8,7 @@ import { LandingPage } from '@/features/landing/LandingPage'
 import { GHLInstallPage } from '@/features/ghl/GHLInstallPage'
 import { GHLConnectedPage } from '@/features/ghl/GHLConnectedPage'
 import { useAuth } from '@/hooks/useAuth'
+import { useReportsAccess } from '@/hooks/useReportsAccess'
 
 const TimeTrackingPage = lazy(() =>
   import('@/features/time-tracking/TimeTrackingPage').then(m => ({ default: m.TimeTrackingPage }))
@@ -36,6 +37,9 @@ const KPIsPage = lazy(() =>
 const SuperAdminPage = lazy(() =>
   import('@/features/super-admin/SuperAdminPage').then(m => ({ default: m.SuperAdminPage }))
 )
+const ReportsPage = lazy(() =>
+  import('@/features/reports/ReportsPage').then(m => ({ default: m.ReportsPage }))
+)
 
 function Spinner() {
   return (
@@ -56,6 +60,18 @@ function SmartRoot() {
   )
   if (!user) return <LandingPage />
   return <AuthGuard><Layout /></AuthGuard>
+}
+
+// Reports is nav-gated (Admin default, Manager opt-in) — this guard blocks
+// direct navigation to the URL for anyone the nav link isn't shown to.
+function ReportsRoute() {
+  const canView = useReportsAccess()
+  if (!canView) return <Navigate to="/" replace />
+  return (
+    <Suspense fallback={<Spinner />}>
+      <ReportsPage />
+    </Suspense>
+  )
 }
 
 export function AppRouter() {
@@ -130,6 +146,7 @@ export function AppRouter() {
               </Suspense>
             }
           />
+          <Route path="reports" element={<ReportsRoute />} />
           <Route
             path="settings"
             element={
