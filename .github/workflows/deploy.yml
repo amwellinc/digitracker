@@ -94,6 +94,10 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         run: supabase functions deploy admin-set-password
 
+      - name: Deploy admin-set-suspension
+        if: steps.check.outputs.configured == 'true'
+        run: supabase functions deploy admin-set-suspension
+
       - name: Deploy stripe-webhook
         if: steps.check.outputs.configured == 'true'
         run: supabase functions deploy stripe-webhook --no-verify-jwt

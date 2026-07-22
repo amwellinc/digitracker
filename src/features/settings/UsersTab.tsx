@@ -211,12 +211,28 @@ export function UsersTab() {
 
   async function toggleSuspend(u: User) {
     setSuspendingId(u.id)
-    const nextStatus = u.status === 'suspended' ? 'active' : 'suspended'
-    const { error } = await supabase.from('users').update({ status: nextStatus }).eq('id', u.id)
+    const suspended = u.status !== 'suspended'
+    const { data, error } = await supabase.functions.invoke('admin-set-suspension', {
+      body: { targetUserId: u.id, suspended },
+    })
     setSuspendingId(null)
-    if (error) { setMsg({ type: 'error', text: error.message }); return }
+    const fnError = await extractFunctionError(error, data)
+    if (fnError) { setMsg({ type: 'error', text: fnError }); return }
+    const nextStatus = suspended ? 'suspended' : 'active'
     void fetchUsers()
     if (viewUser?.id === u.id) setViewUser({ ...viewUser, status: nextStatus })
+  }
+
+  // Files live in Supabase Storage, not the database — a DB cascade delete
+  // never touches them, so they'd otherwise be orphaned forever. Every file
+  // for this user lives under `<user_id>/…` in these buckets by convention.
+  async function purgeUserStorageFiles(userId: string) {
+    for (const bucket of ['documents', 'screenshots'] as const) {
+      const { data: files, error: listError } = await supabase.storage.from(bucket).list(userId, { limit: 1000 })
+      if (listError || !files || files.length === 0) continue
+      const paths = files.map(f => `${userId}/${f.name}`)
+      await supabase.storage.from(bucket).remove(paths)
+    }
   }
 
   // Deleting purges the account permanently, so it's only allowed once the
@@ -252,6 +268,9 @@ export function UsersTab() {
       setDeleteError(`Failed to save archive file: ${uploadError.message}`)
       return
     }
+
+    await purgeUserStorageFiles(deleteUser.id)
+    setArchiving(false)
 
     const { error: purgeError } = await supabase.rpc('archive_and_delete_user', {
       p_user_id: deleteUser.id,
