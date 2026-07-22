@@ -160,6 +160,7 @@ export interface Subscription {
 export interface SubAccount {
   code: string
   company_name: string
+  logo_url: string | null
   admin_email: string | null
   plan: 'free' | 'basic' | 'business' | 'professional'
   seats: number

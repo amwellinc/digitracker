@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { ClockProvider, useClockContext } from '@/features/time-tracking/ClockContext'
 import { useReportsAccess } from '@/hooks/useReportsAccess'
+import { useSubAccountBranding } from '@/hooks/useSubAccountBranding'
 
 const STAFF_NAV = [
   { to: '/',           end: true,  label: 'Time Tracking',   icon: '⏱',
@@ -51,6 +52,7 @@ function LayoutInner() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [pendingTaskCount, setPendingTaskCount] = useState(0)
   const canViewReports = useReportsAccess()
+  const branding = useSubAccountBranding()
 
   const isViewingAs = isSuperAdmin && !!viewAsUser
   const isVisiting  = isSuperAdmin && !!visitingAccount && !isViewingAs
@@ -344,11 +346,20 @@ function LayoutInner() {
             </svg>
           </button>
 
-          <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate flex-1">
-            {isViewingAs ? `${viewAsUser!.name}'s View`
-              : isVisiting ? `${visitingAccount!.company_name || visitingAccount!.code}`
-              : 'DIGITRACKER'}
-          </h1>
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            {!isViewingAs && (isVisiting ? visitingAccount!.logo_url : branding.logoUrl) && (
+              <img
+                src={isVisiting ? visitingAccount!.logo_url! : branding.logoUrl!}
+                alt=""
+                className="w-7 h-7 rounded-md object-contain flex-shrink-0"
+              />
+            )}
+            <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
+              {isViewingAs ? `${viewAsUser!.name}'s View`
+                : isVisiting ? `${visitingAccount!.company_name || visitingAccount!.code}`
+                : branding.companyName || 'DIGITRACKER'}
+            </h1>
+          </div>
 
           <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
             <ClockStatusBadge />
