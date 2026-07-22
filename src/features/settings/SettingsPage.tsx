@@ -21,7 +21,6 @@ export function SettingsPage() {
 
   const personalTabs: { id: TabId; label: string }[] = [
     { id: 'profile',    label: 'My Profile' },
-    { id: 'account',    label: 'Account' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'security',   label: '🔒 Security' },
     { id: 'bank',       label: '🏦 Bank Details' },
@@ -29,6 +28,7 @@ export function SettingsPage() {
   ]
 
   const businessTabs: { id: TabId; label: string }[] = [
+    { id: 'account',      label: 'Account' },
     { id: 'users',        label: 'Users & Roles' },
     { id: 'subscription', label: 'Subscription' },
     { id: 'ghl',          label: '🔗 DIGI5Y-CRM Integration' },
@@ -89,7 +89,7 @@ export function SettingsPage() {
       )}
 
       {activeTab === 'profile'      && <ProfileTab />}
-      {activeTab === 'account'      && <AccountTab />}
+      {activeTab === 'account'      && isAdmin && <AccountTab />}
       {activeTab === 'appearance'   && <AppearanceTab />}
       {activeTab === 'security'     && <SecurityTab />}
       {activeTab === 'bank'         && <BankDetailsTab />}

@@ -125,9 +125,7 @@ export function AccountTab() {
         <p className="text-sm text-gray-500 mb-6">Your workspace configuration and identifiers.</p>
 
         <InfoRow label="Sub-account Code" value={user?.sub_account ?? '—'} />
-        <InfoRow label="Role"             value={user?.role ?? '—'} />
         <InfoRow label="Email"            value={user?.email ?? '—'} />
-        <InfoRow label="User ID"          value={user?.id ?? '—'} mono />
         <InfoRow label="Supabase Project" value="mllrjejqyddgaxxtjsqf" mono />
         <InfoRow label="Application URL"  value="https://digitracker-app.digi5y.co" mono />
         <InfoRow
