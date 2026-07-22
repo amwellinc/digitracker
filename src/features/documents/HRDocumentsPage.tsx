@@ -95,7 +95,8 @@ function storagePathFromUrl(url: string): string | null {
 
 export function HRDocumentsPage() {
   const { user } = useAuth()
-  const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
+  const canManage = user?.role === 'Admin' || user?.role === 'Super-Admin'
+  const isManagerBlocked = user?.role === 'Manager'
 
   const [members, setMembers] = useState<User[]>([])
   const [docCounts, setDocCounts] = useState<Record<string, number>>({})
@@ -203,6 +204,18 @@ export function HRDocumentsPage() {
             : 'Your documents — upload and access your personal HR files.'}
         </p>
       </div>
+
+      {isManagerBlocked && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <span className="text-amber-500 text-lg leading-none">🔒</span>
+          <div>
+            <p className="text-sm font-semibold text-amber-800">No access as Manager</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              HR Documents for other team members is restricted to Admins. You can still view and upload your own documents below.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className={canManage ? 'flex flex-col lg:flex-row gap-5' : ''}>
         {/* Left panel: user selector (admin/manager only) */}

@@ -132,11 +132,10 @@ export function ScreenshotsPage() {
   // Load team members for admin / manager — managers see only their assigned staff
   useEffect(() => {
     if (!user || !canManage) return
-    const q = supabase.from('users').select('*')
     const scoped = user.role === 'Manager'
-      ? q.eq('manager_id', user.id)
-      : q.eq('sub_account', user.sub_account)
-    void scoped.order('name').then(({ data }) => setMembers((data ?? []) as User[]))
+      ? supabase.rpc('get_manager_downline')
+      : supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name')
+    void scoped.then(({ data }) => setMembers((data ?? []) as User[]))
   }, [user, canManage])
 
   const loadShots = useCallback(async (uid: string, date: string) => {

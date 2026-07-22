@@ -36,6 +36,7 @@ vi.mock('@/lib/supabase', () => {
         in: vi.fn().mockReturnThis(),
         order: vi.fn().mockResolvedValue({ data: members }),
       }),
+      rpc: vi.fn().mockResolvedValue({ data: members }),
       channel: vi.fn().mockReturnValue({
         on: vi.fn().mockReturnThis(),
         subscribe: vi.fn().mockReturnValue({}),

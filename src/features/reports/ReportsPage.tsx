@@ -36,8 +36,12 @@ export function ReportsPage() {
     if (!user) return
     setLoading(true)
 
+    const membersQuery = user.role === 'Manager'
+      ? supabase.rpc('get_manager_downline')
+      : supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name')
+
     const [u, logs, lv, eod] = await Promise.all([
-      supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name'),
+      membersQuery,
       supabase.from('time_logs').select('*').gte('date', range.from).lte('date', range.to),
       supabase.from('leave_requests').select('*').lte('start_date', range.to).gte('end_date', range.from),
       supabase.from('kpi_daily_logs').select('user_id, date, eod_rows').gte('date', range.from).lte('date', range.to),

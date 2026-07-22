@@ -66,8 +66,12 @@ export function TeamCalendarTab({ timezone = DEFAULT_TIMEZONE }: { timezone?: st
     const lastDay = new Date(year, month + 1, 0).getDate()
     const to = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
+    const membersQuery = user.role === 'Manager'
+      ? supabase.rpc('get_manager_downline')
+      : supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name')
+
     void Promise.all([
-      supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name'),
+      membersQuery,
       supabase.from('time_logs').select('*').gte('date', from).lte('date', to),
       supabase.from('leave_requests').select('*').eq('status', 'approved').lte('start_date', to).gte('end_date', from),
       supabase.from('public_holidays').select('*').eq('sub_account', user.sub_account).gte('date', from).lte('date', to),

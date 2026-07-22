@@ -18,20 +18,19 @@ export function SettingsPage() {
 
   const isAdmin = user?.role === 'Admin'
 
-  const tabs: { id: TabId; label: string }[] = [
+  const personalTabs: { id: TabId; label: string }[] = [
     { id: 'profile',    label: 'My Profile' },
     { id: 'account',    label: 'Account' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'security',   label: '🔒 Security' },
     { id: 'bank',       label: '🏦 Bank Details' },
     { id: 'payroll',    label: '💰 Payroll' },
-    ...(isAdmin
-      ? [
-          { id: 'users' as TabId,        label: 'Users & Roles' },
-          { id: 'subscription' as TabId, label: 'Subscription' },
-          { id: 'ghl' as TabId,          label: '🔗 DIGI5Y-CRM Integration' },
-        ]
-      : []),
+  ]
+
+  const businessTabs: { id: TabId; label: string }[] = [
+    { id: 'users',        label: 'Users & Roles' },
+    { id: 'subscription', label: 'Subscription' },
+    { id: 'ghl',          label: '🔗 DIGI5Y-CRM Integration' },
   ]
 
   return (
@@ -43,23 +42,49 @@ export function SettingsPage() {
         </p>
       </div>
 
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex gap-1 sm:gap-4 overflow-x-auto scrollbar-hide pb-px">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
-                activeTab === tab.id
-                  ? 'border-violet-600 text-violet-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+      <div className="mb-6">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Personal Settings</p>
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex gap-1 sm:gap-4 overflow-x-auto scrollbar-hide pb-px">
+            {personalTabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                  activeTab === tab.id
+                    ? 'border-violet-600 text-violet-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
       </div>
+
+      {isAdmin && (
+        <div className="mb-6">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Business Settings</p>
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex gap-1 sm:gap-4 overflow-x-auto scrollbar-hide pb-px">
+              {businessTabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                    activeTab === tab.id
+                      ? 'border-violet-600 text-violet-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </div>
+      )}
 
       {activeTab === 'profile'      && <ProfileTab />}
       {activeTab === 'account'      && <AccountTab />}

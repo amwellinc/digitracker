@@ -112,11 +112,8 @@ export function ManageLeaveTab() {
         .order('created_at', { ascending: false })
       setLeaves((lv ?? []) as LeaveRequest[])
     } else {
-      // Manager: only direct reports
-      const { data: reports } = await supabase
-        .from('users')
-        .select('*')
-        .eq('manager_id', user.id)
+      // Manager: their full downline (direct + indirect reports)
+      const { data: reports } = await supabase.rpc('get_manager_downline')
       const users = (reports ?? []) as User[]
       setMemberMap(Object.fromEntries(users.map(u => [u.id, u])))
 

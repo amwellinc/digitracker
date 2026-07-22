@@ -70,11 +70,10 @@ export function PayrollTab() {
   useEffect(() => {
     void fetchEntries()
     if (isManager && user) {
-      const q = supabase.from('users').select('id, name, email, role')
       const scoped = user.role === 'Manager'
-        ? q.eq('manager_id', user.id)
-        : q.eq('sub_account', user.sub_account)
-      void scoped.order('name').then(({ data }) => setUsers((data as User[]) ?? []))
+        ? supabase.rpc('get_manager_downline')
+        : supabase.from('users').select('id, name, email, role').eq('sub_account', user.sub_account).order('name')
+      void scoped.then(({ data }) => setUsers((data as User[]) ?? []))
     }
   }, [fetchEntries, isManager, user])
 

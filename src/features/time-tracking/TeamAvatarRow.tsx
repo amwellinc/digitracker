@@ -18,11 +18,7 @@ export function TeamAvatarRow() {
     if (!user) return
     const today = todayInTz(DEFAULT_TIMEZONE)
 
-    const { data: users } = await supabase
-      .from('users')
-      .select('*')
-      .eq('manager_id', user.id)
-      .order('name')
+    const { data: users } = await supabase.rpc('get_manager_downline')
 
     const { data: active } = await supabase
       .from('time_logs')

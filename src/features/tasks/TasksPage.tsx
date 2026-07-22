@@ -113,12 +113,19 @@ export function TasksPage() {
 
   useEffect(() => {
     if (!user) return
-    void supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name')
-      .then(({ data }) => {
-        const m = (data ?? []) as User[]
-        setMembers(m)
-        if (!byUserId && m.length > 0) setByUserId(user.id)
-      })
+    const q = user.role === 'Manager'
+      ? supabase.rpc('get_manager_downline')
+      : supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name')
+    void q.then(({ data }) => {
+      const downline = (data ?? []) as User[]
+      // Include self so tasks the Manager created or is assigned to (outside
+      // their downline) still resolve an assignee name instead of going blank.
+      const m = user.role === 'Manager' && !downline.some(u => u.id === user.id)
+        ? [user, ...downline]
+        : downline
+      setMembers(m)
+      if (!byUserId && m.length > 0) setByUserId(user.id)
+    })
   }, [user, byUserId])
 
   const loadTasks = useCallback(async () => {
