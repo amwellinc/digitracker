@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from './useAuth'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { useSubAccountTimezone } from './useSubAccountTimezone'
+import { todayInTz } from '@/lib/timezone'
 
 interface CaptureState {
   isCapturing: boolean
@@ -19,6 +20,7 @@ function randomDelay() {
 
 export function useScreenCapture(onForcedClockOut: () => void) {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const [state, setState] = useState<CaptureState>({ isCapturing: false, error: null })
 
   const streamRef        = useRef<MediaStream | null>(null)
@@ -28,9 +30,11 @@ export function useScreenCapture(onForcedClockOut: () => void) {
   const nextCaptureTime  = useRef<number>(0)
   const busyRef          = useRef(false)
   const userRef          = useRef(user)
+  const timezoneRef      = useRef(timezone)
   const visHandlerRef    = useRef<(() => void) | null>(null)
 
   useEffect(() => { userRef.current = user }, [user])
+  useEffect(() => { timezoneRef.current = timezone }, [timezone])
 
   // ── core capture routine ────────────────────────────────────────────────
   const doCapture = useCallback(async () => {
@@ -77,7 +81,7 @@ export function useScreenCapture(onForcedClockOut: () => void) {
         user_id:   u.id,
         url:       signed.signedUrl,
         timestamp: new Date().toISOString(),
-        date:      todayInTz(DEFAULT_TIMEZONE),
+        date:      todayInTz(timezoneRef.current),
       })
 
       if (insertErr) console.warn('[capture] insert error:', insertErr.message)

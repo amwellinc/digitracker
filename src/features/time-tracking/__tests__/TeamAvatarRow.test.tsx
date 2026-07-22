@@ -35,6 +35,7 @@ vi.mock('@/lib/supabase', () => {
         eq: vi.fn().mockReturnThis(),
         in: vi.fn().mockReturnThis(),
         order: vi.fn().mockResolvedValue({ data: members }),
+        single: vi.fn().mockResolvedValue({ data: { timezone: 'Asia/Singapore' } }),
       }),
       rpc: vi.fn().mockResolvedValue({ data: members }),
       channel: vi.fn().mockReturnValue({

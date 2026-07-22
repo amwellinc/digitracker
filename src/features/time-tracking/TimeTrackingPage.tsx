@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 
 function isoDate(d: Date): string {
   const y = d.getFullYear()
@@ -62,6 +63,7 @@ function monthRange(offset: 0 | -1): { start: string; end: string; label: string
 
 export function TimeTrackingPage() {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const {
     activeLog,
     dayMinutes,
@@ -103,7 +105,7 @@ export function TimeTrackingPage() {
   // Recent screenshots for today
   useEffect(() => {
     if (!user) return
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
     void supabase
       .from('screenshots')
       .select('*')
@@ -112,12 +114,12 @@ export function TimeTrackingPage() {
       .order('timestamp', { ascending: false })
       .limit(4)
       .then(({ data }) => setRecentShots((data ?? []) as Screenshot[]))
-  }, [user])
+  }, [user, timezone])
 
   // Refresh screenshots every minute while capturing
   useEffect(() => {
     if (!isCapturing || !user) return
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
     const id = setInterval(() => {
       void supabase
         .from('screenshots')
@@ -129,7 +131,7 @@ export function TimeTrackingPage() {
         .then(({ data }) => setRecentShots((data ?? []) as Screenshot[]))
     }, 60_000)
     return () => clearInterval(id)
-  }, [isCapturing, user])
+  }, [isCapturing, user, timezone])
 
   // Monthly work log
   const fetchLogs = useCallback(async () => {
@@ -160,7 +162,7 @@ export function TimeTrackingPage() {
   // Upcoming holidays — scoped to this sub-account, no country filter (all users see all)
   useEffect(() => {
     if (!user) return
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
     void supabase
       .from('public_holidays')
       .select('id, date, name')
@@ -169,7 +171,7 @@ export function TimeTrackingPage() {
       .order('date', { ascending: true })
       .limit(8)
       .then(({ data }) => setHolidays((data ?? []) as Holiday[]))
-  }, [user])
+  }, [user, timezone])
 
   // Notifications
   useEffect(() => {
@@ -207,7 +209,7 @@ export function TimeTrackingPage() {
   const isWorking    = activeLog?.status === 'working'
   const isOnLunch    = activeLog?.status === 'lunch'
   const isSuperAdmin = user?.role === 'Admin' || user?.role === 'Super-Admin'
-  const todayStr     = todayInTz(DEFAULT_TIMEZONE)
+  const todayStr     = todayInTz(timezone)
   const todayHoliday = holidays.find(h => h.date === todayStr) ?? null
 
   const { label: monthLabel } = monthRange(showPrevMonth ? -1 : 0)

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import { useRealtime } from '@/hooks/useRealtime'
 import { Avatar } from '@/components/ui/Avatar'
 import { UserActivityDrawer } from '@/features/time-tracking/UserActivityDrawer'
@@ -87,6 +88,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: number 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function AdminDashboard() {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const now = useLiveClock()
 
   const [members, setMembers] = useState<MemberRow[]>([])
@@ -99,7 +101,7 @@ export function AdminDashboard() {
 
   const load = useCallback(async () => {
     if (!user) return
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
 
     // All users in workspace — needed for leave + screenshot queries
     const { data: usersData } = await supabase
@@ -169,7 +171,7 @@ export function AdminDashboard() {
     }
 
     setLoading(false)
-  }, [user])
+  }, [user, timezone])
 
   useEffect(() => { void load() }, [load])
 

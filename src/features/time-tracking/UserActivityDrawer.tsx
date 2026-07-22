@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { TimeLog, User } from '@/types'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 
 interface Props {
   user: User & { isOnline?: boolean }
@@ -13,10 +14,11 @@ function fmtTime(ts: string) {
 }
 
 export function UserActivityDrawer({ user, onClose }: Props) {
+  const timezone = useSubAccountTimezone()
   const [logs, setLogs] = useState<TimeLog[]>([])
 
   useEffect(() => {
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
     void supabase
       .from('time_logs')
       .select('*')
@@ -24,7 +26,7 @@ export function UserActivityDrawer({ user, onClose }: Props) {
       .eq('date', today)
       .order('clock_in')
       .then(({ data }) => setLogs((data ?? []) as TimeLog[]))
-  }, [user.id])
+  }, [user.id, timezone])
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">

@@ -3,7 +3,8 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { EODRow, KPI, KPIDailyLog, KPIMetric, PerformancePoints, User } from '@/types'
 import { KPIIndicators } from './KPIIndicators'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 
 function isoDate(d: Date): string {
   const y = d.getFullYear()
@@ -74,6 +75,7 @@ function Panel({ border, children }: { border: string; children: React.ReactNode
 
 export function KPIAdminPanel() {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const isManager = user?.role === 'Manager'
 
   const [members,        setMembers]        = useState<User[]>([])
@@ -93,7 +95,7 @@ export function KPIAdminPanel() {
   const [logs,        setLogs]        = useState<KPIDailyLog[]>([])
   const [eodViewDate, setEodViewDate] = useState('')
 
-  const today = todayInTz(DEFAULT_TIMEZONE)
+  const today = todayInTz(timezone)
   const [selectedDate,     setSelectedDate]     = useState(today)
   const [viewWeekStart,    setViewWeekStart]    = useState(() => getMonday())
   const [memberPerfPoints, setMemberPerfPoints] = useState<PerformancePoints[]>([])

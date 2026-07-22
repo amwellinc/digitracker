@@ -5,18 +5,20 @@ import { useRealtime } from '@/hooks/useRealtime'
 import { Avatar } from '@/components/ui/Avatar'
 import type { User } from '@/types'
 import { UserActivityDrawer } from './UserActivityDrawer'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 
 type Member = User & { isOnline: boolean }
 
 export function TeamAvatarRow() {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const [members, setMembers] = useState<Member[]>([])
   const [selected, setSelected] = useState<Member | null>(null)
 
   const load = useCallback(async () => {
     if (!user) return
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
 
     const { data: allReports } = await supabase.rpc('get_manager_downline')
     const users = (allReports ?? []).filter((u: User) => u.status === 'active')
@@ -30,7 +32,7 @@ export function TeamAvatarRow() {
     const onlineIds = new Set((active ?? []).map((r: { user_id: string }) => r.user_id))
 
     setMembers((users ?? []).map((u: User) => ({ ...u, isOnline: onlineIds.has(u.id) })))
-  }, [user])
+  }, [user, timezone])
 
   useEffect(() => { void load() }, [load])
 

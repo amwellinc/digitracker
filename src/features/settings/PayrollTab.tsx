@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { User } from '@/types'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 
 const CURRENCIES = ['SGD', 'MYR', 'PHP', 'USD', 'GBP', 'AUD', 'INR', 'AED', 'IDR', 'THB', 'VND', 'CNY', 'JPY']
 const PAYMENT_MODES = ['Bank Transfer', 'Cash', 'Cheque', 'PayNow', 'FAST', 'NEFT', 'RTGS', 'Wise Transfer', 'Crypto', 'Other']
@@ -30,9 +31,9 @@ interface EntryForm {
   payment_mode: string
 }
 
-const emptyForm = (userId: string): EntryForm => ({
+const emptyForm = (userId: string, timezone: string): EntryForm => ({
   user_id: userId,
-  payment_date: todayInTz(DEFAULT_TIMEZONE),
+  payment_date: todayInTz(timezone),
   description: '',
   amount: '',
   currency: 'SGD',
@@ -41,6 +42,7 @@ const emptyForm = (userId: string): EntryForm => ({
 
 export function PayrollTab() {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const isManager = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
 
   const [entries, setEntries]   = useState<PayrollEntry[]>([])
@@ -48,7 +50,7 @@ export function PayrollTab() {
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [form, setForm]         = useState<EntryForm>(emptyForm(user?.id ?? ''))
+  const [form, setForm]         = useState<EntryForm>(emptyForm(user?.id ?? '', timezone))
   const [msg, setMsg]           = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [filterUser, setFilterUser] = useState<string>('all')
 
@@ -100,7 +102,7 @@ export function PayrollTab() {
     })
     setSaving(false)
     if (error) { setMsg({ type: 'error', text: error.message }); return }
-    setForm(emptyForm(user.id))
+    setForm(emptyForm(user.id, timezone))
     setMsg({ type: 'success', text: 'Payroll entry added.' })
     void fetchEntries()
     setTimeout(() => setMsg(null), 3000)

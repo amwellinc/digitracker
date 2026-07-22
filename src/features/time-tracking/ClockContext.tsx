@@ -2,8 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { useScreenCapture } from '@/hooks/useScreenCapture'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import type { TimeLog } from '@/types'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
 
 const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
@@ -39,6 +40,7 @@ export function useClockContext() {
 
 export function ClockProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const [activeLog,  setActiveLog]  = useState<TimeLog | null>(null)
   const [dayMinutes, setDayMinutes] = useState(0)
   const [lunchStart, setLunchStart] = useState<Date | null>(null)
@@ -75,7 +77,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
   // ── On mount: restore today's session + detect stale abandoned logs ────
   useEffect(() => {
     if (!user) return
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
 
     async function init() {
       // Detect page reload (F5/Ctrl+R) vs first-time navigation.
@@ -155,7 +157,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     }
 
     void init()
-  }, [user])
+  }, [user, timezone])
 
   // ── Visibility change: re-validate session when page becomes visible ─────
   // Handles the laptop-close scenario: the page lives in background (BFCache),
@@ -271,7 +273,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     const u = userRef.current
     if (!u) return
 
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
 
     // Prevent duplicate: if an active session already exists in DB, restore it
     const { data: existing } = await supabase
@@ -302,7 +304,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
       .select()
       .single()
     if (data) setActiveLog(data as TimeLog)
-  }, [startCapture])
+  }, [startCapture, timezone])
 
   const handleClockOut = useCallback(async () => {
     const log = activeLogRef.current
@@ -314,7 +316,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.setItem('__dt_explicit_clkout', 'true')
 
     // Warn if KPI daily update not submitted (non-blocking)
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
     const [{ data: kpiLog }, { data: kpiCfg }] = await Promise.all([
       supabase.from('kpi_daily_logs').select('id').eq('user_id', u.id).eq('date', today).maybeSingle(),
       supabase.from('kpis').select('kpi_items, checklists').eq('user_id', u.id).maybeSingle(),
@@ -346,7 +348,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     setDayMinutes(p => p + total)
     setActiveLog(null)
     setLunchStart(null)
-  }, [stopCapture])
+  }, [stopCapture, timezone])
 
   const handleStartLunch = useCallback(async () => {
     const log = activeLogRef.current

@@ -3,13 +3,13 @@ import { supabase } from '@/lib/supabase'
 import type { Screenshot } from '@/types'
 import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
-export function RecentScreenshots({ userId }: { userId: string }) {
+export function RecentScreenshots({ userId, timezone = DEFAULT_TIMEZONE }: { userId: string; timezone?: string }) {
   const [shots, setShots] = useState<Screenshot[]>([])
   const [lightbox, setLightbox] = useState<Screenshot | null>(null)
 
   useEffect(() => {
     if (!userId) return
-    const today = todayInTz(DEFAULT_TIMEZONE)
+    const today = todayInTz(timezone)
     void supabase
       .from('screenshots')
       .select('*')
@@ -18,7 +18,7 @@ export function RecentScreenshots({ userId }: { userId: string }) {
       .order('timestamp', { ascending: false })
       .limit(6)
       .then(({ data }) => setShots((data ?? []) as Screenshot[]))
-  }, [userId])
+  }, [userId, timezone])
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">

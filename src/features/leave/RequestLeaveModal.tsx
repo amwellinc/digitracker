@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
+import { todayInTz } from '@/lib/timezone'
 import type { User } from '@/types'
 
 interface Props {
@@ -14,12 +15,10 @@ interface Props {
 
 type LeaveType = 'Annual' | 'Medical' | 'Time-off'
 
-function today() {
-  return todayInTz(DEFAULT_TIMEZONE)
-}
-
 export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
+  const today = () => todayInTz(timezone)
   const [type, setType] = useState<LeaveType>('Annual')
   const [startDate, setStartDate] = useState(today())
   const [endDate, setEndDate] = useState(today())

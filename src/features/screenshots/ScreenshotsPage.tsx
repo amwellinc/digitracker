@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { Screenshot, User } from '@/types'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 
 function isoDate(d: Date): string {
   const y = d.getFullYear()
@@ -11,8 +12,8 @@ function isoDate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-function todayStr() {
-  return todayInTz(DEFAULT_TIMEZONE)
+function todayStr(tz: string) {
+  return todayInTz(tz)
 }
 
 function yesterdayStr() {
@@ -119,11 +120,12 @@ function Lightbox({ shot, total, index, onClose, onPrev, onNext }: LightboxProps
 
 export function ScreenshotsPage() {
   const { user } = useAuth()
+  const timezone = useSubAccountTimezone()
   const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
 
   const [members, setMembers] = useState<User[]>([])
   const [selectedUserId, setSelectedUserId] = useState(user?.id ?? '')
-  const [selectedDate, setSelectedDate] = useState(todayStr())
+  const [selectedDate, setSelectedDate] = useState(todayStr(timezone))
   const [shots, setShots] = useState<Screenshot[]>([])
   const [fallbackDate, setFallbackDate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -152,7 +154,7 @@ export function ScreenshotsPage() {
     const result = (data ?? []) as Screenshot[]
 
     // If today is selected and there are no shots, fall back to yesterday
-    if (result.length === 0 && date === todayStr()) {
+    if (result.length === 0 && date === todayStr(timezone)) {
       const yesterday = yesterdayStr()
       const { data: prev } = await supabase
         .from('screenshots')
@@ -166,7 +168,7 @@ export function ScreenshotsPage() {
       setShots(result)
     }
     setLoading(false)
-  }, [])
+  }, [timezone])
 
   useEffect(() => {
     if (!selectedUserId) return
@@ -237,13 +239,13 @@ export function ScreenshotsPage() {
           <input
             type="date"
             value={selectedDate}
-            max={todayStr()}
+            max={todayStr(timezone)}
             onChange={e => { setSelectedDate(e.target.value); setLightboxIdx(null) }}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 min-h-[44px]"
           />
-          {selectedDate !== todayStr() && (
+          {selectedDate !== todayStr(timezone) && (
             <button
-              onClick={() => setSelectedDate(todayStr())}
+              onClick={() => setSelectedDate(todayStr(timezone))}
               className="text-sm text-violet-600 hover:underline whitespace-nowrap"
             >
               Today
@@ -290,7 +292,7 @@ export function ScreenshotsPage() {
           <span className="text-5xl mb-3">📸</span>
           <p className="text-base font-medium">No screenshots found</p>
           <p className="text-sm mt-1">
-            {selectedDate === todayStr()
+            {selectedDate === todayStr(timezone)
               ? 'Screenshots appear here once the user clocks in'
               : `No captures recorded for ${fmtDateLabel(selectedDate)}`}
           </p>

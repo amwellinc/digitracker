@@ -15,6 +15,9 @@ vi.mock('@/lib/supabase', () => ({
     },
     from: vi.fn().mockReturnValue({
       insert: vi.fn().mockResolvedValue({ error: null }),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { timezone: 'Asia/Singapore' } }),
     }),
   },
 }))

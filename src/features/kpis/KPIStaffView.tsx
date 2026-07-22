@@ -3,9 +3,9 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { EODRow, KPI, KPIDailyLog } from '@/types'
 import { KPIIndicators } from './KPIIndicators'
-import { todayInTz, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { todayInTz } from '@/lib/timezone'
+import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 
-function todayStr() { return todayInTz(DEFAULT_TIMEZONE) }
 function todayFmt() {
   return new Date().toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
@@ -14,7 +14,8 @@ function emptyRow(): EODRow { return { task: '', remarks: '' } }
 
 export function KPIStaffView() {
   const { user } = useAuth()
-  const today = todayStr()
+  const timezone = useSubAccountTimezone()
+  const today = todayInTz(timezone)
 
   const [kpiConfig,  setKpiConfig]  = useState<KPI | null>(null)
   const [todayLog,   setTodayLog]   = useState<KPIDailyLog | null>(null)
