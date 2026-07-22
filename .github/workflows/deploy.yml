@@ -41,8 +41,9 @@ jobs:
           publish_dir: ./dist
 
   # ── 2. Deploy Supabase Edge Functions & Migrations ──────────────────────────
-  # This job runs when SUPABASE_ACCESS_TOKEN secret is configured.
-  # Skip gracefully if the token is not set (all steps have continue-on-error).
+  # Cleanly SKIPPED (not silently green) if SUPABASE_ACCESS_TOKEN isn't set.
+  # Once it is set, every step below runs for real and a genuine failure shows
+  # up as a genuine red X — nothing here is allowed to fail silently anymore.
   supabase:
     runs-on: ubuntu-latest
     env:
@@ -50,21 +51,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check SUPABASE_ACCESS_TOKEN is configured
+        id: check
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SUPABASE_ACCESS_TOKEN is not set as a repo secret — skipping all Supabase deploy steps."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: supabase/setup-cli@v1
-        continue-on-error: true
+        if: steps.check.outputs.configured == 'true'
         with:
           version: latest
 
       - name: Link Supabase project
-        continue-on-error: true
+        if: steps.check.outputs.configured == 'true'
         run: supabase link --project-ref mllrjejqyddgaxxtjsqf
 
       - name: Apply database migrations
-        continue-on-error: true
+        if: steps.check.outputs.configured == 'true'
         run: supabase db push
 
       - name: Set GHL edge function secrets
-        continue-on-error: true
+        if: steps.check.outputs.configured == 'true'
         run: |
           supabase secrets set \
             GHL_CLIENT_ID="${{ secrets.GHL_CLIENT_ID }}" \
@@ -72,13 +83,17 @@ jobs:
             GHL_WEBHOOK_SECRET="${{ secrets.GHL_WEBHOOK_SECRET }}"
 
       - name: Deploy ghl-oauth-callback
-        continue-on-error: true
+        if: steps.check.outputs.configured == 'true'
         run: supabase functions deploy ghl-oauth-callback --no-verify-jwt
 
       - name: Deploy ghl-webhook
-        continue-on-error: true
+        if: steps.check.outputs.configured == 'true'
         run: supabase functions deploy ghl-webhook --no-verify-jwt
 
       - name: Deploy admin-set-password
-        continue-on-error: true
+        if: steps.check.outputs.configured == 'true'
         run: supabase functions deploy admin-set-password
+
+      - name: Deploy stripe-webhook
+        if: steps.check.outputs.configured == 'true'
+        run: supabase functions deploy stripe-webhook --no-verify-jwt
