@@ -19,9 +19,9 @@ const STAFF_NAV = [
 const REPORTS_NAV_ITEM = { to: '/reports', end: false, label: 'Reports', icon: '📈', children: [] as { to: string; label: string; icon: string }[] }
 
 const SUPER_ADMIN_NAV = [
-  { to: '/platform',  end: true,  label: 'Platform Admin',   icon: '🏢',
-    children: [{ to: '/platform/accounts', label: 'Sub-Accounts', icon: '🏬' }] },
-  { to: '/settings',  end: false, label: 'Settings',         icon: '⚙', children: [] },
+  { to: '/platform',          end: true,  label: 'Platform Admin', icon: '🏢', children: [] },
+  { to: '/platform/accounts', end: false, label: 'Sub-Accounts',   icon: '🏬', children: [] },
+  { to: '/settings',          end: false, label: 'Settings',       icon: '⚙',  children: [] },
 ]
 
 function ClockStatusBadge() {
@@ -175,10 +175,15 @@ function LayoutInner() {
 
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
           {NAV.map(item => {
+            // HashRouter's own useLocation() already parses everything after the
+            // "#" into `pathname` — `location.hash` here is react-router's concept
+            // of a further in-page fragment, which no route in this app uses, so
+            // it's always empty. Matching against it (as this used to) meant
+            // parentActive/childActive only ever worked for the literal '/' route.
             const parentActive = item.end
-              ? location.pathname === '/' || location.hash === '#/'
-              : location.hash.startsWith(`#${item.to}`)
-            const childActive = item.children?.some(c => location.hash === `#${c.to}`)
+              ? location.pathname === item.to
+              : location.pathname.startsWith(item.to)
+            const childActive = item.children?.some(c => location.pathname === c.to)
             const sectionOpen = parentActive || !!childActive
             return (
               <div key={item.to}>
