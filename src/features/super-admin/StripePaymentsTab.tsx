@@ -15,6 +15,8 @@ interface StripeConfig {
   stripe_publishable_key: string
   stripe_secret_key: string
   stripe_webhook_secret: string
+  success_url: string
+  cancel_url: string
   stripe_test_mode: boolean
   trial_days: number
   grace_period_days: number
@@ -112,6 +114,8 @@ function defaultConfig(): StripeConfig {
     stripe_publishable_key: '',
     stripe_secret_key: '',
     stripe_webhook_secret: '',
+    success_url: `${window.location.origin}/#/settings?checkout=success`,
+    cancel_url: `${window.location.origin}/#/settings?checkout=cancelled`,
     stripe_test_mode: true,
     trial_days: 14,
     grace_period_days: 3,
@@ -159,7 +163,7 @@ export function StripePaymentsTab() {
     // which is the point: there's no way to read a saved secret back out.
     const { data } = await supabase
       .from('stripe_settings')
-      .select('id, stripe_publishable_key, stripe_test_mode, trial_days, grace_period_days, max_failed_attempts, auto_renewal, prorate_on_change, invoice_prefix, default_billing_cycle, tax_rate, currency, cancel_at_period_end, tpl_new_subscription, tpl_renewal_reminder, tpl_payment_success, tpl_subscription_changed, has_secret_key, has_webhook_secret')
+      .select('id, stripe_publishable_key, success_url, cancel_url, stripe_test_mode, trial_days, grace_period_days, max_failed_attempts, auto_renewal, prorate_on_change, invoice_prefix, default_billing_cycle, tax_rate, currency, cancel_at_period_end, tpl_new_subscription, tpl_renewal_reminder, tpl_payment_success, tpl_subscription_changed, has_secret_key, has_webhook_secret')
       .limit(1)
       .maybeSingle()
     if (data) {
@@ -170,6 +174,8 @@ export function StripePaymentsTab() {
         stripe_publishable_key: data.stripe_publishable_key ?? '',
         stripe_secret_key:      '',
         stripe_webhook_secret:  '',
+        success_url:            data.success_url || `${window.location.origin}/#/settings?checkout=success`,
+        cancel_url:             data.cancel_url  || `${window.location.origin}/#/settings?checkout=cancelled`,
         stripe_test_mode:       data.stripe_test_mode       ?? true,
         trial_days:             data.trial_days             ?? 14,
         grace_period_days:      data.grace_period_days      ?? 3,
@@ -218,6 +224,8 @@ export function StripePaymentsTab() {
     const payload = {
       stripe_publishable_key: config.stripe_publishable_key.trim(),
       ...secretPatch,
+      success_url:            config.success_url.trim(),
+      cancel_url:             config.cancel_url.trim(),
       stripe_test_mode:       config.stripe_test_mode,
       trial_days:             config.trial_days,
       grace_period_days:      config.grace_period_days,
@@ -278,7 +286,7 @@ export function StripePaymentsTab() {
   return (
     <div>
       <div className="mb-5">
-        <h2 className="text-base font-semibold text-gray-900">Payments</h2>
+        <h1 className="text-2xl font-bold text-gray-900">Payment Settings</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           Connect Stripe, configure billing rules, review transaction history, and manage subscription email notifications.
         </p>
@@ -407,6 +415,28 @@ export function StripePaymentsTab() {
                   Created in Stripe Dashboard → Webhooks. Point your webhook at{' '}
                   <code className="bg-gray-100 px-1 rounded">{import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-webhook</code>.
                 </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Success Redirect URL</label>
+                <input
+                  value={config.success_url}
+                  onChange={e => patch('success_url', e.target.value)}
+                  placeholder={`${window.location.origin}/#/settings?checkout=success`}
+                  className="input font-mono text-sm"
+                />
+                <p className="text-xs text-gray-400 mt-1">Where Stripe Checkout sends the browser after a successful subscription purchase.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cancel Redirect URL</label>
+                <input
+                  value={config.cancel_url}
+                  onChange={e => patch('cancel_url', e.target.value)}
+                  placeholder={`${window.location.origin}/#/settings?checkout=cancelled`}
+                  className="input font-mono text-sm"
+                />
+                <p className="text-xs text-gray-400 mt-1">Where Stripe Checkout sends the browser if the customer cancels or closes checkout.</p>
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">

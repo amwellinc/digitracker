@@ -19,9 +19,10 @@ const STAFF_NAV = [
 const REPORTS_NAV_ITEM = { to: '/reports', end: false, label: 'Reports', icon: '📈', children: [] as { to: string; label: string; icon: string }[] }
 
 const SUPER_ADMIN_NAV = [
-  { to: '/platform',          end: true,  label: 'Platform Admin', icon: '🏢', children: [] },
-  { to: '/platform/accounts', end: false, label: 'Sub-Accounts',   icon: '🏬', children: [] },
-  { to: '/settings',          end: false, label: 'Settings',       icon: '⚙',  children: [] },
+  { to: '/platform',          end: true,  label: 'Platform Admin',   icon: '🏢', children: [] },
+  { to: '/platform/accounts', end: false, label: 'Sub-Accounts',     icon: '🏬', children: [] },
+  { to: '/settings',          end: false, label: 'Settings',         icon: '⚙',  children: [] },
+  { to: '/platform/payments', end: false, label: 'Payment Settings', icon: '💳', children: [] },
 ]
 
 function ClockStatusBadge() {

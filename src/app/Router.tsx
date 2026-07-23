@@ -40,6 +40,9 @@ const SuperAdminPage = lazy(() =>
 const SubAccountsTab = lazy(() =>
   import('@/features/super-admin/SubAccountsTab').then(m => ({ default: m.SubAccountsTab }))
 )
+const StripePaymentsTab = lazy(() =>
+  import('@/features/super-admin/StripePaymentsTab').then(m => ({ default: m.StripePaymentsTab }))
+)
 const ReportsPage = lazy(() =>
   import('@/features/reports/ReportsPage').then(m => ({ default: m.ReportsPage }))
 )
@@ -174,6 +177,16 @@ export function AppRouter() {
               <AuthGuard allowedRoles={['Super-Admin']}>
                 <Suspense fallback={<Spinner />}>
                   <SubAccountsTab />
+                </Suspense>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="platform/payments"
+            element={
+              <AuthGuard allowedRoles={['Super-Admin']}>
+                <Suspense fallback={<Spinner />}>
+                  <StripePaymentsTab />
                 </Suspense>
               </AuthGuard>
             }
