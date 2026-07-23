@@ -161,17 +161,21 @@ export function AppRouter() {
           <Route
             path="platform"
             element={
-              <Suspense fallback={<Spinner />}>
-                <SuperAdminPage />
-              </Suspense>
+              <AuthGuard allowedRoles={['Super-Admin']}>
+                <Suspense fallback={<Spinner />}>
+                  <SuperAdminPage />
+                </Suspense>
+              </AuthGuard>
             }
           />
           <Route
             path="platform/accounts"
             element={
-              <Suspense fallback={<Spinner />}>
-                <SubAccountsTab />
-              </Suspense>
+              <AuthGuard allowedRoles={['Super-Admin']}>
+                <Suspense fallback={<Spinner />}>
+                  <SubAccountsTab />
+                </Suspense>
+              </AuthGuard>
             }
           />
           <Route path="*" element={<Navigate to="/" replace />} />
