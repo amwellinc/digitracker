@@ -41,6 +41,18 @@ export function UploadDocumentModal({ targetUserId, targetUserName, onClose, onU
     setError(null)
     setUploading(true)
 
+    // Free-plan accounts are capped at 50MB of documents per user — checked
+    // before the upload so we never leave an orphaned file in storage.
+    const { data: storageOk } = await supabase.rpc('user_document_storage_ok', {
+      p_user_id: targetUserId,
+      p_new_size: file.size,
+    })
+    if (storageOk === false) {
+      setError('Storage limit reached (50MB on the Free plan). Delete an existing document or upgrade your plan.')
+      setUploading(false)
+      return
+    }
+
     const path = `${targetUserId}/${Date.now()}-${file.name}`
     const { error: upErr } = await supabase.storage
       .from('documents')

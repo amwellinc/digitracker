@@ -28,6 +28,7 @@ vi.mock('@/lib/supabase', () => ({
       }
       return qb
     }),
+    rpc: vi.fn().mockResolvedValue({ data: null }),
   },
 }))
 

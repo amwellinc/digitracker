@@ -83,6 +83,7 @@ export function UsersTab() {
   const [suspendingId, setSuspendingId] = useState<string | null>(null)
   const [archiving, setArchiving] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [maxSeats, setMaxSeats] = useState<number | null>(null)
 
   const fetchUsers = useCallback(async () => {
     if (!currentUser) return
@@ -110,6 +111,15 @@ export function UsersTab() {
       })
   }, [currentUser])
 
+  useEffect(() => {
+    if (!currentUser) return
+    void supabase
+      .rpc('sub_account_max_seats', { p_sub_account: currentUser.sub_account })
+      .then(({ data }) => setMaxSeats(typeof data === 'number' ? data : null))
+  }, [currentUser])
+
+  const isMaxedOut = maxSeats !== null && users.length >= maxSeats
+
   async function toggleReportsAccess() {
     if (!currentUser) return
     const next = !managersCanViewReports
@@ -125,7 +135,13 @@ export function UsersTab() {
     }
   }
 
-  function openAdd() { setForm(emptyForm()); setMsg(null); setShowAddModal(true) }
+  function openAdd() {
+    if (isMaxedOut) {
+      alert('You have maxed out — upgrade your plan to add more users.')
+      return
+    }
+    setForm(emptyForm()); setMsg(null); setShowAddModal(true)
+  }
 
   function openEdit(u: User) {
     setForm({
@@ -169,7 +185,12 @@ export function UsersTab() {
     })
     if (error) {
       setSaving(false)
-      setMsg({ type: 'error', text: error.message })
+      setMsg({
+        type: 'error',
+        text: error.message.includes('row-level security')
+          ? 'You have maxed out — upgrade your plan to add more users.'
+          : error.message,
+      })
       return
     }
 
@@ -377,7 +398,15 @@ export function UsersTab() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Users & Roles</h2>
-          <p className="text-sm text-gray-500">{users.length} user{users.length !== 1 ? 's' : ''} in this workspace</p>
+          <p className="text-sm text-gray-500">
+            {users.length} user{users.length !== 1 ? 's' : ''} in this workspace
+            {maxSeats !== null && (
+              <span className={isMaxedOut ? 'text-amber-600 font-medium' : 'text-gray-400'}>
+                {' '}· {users.length} of {maxSeats} seats used
+                {isMaxedOut && ' — upgrade your plan for more'}
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -389,9 +418,14 @@ export function UsersTab() {
           </button>
           <button
             onClick={openAdd}
-            className="flex items-center gap-2 bg-violet-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-violet-700 transition-colors"
+            title={isMaxedOut ? 'You have maxed out — upgrade your plan to add more users.' : undefined}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              isMaxedOut
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                : 'bg-violet-600 text-white hover:bg-violet-700'
+            }`}
           >
-            <span className="text-lg leading-none">+</span> Add User
+            <span className="text-lg leading-none">+</span> {isMaxedOut ? 'Maxed Out — Upgrade' : 'Add User'}
           </button>
         </div>
       </div>
