@@ -19,7 +19,8 @@ const STAFF_NAV = [
 const REPORTS_NAV_ITEM = { to: '/reports', end: false, label: 'Reports', icon: '📈', children: [] as { to: string; label: string; icon: string }[] }
 
 const SUPER_ADMIN_NAV = [
-  { to: '/platform',  end: true,  label: 'Platform Admin',   icon: '🏢', children: [] },
+  { to: '/platform',  end: true,  label: 'Platform Admin',   icon: '🏢',
+    children: [{ to: '/platform/accounts', label: 'Sub-Accounts', icon: '🏬' }] },
   { to: '/settings',  end: false, label: 'Settings',         icon: '⚙', children: [] },
 ]
 

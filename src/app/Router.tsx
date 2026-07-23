@@ -37,6 +37,9 @@ const KPIsPage = lazy(() =>
 const SuperAdminPage = lazy(() =>
   import('@/features/super-admin/SuperAdminPage').then(m => ({ default: m.SuperAdminPage }))
 )
+const SubAccountsTab = lazy(() =>
+  import('@/features/super-admin/SubAccountsTab').then(m => ({ default: m.SubAccountsTab }))
+)
 const ReportsPage = lazy(() =>
   import('@/features/reports/ReportsPage').then(m => ({ default: m.ReportsPage }))
 )
@@ -160,6 +163,14 @@ export function AppRouter() {
             element={
               <Suspense fallback={<Spinner />}>
                 <SuperAdminPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="platform/accounts"
+            element={
+              <Suspense fallback={<Spinner />}>
+                <SubAccountsTab />
               </Suspense>
             }
           />

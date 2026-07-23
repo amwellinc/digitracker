@@ -1,19 +1,17 @@
 import { useState } from 'react'
 import { PlatformDashboard } from './PlatformDashboard'
-import { SubAccountsTab } from './SubAccountsTab'
 import { PlatformSubscriptionsTab } from './PlatformSubscriptionsTab'
 import { PlansAndPricingTab } from './PlansAndPricingTab'
 import { StripePaymentsTab } from './StripePaymentsTab'
 import { PlatformSettingsTab } from './PlatformSettingsTab'
 
-type TabId = 'dashboard' | 'accounts' | 'subscriptions' | 'plans' | 'payments' | 'settings'
+type TabId = 'dashboard' | 'subscriptions' | 'plans' | 'payments' | 'settings'
 
 export function SuperAdminPage() {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
 
   const tabs: { id: TabId; label: string; icon: string }[] = [
     { id: 'dashboard',     label: 'Dashboard',          icon: '📊' },
-    { id: 'accounts',      label: 'Sub-Accounts',        icon: '🏢' },
     { id: 'subscriptions', label: 'Subscriptions',       icon: '💳' },
     { id: 'plans',         label: 'Plans & Pricing',     icon: '⭐' },
     { id: 'payments',      label: 'Payments',            icon: '💰' },
@@ -54,7 +52,6 @@ export function SuperAdminPage() {
       </div>
 
       {activeTab === 'dashboard'     && <PlatformDashboard />}
-      {activeTab === 'accounts'      && <SubAccountsTab />}
       {activeTab === 'subscriptions' && <PlatformSubscriptionsTab />}
       {activeTab === 'plans'         && <PlansAndPricingTab />}
       {activeTab === 'payments'      && <StripePaymentsTab />}
