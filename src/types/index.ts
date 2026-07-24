@@ -18,6 +18,23 @@ export interface User {
   phone: string | null
   status: 'active' | 'suspended'
   created_at: string
+  appointed_as: string | null
+  address_line1: string | null
+  address_line2: string | null
+  address_city: string | null
+  address_pin_code: string | null
+  last_ip_address: string | null
+  last_ip_captured_at: string | null
+  emergency_contact_name: string | null
+  emergency_contact_phone: string | null
+  department_id: string | null
+}
+
+export interface Department {
+  id: string
+  sub_account: string
+  name: string
+  created_at: string
 }
 
 export interface TimeLog {

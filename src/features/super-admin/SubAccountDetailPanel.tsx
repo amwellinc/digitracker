@@ -100,7 +100,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
     setUsers((usersData ?? []) as User[])
     setSub(subData as Subscription | null)
 
-    const userIds = new Set((usersData ?? []).map((u: User) => u.id))
+    const userIds = new Set((usersData ?? []).map((u: { id: string }) => u.id))
     setTimeLogs(((logsData ?? []) as TimeLog[]).filter(l => userIds.has(l.user_id)))
     setLoading(false)
   }, [account.code])

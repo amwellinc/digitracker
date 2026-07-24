@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
-import type { User, UserRole, UserCountry } from '@/types'
+import type { User, UserRole, UserCountry, Department } from '@/types'
 import { COUNTRY_OPTIONS, ROLE_OPTIONS, ROLE_COLORS } from '@/lib/constants'
 import { invalidateReportsAccessCache } from '@/hooks/useReportsAccess'
 import { buildArchiveText, archiveStoragePath, type ArchiveSnapshot } from '@/lib/archiveExport'
@@ -19,13 +19,15 @@ interface UserForm {
   reporting_time_out: string
   country: UserCountry
   phone: string
+  appointed_as: string
+  department_id: string
 }
 
 const emptyForm = (): UserForm => ({
   name: '', email: '', role: 'Staff', manager_id: '',
   annual_leave: '14', time_off: '40',
   reporting_time_in: '10:00', reporting_time_out: '19:00',
-  country: 'SG', phone: '',
+  country: 'SG', phone: '', appointed_as: '', department_id: '',
 })
 
 function avatarBg(role: UserRole) {
@@ -59,6 +61,7 @@ async function extractFunctionError(error: unknown, data: unknown): Promise<stri
 export function UsersTab() {
   const { user: currentUser } = useAuth()
   const [users, setUsers]     = useState<User[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
 
@@ -98,6 +101,16 @@ export function UsersTab() {
   }, [currentUser])
 
   useEffect(() => { void fetchUsers() }, [fetchUsers])
+
+  useEffect(() => {
+    if (!currentUser) return
+    void supabase
+      .from('departments')
+      .select('*')
+      .eq('sub_account', currentUser.sub_account)
+      .order('name', { ascending: true })
+      .then(({ data }) => setDepartments((data as Department[]) ?? []))
+  }, [currentUser])
 
   useEffect(() => {
     if (!currentUser) return
@@ -155,6 +168,8 @@ export function UsersTab() {
       reporting_time_out: u.reporting_time_out,
       country: u.country ?? 'SG',
       phone: u.phone ?? '',
+      appointed_as: u.appointed_as ?? '',
+      department_id: u.department_id ?? '',
     })
     setMsg(null)
     setViewUser(null)
@@ -182,6 +197,8 @@ export function UsersTab() {
       reporting_time_out: form.reporting_time_out,
       country: form.country,
       phone: form.phone.trim() || null,
+      appointed_as: form.appointed_as.trim() || null,
+      department_id: form.department_id || null,
     })
     if (error) {
       setSaving(false)
@@ -223,6 +240,8 @@ export function UsersTab() {
       reporting_time_out: form.reporting_time_out,
       country: form.country,
       phone: form.phone.trim() || null,
+      appointed_as: form.appointed_as.trim() || null,
+      department_id: form.department_id || null,
     }).eq('id', editUser.id)
     setSaving(false)
     if (error) { setMsg({ type: 'error', text: error.message }); return }
@@ -636,6 +655,12 @@ export function UsersTab() {
 
             {/* Profile details */}
             <div className="-mt-8 mx-4 bg-white rounded-xl shadow border border-gray-100 divide-y divide-gray-50">
+              <ProfileRow icon="🪪" label="Appointed As">
+                {viewUser.appointed_as || <span className="text-gray-400">Not set</span>}
+              </ProfileRow>
+              <ProfileRow icon="🏬" label="Department / Team">
+                {departments.find(d => d.id === viewUser.department_id)?.name ?? <span className="text-gray-400">Not assigned</span>}
+              </ProfileRow>
               <ProfileRow icon="👔" label="Manager">
                 {users.find(m => m.id === viewUser.manager_id)?.name ?? <span className="text-gray-400">No manager assigned</span>}
               </ProfileRow>
@@ -648,6 +673,21 @@ export function UsersTab() {
               <ProfileRow icon="📞" label="Phone">
                 {viewUser.phone
                   ? `${COUNTRY_OPTIONS.find(c => c.code === viewUser.country)?.dialCode ?? ''} ${viewUser.phone}`.trim()
+                  : <span className="text-gray-400">Not provided</span>}
+              </ProfileRow>
+              <ProfileRow icon="📍" label="Physical Address">
+                {viewUser.address_line1
+                  ? [viewUser.address_line1, viewUser.address_line2, viewUser.address_city, viewUser.address_pin_code].filter(Boolean).join(', ')
+                  : <span className="text-gray-400">Not provided</span>}
+              </ProfileRow>
+              <ProfileRow icon="🌐" label="Remote Address (IP)">
+                {viewUser.last_ip_address
+                  ? <span className="font-mono">{viewUser.last_ip_address}</span>
+                  : <span className="text-gray-400">Not captured yet</span>}
+              </ProfileRow>
+              <ProfileRow icon="🆘" label="Emergency Contact">
+                {viewUser.emergency_contact_name
+                  ? `${viewUser.emergency_contact_name}${viewUser.emergency_contact_phone ? ` — ${viewUser.emergency_contact_phone}` : ''}`
                   : <span className="text-gray-400">Not provided</span>}
               </ProfileRow>
               <ProfileRow icon="⏰" label="Work Hours">
@@ -710,6 +750,15 @@ export function UsersTab() {
               </FormRow>
             </div>
             <div className="grid grid-cols-2 gap-3">
+              <FormRow label="Appointed As">
+                <input value={form.appointed_as} onChange={e => patch('appointed_as', e.target.value)}
+                  placeholder="e.g. Customer Support Lead" className="input" />
+              </FormRow>
+              <FormRow label="Department / Team">
+                <DepartmentSelect value={form.department_id} departments={departments} onChange={v => patch('department_id', v)} />
+              </FormRow>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <FormRow label="Country">
                 <CountrySelect value={form.country as UserCountry} onChange={v => patch('country', v)} />
               </FormRow>
@@ -764,6 +813,15 @@ export function UsersTab() {
                 <ManagerSelect value={form.manager_id}
                   managers={managers.filter(m => m.id !== editUser.id)}
                   onChange={v => patch('manager_id', v)} />
+              </FormRow>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <FormRow label="Appointed As">
+                <input value={form.appointed_as} onChange={e => patch('appointed_as', e.target.value)}
+                  placeholder="e.g. Customer Support Lead" className="input" />
+              </FormRow>
+              <FormRow label="Department / Team">
+                <DepartmentSelect value={form.department_id} departments={departments} onChange={v => patch('department_id', v)} />
               </FormRow>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -929,6 +987,15 @@ function ManagerSelect({ value, managers, onChange }: { value: string; managers:
     <select value={value} onChange={e => onChange(e.target.value)} className="input">
       <option value="">— No manager —</option>
       {managers.map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
+    </select>
+  )
+}
+
+function DepartmentSelect({ value, departments, onChange }: { value: string; departments: Department[]; onChange: (v: string) => void }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} className="input">
+      <option value="">— No department —</option>
+      {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
     </select>
   )
 }

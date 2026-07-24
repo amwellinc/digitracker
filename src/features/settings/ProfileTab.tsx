@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { UserCountry } from '@/types'
@@ -16,6 +16,59 @@ export function ProfileTab() {
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [avatarUrl, setAvatarUrl] = useState(user?.profile_image ?? '')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Physical address + emergency contact — self-edited, saved separately
+  // from the main profile form below.
+  const [addressLine1, setAddressLine1] = useState(user?.address_line1 ?? '')
+  const [addressLine2, setAddressLine2] = useState(user?.address_line2 ?? '')
+  const [addressCity, setAddressCity] = useState(user?.address_city ?? '')
+  const [addressPinCode, setAddressPinCode] = useState(user?.address_pin_code ?? '')
+  const [emergencyName, setEmergencyName] = useState(user?.emergency_contact_name ?? '')
+  const [emergencyPhone, setEmergencyPhone] = useState(user?.emergency_contact_phone ?? '')
+  const [savingLocation, setSavingLocation] = useState(false)
+  const [locationMsg, setLocationMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Admin-assigned, read-only here: Manager and Department/Team names.
+  const [managerName, setManagerName] = useState<string | null>(null)
+  const [departmentName, setDepartmentName] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (user?.manager_id) {
+      void supabase.from('users').select('name').eq('id', user.manager_id).maybeSingle()
+        .then(({ data }) => setManagerName((data as { name: string } | null)?.name ?? null))
+    } else {
+      setManagerName(null)
+    }
+  }, [user?.manager_id])
+
+  useEffect(() => {
+    if (user?.department_id) {
+      void supabase.from('departments').select('name').eq('id', user.department_id).maybeSingle()
+        .then(({ data }) => setDepartmentName((data as { name: string } | null)?.name ?? null))
+    } else {
+      setDepartmentName(null)
+    }
+  }, [user?.department_id])
+
+  async function handleSaveLocation(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user) return
+    setSavingLocation(true); setLocationMsg(null)
+    const { error } = await supabase
+      .from('users')
+      .update({
+        address_line1: addressLine1.trim() || null,
+        address_line2: addressLine2.trim() || null,
+        address_city: addressCity.trim() || null,
+        address_pin_code: addressPinCode.trim() || null,
+        emergency_contact_name: emergencyName.trim() || null,
+        emergency_contact_phone: emergencyPhone.trim() || null,
+      })
+      .eq('id', user.id)
+    setSavingLocation(false)
+    if (!error) await refreshUser()
+    setLocationMsg(error ? { type: 'error', text: error.message } : { type: 'success', text: 'Saved.' })
+  }
 
   const initials = (user?.name ?? 'U').slice(0, 2).toUpperCase()
 
@@ -125,6 +178,37 @@ export function ProfileTab() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Appointed As</label>
+              <input
+                value={user?.appointed_as ?? ''}
+                readOnly
+                placeholder="Not set by your Admin yet"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed placeholder:text-gray-300"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Manager Assigned</label>
+              <input
+                value={managerName ?? ''}
+                readOnly
+                placeholder="No manager assigned"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed placeholder:text-gray-300"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Department / Team</label>
+            <input
+              value={departmentName ?? ''}
+              readOnly
+              placeholder="Not assigned to a department yet"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed placeholder:text-gray-300"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
               <select
                 value={country}
@@ -185,6 +269,123 @@ export function ProfileTab() {
             className="bg-violet-600 text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Saving…' : 'Save Profile'}
+          </button>
+        </form>
+      </div>
+
+      {/* Location */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 mt-4">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Location</h2>
+        <p className="text-sm text-gray-500 mb-6">Your physical address, and the remote address your sessions are seen from.</p>
+
+        <form onSubmit={handleSaveLocation} className="space-y-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Physical Address</p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 1</label>
+            <input
+              value={addressLine1}
+              onChange={e => setAddressLine1(e.target.value)}
+              placeholder="Street address"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2</label>
+            <input
+              value={addressLine2}
+              onChange={e => setAddressLine2(e.target.value)}
+              placeholder="Apartment, unit, floor (optional)"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+              <input
+                value={addressCity}
+                onChange={e => setAddressCity(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Pin Code</label>
+              <input
+                value={addressPinCode}
+                onChange={e => setAddressPinCode(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+          </div>
+
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide pt-2">Remote Address</p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">IP Address</label>
+            <input
+              value={user?.last_ip_address ?? ''}
+              readOnly
+              placeholder="Not captured yet — sign in again to capture it"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed font-mono placeholder:font-sans placeholder:text-gray-300"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Captured automatically each time you sign in.
+              {user?.last_ip_captured_at && (
+                <> Last captured {new Date(user.last_ip_captured_at).toLocaleString('en-SG', { dateStyle: 'medium', timeStyle: 'short' })}.</>
+              )}
+            </p>
+          </div>
+
+          {locationMsg && (
+            <p className={`text-sm ${locationMsg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{locationMsg.text}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={savingLocation}
+            className="bg-violet-600 text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
+          >
+            {savingLocation ? 'Saving…' : 'Save Location'}
+          </button>
+        </form>
+      </div>
+
+      {/* Emergency Contact */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 mt-4">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Emergency Contact</h2>
+        <p className="text-sm text-gray-500 mb-6">Who we should reach out to in case of an emergency.</p>
+
+        <form onSubmit={handleSaveLocation} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label>
+              <input
+                value={emergencyName}
+                onChange={e => setEmergencyName(e.target.value)}
+                placeholder="Full name"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Contact Phone</label>
+              <input
+                type="tel"
+                value={emergencyPhone}
+                onChange={e => setEmergencyPhone(e.target.value)}
+                placeholder="91234567"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+          </div>
+
+          {locationMsg && (
+            <p className={`text-sm ${locationMsg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{locationMsg.text}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={savingLocation}
+            className="bg-violet-600 text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
+          >
+            {savingLocation ? 'Saving…' : 'Save Emergency Contact'}
           </button>
         </form>
       </div>

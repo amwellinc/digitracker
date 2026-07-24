@@ -40,6 +40,9 @@ describe('buildUserReport', () => {
     sub_account: 'AM333', manager_id: null, annual_leave: 14, time_off: 40,
     profile_image: null, reporting_time_in: '10:00', reporting_time_out: '19:00',
     country: 'SG', phone: null, status: 'active', created_at: new Date().toISOString(),
+    appointed_as: null, address_line1: null, address_line2: null, address_city: null, address_pin_code: null,
+    last_ip_address: null, last_ip_captured_at: null, emergency_contact_name: null, emergency_contact_phone: null,
+    department_id: null,
   }
 
   // Mon Jan 5 – Sun Jan 11, 2026. Weekdays: 5,6,7,8,9.
@@ -108,6 +111,9 @@ describe('toCsv', () => {
       manager_id: null, annual_leave: 14, time_off: 40, profile_image: null,
       reporting_time_in: '10:00', reporting_time_out: '19:00', country: 'SG', phone: null,
       status: 'active', created_at: '',
+      appointed_as: null, address_line1: null, address_line2: null, address_city: null, address_pin_code: null,
+      last_ip_address: null, last_ip_captured_at: null, emergency_contact_name: null, emergency_contact_phone: null,
+      department_id: null,
     }
     const csv = toCsv([{
       user, daysWorked: 5, totalMinutes: 2400, totalHours: 40, avgHoursPerDay: '8.0',

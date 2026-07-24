@@ -44,6 +44,17 @@ export interface AuthContextValue {
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
 
+// Fire-and-forget: records the caller's Remote Address for their profile's
+// Location section. Never blocks or fails the sign-in flow — a dropped
+// request here just means the field stays stale until the next session.
+async function captureIp(): Promise<void> {
+  try {
+    await supabase.functions.invoke('capture-ip')
+  } catch {
+    // best-effort only
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, { user: null, loading: true, accountBlockedMessage: null })
   const [visitingAccount, setVisitingAccount] = useState<SubAccount | null>(null)
@@ -61,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (byEmail) {
       dispatch({ type: 'SIGNED_IN', user: byEmail as User })
+      void captureIp()
       return
     }
 
@@ -76,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (byId) {
         dispatch({ type: 'SIGNED_IN', user: byId as User })
+        void captureIp()
         return
       }
     }

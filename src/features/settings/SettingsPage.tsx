@@ -4,6 +4,7 @@ import { ProfileTab } from './ProfileTab'
 import { AccountTab } from './AccountTab'
 import { AppearanceTab } from './AppearanceTab'
 import { UsersTab } from './UsersTab'
+import { DepartmentsTab } from './DepartmentsTab'
 import { SubscriptionTab } from './SubscriptionTab'
 import { SecurityTab } from './SecurityTab'
 import { BankDetailsTab } from './BankDetailsTab'
@@ -11,7 +12,7 @@ import { PayrollTab } from './PayrollTab'
 import { ArchiveTab } from './ArchiveTab'
 import { GHLIntegrationTab } from '@/features/ghl/GHLIntegrationTab'
 
-type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'subscription' | 'ghl' | 'archive'
+type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'departments' | 'subscription' | 'ghl' | 'archive'
 
 export function SettingsPage() {
   const { user } = useAuth()
@@ -30,6 +31,7 @@ export function SettingsPage() {
   const businessTabs: { id: TabId; label: string }[] = [
     { id: 'account',      label: 'Account' },
     { id: 'users',        label: 'Users & Roles' },
+    { id: 'departments',  label: 'Departments' },
     { id: 'subscription', label: 'Subscription' },
     { id: 'ghl',          label: '🔗 DIGI5Y-CRM Integration' },
     { id: 'archive',      label: '🗄 Archive' },
@@ -95,6 +97,7 @@ export function SettingsPage() {
       {activeTab === 'bank'         && <BankDetailsTab />}
       {activeTab === 'payroll'      && <PayrollTab />}
       {activeTab === 'users'        && isAdmin && <UsersTab />}
+      {activeTab === 'departments'  && isAdmin && <DepartmentsTab />}
       {activeTab === 'subscription' && isAdmin && <SubscriptionTab />}
       {activeTab === 'ghl'          && isAdmin && <GHLIntegrationTab />}
       {activeTab === 'archive'      && isAdmin && <ArchiveTab />}

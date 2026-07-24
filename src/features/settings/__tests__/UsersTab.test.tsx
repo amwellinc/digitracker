@@ -53,6 +53,16 @@ const currentUser: User = {
   phone: null,
   status: 'active',
   created_at: new Date().toISOString(),
+  appointed_as: null,
+  address_line1: null,
+  address_line2: null,
+  address_city: null,
+  address_pin_code: null,
+  last_ip_address: null,
+  last_ip_captured_at: null,
+  emergency_contact_name: null,
+  emergency_contact_phone: null,
+  department_id: null,
 }
 
 const cecillia: User = {
@@ -71,6 +81,16 @@ const cecillia: User = {
   phone: null,
   status: 'active',
   created_at: new Date().toISOString(),
+  appointed_as: null,
+  address_line1: null,
+  address_line2: null,
+  address_city: null,
+  address_pin_code: null,
+  last_ip_address: null,
+  last_ip_captured_at: null,
+  emergency_contact_name: null,
+  emergency_contact_phone: null,
+  department_id: null,
 }
 
 function makeCtx(overrides: Partial<AuthContextValue> = {}): AuthContextValue {

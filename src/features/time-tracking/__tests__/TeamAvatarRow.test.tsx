@@ -11,6 +11,9 @@ const adminUser: User = {
   sub_account: 'AM333', manager_id: null, annual_leave: 14, time_off: 5,
   profile_image: null, reporting_time_in: '10:00', reporting_time_out: '19:00',
   country: 'SG', phone: null, status: 'active', created_at: '2026-01-01T00:00:00Z',
+  appointed_as: null, address_line1: null, address_line2: null, address_city: null, address_pin_code: null,
+  last_ip_address: null, last_ip_captured_at: null, emergency_contact_name: null, emergency_contact_phone: null,
+  department_id: null,
 }
 
 vi.mock('@/lib/supabase', () => {
