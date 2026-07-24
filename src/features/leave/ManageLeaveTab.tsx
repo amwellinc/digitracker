@@ -13,6 +13,11 @@ function diffDays(start: string, end: string) {
   return Math.max(1, Math.round(ms / 86400000) + 1)
 }
 
+function fmtRange(start: string, end: string) {
+  const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return start === end ? fmt(start) : `${fmt(start)} – ${fmt(end)}`
+}
+
 const STATUS_STYLE: Record<string, string> = {
   pending:  'bg-amber-50 text-amber-700 border border-amber-200',
   approved: 'bg-green-50 text-green-700 border border-green-200',
@@ -144,6 +149,45 @@ export function ManageLeaveTab() {
     return () => { void supabase.removeChannel(ch) }
   }, [user, load])
 
+  // Both the Manager Assigned and any workspace Admin can approve/reject a
+  // request — whichever one of them didn't act still needs a record that it
+  // was decided, not just the applicant. (This was the reported bug: an
+  // Admin approving left the Manager with no record of it at all.)
+  async function notifyOtherApprover(leave: LeaveRequest, decision: 'approved' | 'rejected', remarks?: string | null) {
+    if (!user) return
+    const applicant = memberMap[leave.user_id]
+    const recipientIds = new Set<string>()
+
+    if (user.role === 'Manager') {
+      const { data: admins } = await supabase
+        .from('users')
+        .select('id')
+        .eq('sub_account', user.sub_account)
+        .eq('role', 'Admin')
+        .eq('status', 'active')
+      for (const a of (admins ?? []) as { id: string }[]) recipientIds.add(a.id)
+    } else if (applicant?.manager_id) {
+      recipientIds.add(applicant.manager_id)
+    }
+    recipientIds.delete(user.id)
+    if (recipientIds.size === 0) return
+
+    const byWhom = user.role === 'Manager' ? 'the Manager' : 'Admin'
+    const dateStr = fmtRange(leave.start_date, leave.end_date)
+    const message = remarks
+      ? `${applicant?.name ?? 'A team member'}'s ${leave.type} leave request (${dateStr}) was ${decision} by ${byWhom}. Reason: ${remarks}`
+      : `${applicant?.name ?? 'A team member'}'s ${leave.type} leave request (${dateStr}) has been ${decision} by ${byWhom}.`
+
+    await supabase.from('notifications').insert(
+      Array.from(recipientIds).map(uid => ({
+        user_id: uid,
+        type: decision === 'approved' ? 'leave_approved' : 'leave_rejected',
+        message,
+        read: false,
+      }))
+    )
+  }
+
   async function approve(id: string) {
     setActing(id)
     setError(null)
@@ -156,15 +200,13 @@ export function ManageLeaveTab() {
       setError(`Approve failed: ${err.message}`)
     } else {
       if (leave) {
-        const dateStr = leave.start_date === leave.end_date
-          ? new Date(leave.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-          : `${new Date(leave.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${new Date(leave.end_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
         await supabase.from('notifications').insert({
           user_id: leave.user_id,
           type: 'leave_approved',
-          message: `Your ${leave.type} leave request (${dateStr}) has been approved.`,
+          message: `Your ${leave.type} leave request (${fmtRange(leave.start_date, leave.end_date)}) has been approved.`,
           read: false,
         })
+        await notifyOtherApprover(leave, 'approved')
       }
       await load()
     }
@@ -184,17 +226,15 @@ export function ManageLeaveTab() {
       setError(`Reject failed: ${err.message}`)
     } else {
       if (leave) {
-        const dateStr = leave.start_date === leave.end_date
-          ? new Date(leave.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-          : `${new Date(leave.start_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${new Date(leave.end_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
         await supabase.from('notifications').insert({
           user_id: leave.user_id,
           type: 'leave_rejected',
           message: remarks
-            ? `Your ${leave.type} leave request (${dateStr}) was rejected. Reason: ${remarks}`
-            : `Your ${leave.type} leave request (${dateStr}) has been rejected.`,
+            ? `Your ${leave.type} leave request (${fmtRange(leave.start_date, leave.end_date)}) was rejected. Reason: ${remarks}`
+            : `Your ${leave.type} leave request (${fmtRange(leave.start_date, leave.end_date)}) has been rejected.`,
           read: false,
         })
+        await notifyOtherApprover(leave, 'rejected', remarks || null)
       }
       await load()
     }

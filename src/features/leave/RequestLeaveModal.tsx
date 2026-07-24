@@ -15,6 +15,35 @@ interface Props {
 
 type LeaveType = 'Annual' | 'Medical' | 'Time-off'
 
+function fmtRange(start: string, end: string) {
+  const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return start === end ? fmt(start) : `${fmt(start)} – ${fmt(end)}`
+}
+
+// Notifies the applicant's assigned Manager and every workspace Admin that a
+// new request is waiting on them — both can approve it, so both need to see
+// it land, not just whichever one the requester happens to escalate to.
+async function notifyApprovers(applicant: User, type: LeaveType, startDate: string, endDate: string, submitterId: string) {
+  const recipientIds = new Set<string>()
+  if (applicant.manager_id) recipientIds.add(applicant.manager_id)
+
+  const { data: admins } = await supabase
+    .from('users')
+    .select('id')
+    .eq('sub_account', applicant.sub_account)
+    .eq('role', 'Admin')
+    .eq('status', 'active')
+  for (const a of (admins ?? []) as { id: string }[]) recipientIds.add(a.id)
+
+  recipientIds.delete(submitterId)
+  if (recipientIds.size === 0) return
+
+  const message = `${applicant.name} submitted a ${type} leave request (${fmtRange(startDate, endDate)}) for your approval.`
+  await supabase.from('notifications').insert(
+    Array.from(recipientIds).map(user_id => ({ user_id, type: 'leave_request', message, read: false }))
+  )
+}
+
 export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
   const { user } = useAuth()
   const timezone = useSubAccountTimezone()
@@ -63,6 +92,12 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
     const { error: err } = await supabase.from('leave_requests').insert(payload)
     setSaving(false)
     if (err) { setError(err.message); return }
+
+    // Both the assigned Manager and workspace Admins can approve a request,
+    // so both need to know one is waiting on them — not just whoever the
+    // requester happens to be looking at right now.
+    await notifyApprovers(targetUser ?? user, type, payload.start_date, payload.end_date, user.id)
+
     onSuccess()
     onClose()
   }
