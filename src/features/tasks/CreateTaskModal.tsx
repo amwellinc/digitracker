@@ -101,9 +101,10 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
       // Sync assignees: delete all then re-insert
       await supabase.from('task_assignees').delete().eq('task_id', task.id)
       if (selectedIds.length > 0) {
-        await supabase.from('task_assignees').insert(
+        const { error: assignErr } = await supabase.from('task_assignees').insert(
           selectedIds.map(uid => ({ task_id: task.id, user_id: uid }))
         )
+        if (assignErr) { setError(`Task saved, but assignees failed to update: ${assignErr.message}`); setSaving(false); return }
       }
     } else {
       // Create new
@@ -119,9 +120,10 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
 
       // Insert assignees junction rows
       if (selectedIds.length > 0) {
-        await supabase.from('task_assignees').insert(
+        const { error: assignErr } = await supabase.from('task_assignees').insert(
           selectedIds.map(uid => ({ task_id: tid, user_id: uid }))
         )
+        if (assignErr) { setError(`Task created, but assignees failed to save: ${assignErr.message}`); setSaving(false); return }
       }
 
       // Notify assignees
