@@ -32,7 +32,8 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
     const q = user.role === 'Manager'
       ? supabase.rpc('get_manager_downline')
       : supabase.from('users').select('*').eq('sub_account', user.sub_account).order('name')
-    void q.then(({ data }) => {
+    void q.then(({ data, error: fetchErr }) => {
+      if (fetchErr) { setError(`Could not load team members: ${fetchErr.message}`); return }
       const scoped = ((data ?? []) as User[]).filter(u => u.status === 'active')
       // Include self (Manager's own downline RPC excludes them) so you can
       // assign a task to yourself.
