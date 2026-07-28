@@ -1,374 +1,106 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuth } from '@/hooks/useAuth'
+import { Link } from 'react-router-dom'
+import { AuthForm } from './AuthForm'
 
-type Mode     = 'password' | 'magic' | 'forgot'
-type AccountType = 'team' | 'platform'
+const SIGNUP_URL = 'https://digitracker.digi5y.co/#pricing'
+
+const PANEL_FEATURES = [
+  { icon: '⏱', title: 'Live Time Tracking', desc: 'Clock in/out with real-time heartbeat monitoring.' },
+  { icon: '📸', title: 'Screen Capture Audit', desc: 'Automatic proof-of-work screenshots, built in.' },
+  { icon: '📊', title: 'Live Team Dashboard', desc: 'See every status and hour update in real time.' },
+  { icon: '📋', title: 'Leave & Task Management', desc: 'Approvals, KPIs, and accountability in one place.' },
+]
 
 export function LoginPage() {
-  const { signIn, signInWithPassword, sendPasswordReset, user, accountBlockedMessage } = useAuth()
-  const navigate = useNavigate()
-
-  // Redirect to app once auth state is set (covers both password and magic-link flows)
-  useEffect(() => {
-    if (user) navigate('/', { replace: true })
-  }, [user, navigate])
-
-  const [accountType, setAccountType] = useState<AccountType>('team')
-  const [mode, setMode]               = useState<Mode>('password')
-  const [email, setEmail]             = useState('')
-  const [subAccount, setSubAccount]   = useState('')
-  const [password, setPassword]       = useState('')
-  const [showPass, setShowPass]       = useState(false)
-  const [status, setStatus]           = useState<'idle' | 'loading' | 'sent' | 'error'>('idle')
-  const [errorMsg, setErrorMsg]       = useState('')
-
-  // The account was authenticated but blocked post-login (e.g. suspended) —
-  // surface that specific reason instead of leaving the form silently reset.
-  useEffect(() => {
-    if (accountBlockedMessage) {
-      setErrorMsg(accountBlockedMessage)
-      setStatus('error')
-    }
-  }, [accountBlockedMessage])
-
-  const isPlatform = accountType === 'platform'
-
-  async function handlePasswordSignIn(e: React.FormEvent) {
-    e.preventDefault()
-    setStatus('loading')
-    setErrorMsg('')
-
-    // Start a fallback timer NOW — before the await — so the UI never stays
-    // frozen if the Supabase call or the subsequent user-lookup stalls.
-    // AuthContext already race-times the auth call at 15 s; this 20 s guard
-    // covers the full auth + user-lookup pipeline.
-    const fallback = setTimeout(() => {
-      setStatus(prev => {
-        if (prev !== 'loading') return prev
-        setErrorMsg('Login is taking too long. Check your connection, or use a magic link.')
-        return 'error'
-      })
-    }, 20_000)
-
-    const code = isPlatform ? '__saas__' : subAccount
-    const { error } = await signInWithPassword(email, code, password)
-
-    if (error) {
-      clearTimeout(fallback)
-      setErrorMsg(error)
-      setStatus('error')
-      return
-    }
-
-    // Auth succeeded — onAuthStateChange handles the redirect.
-    // If it doesn't arrive within 6 s the app user wasn't found.
-    clearTimeout(fallback)
-    setTimeout(() => {
-      setStatus(prev => {
-        if (prev !== 'loading') return prev   // already redirected or errored
-        setErrorMsg('Account not found in the system. Try a magic link or contact your administrator.')
-        return 'error'
-      })
-    }, 6_000)
-  }
-
-  async function handleMagicLink(e: React.FormEvent) {
-    e.preventDefault()
-    setStatus('loading')
-    const code = isPlatform ? '__saas__' : subAccount
-    const { error } = await signIn(email, code)
-    if (error) { setErrorMsg(error); setStatus('error') }
-    else setStatus('sent')
-  }
-
-  async function handleForgotPassword(e: React.FormEvent) {
-    e.preventDefault()
-    setStatus('loading')
-    const { error } = await sendPasswordReset(email)
-    if (error) { setErrorMsg(error); setStatus('error') }
-    else setStatus('sent')
-  }
-
-  function switchMode(next: Mode) {
-    setMode(next); setStatus('idle'); setErrorMsg('')
-    setPassword('')
-  }
-
-  // ── Success screens ──────────────────────────────────────────────────────
-  if (status === 'sent' && mode === 'magic') {
-    return (
-      <Screen>
-        <Logo />
-        <div className="text-center space-y-3">
-          <div className="text-4xl">📬</div>
-          <h2 className="text-xl font-semibold">Check your email</h2>
-          <p className="text-gray-600 text-sm">
-            We sent a magic link to <strong>{email}</strong>.<br />
-            Click the link to sign in instantly.
-          </p>
-          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700 text-left">
-            <strong>Not in your inbox?</strong> Check your <strong>Spam</strong> or <strong>Junk</strong> folder.
-            The email comes from <em>digitracker@digi5y.com</em>.
-          </div>
-          <p className="text-xs text-gray-400">Link expires in 1 hour. Only one active link at a time.</p>
-          <div className="flex flex-col gap-2 pt-1">
-            <button
-              onClick={() => { setStatus('idle'); setMode('magic') }}
-              className="text-sm text-violet-600 hover:underline"
-            >
-              Resend magic link
-            </button>
-            <button onClick={() => setStatus('idle')} className="text-xs text-gray-400 hover:text-gray-600">
-              ← Back to login
-            </button>
-          </div>
-        </div>
-      </Screen>
-    )
-  }
-
-  if (status === 'sent' && mode === 'forgot') {
-    return (
-      <Screen>
-        <Logo />
-        <div className="text-center">
-          <div className="text-4xl mb-3">🔑</div>
-          <h2 className="text-xl font-semibold mb-2">Password reset email sent</h2>
-          <p className="text-gray-500 text-sm">
-            Check <strong>{email}</strong> for a reset link. The link expires in 1 hour.
-          </p>
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3 text-left">
-            Important: Open the email and click the link in <strong>this same browser</strong>.
-            Opening it in a different browser will not work.
-          </p>
-          <button onClick={() => switchMode('password')} className="mt-5 text-sm text-violet-600 hover:underline">
-            ← Back to login
-          </button>
-        </div>
-      </Screen>
-    )
-  }
-
-  // ── Main form ────────────────────────────────────────────────────────────
   return (
-    <Screen>
-      <Logo />
+    <div className="min-h-screen lg:grid lg:grid-cols-2 bg-white">
 
-      {/* Account-type toggle */}
-      <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
-        <button
-          type="button"
-          onClick={() => { setAccountType('team'); setStatus('idle'); setErrorMsg('') }}
-          className={`flex-1 py-2.5 font-semibold transition-colors ${
-            !isPlatform ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-          }`}
-          style={{ minHeight: '44px' }}
-        >
-          Team Login
-        </button>
-        <button
-          type="button"
-          onClick={() => { setAccountType('platform'); setStatus('idle'); setErrorMsg('') }}
-          className={`flex-1 py-2.5 font-semibold transition-colors ${
-            isPlatform ? 'bg-purple-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-          }`}
-          style={{ minHeight: '44px' }}
-        >
-          ⭐ Platform Admin
-        </button>
+      {/* ── Branding panel — desktop only ── */}
+      <div className="hidden lg:flex relative flex-col justify-between bg-[#0a0d14] text-white px-12 py-14 overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="absolute -top-32 -left-24 w-[560px] h-[560px] rounded-full opacity-20 pointer-events-none"
+          style={{ background: 'radial-gradient(circle, #7c3aed 0%, transparent 70%)' }}
+        />
+
+        <div className="relative flex items-center gap-2.5">
+          <img src="/logo.png" alt="DIGITRACKER" className="w-9 h-9 rounded-lg object-contain" />
+          <div className="leading-tight">
+            <span className="font-bold tracking-tight text-sm block">DIGITRACKER</span>
+            <span className="text-xs text-white/40">by DIGI5Y</span>
+          </div>
+        </div>
+
+        <div className="relative max-w-md">
+          <h1 className="text-3xl xl:text-4xl font-black tracking-tight leading-[1.15] mb-5">
+            Your team,{' '}
+            <span className="text-transparent bg-clip-text"
+              style={{ backgroundImage: 'linear-gradient(135deg, #a78bfa 0%, #818cf8 100%)' }}>
+              tracked in real time.
+            </span>
+          </h1>
+          <p className="text-white/50 text-sm leading-relaxed mb-10">
+            Complete visibility over remote staff — time logs, screen captures,
+            KPI submissions, and leave requests in one place.
+          </p>
+
+          <div className="space-y-5">
+            {PANEL_FEATURES.map(f => (
+              <div key={f.title} className="flex items-start gap-3">
+                <span className="text-lg flex-shrink-0 mt-0.5">{f.icon}</span>
+                <div>
+                  <p className="text-sm font-semibold text-white/90">{f.title}</p>
+                  <p className="text-xs text-white/40 mt-0.5">{f.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="relative text-xs text-white/30">
+          © {new Date().getFullYear()} DIGI5Y. All rights reserved.
+        </p>
       </div>
 
-      {/* ── PASSWORD sign-in ───────────────────────────────────────────── */}
-      {mode === 'password' && (
-        <form onSubmit={handlePasswordSignIn} className="space-y-4">
-          <Field label="Work email">
-            <input
-              type="email" required
-              value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              className="input"
-            />
-          </Field>
+      {/* ── Sign-in panel ── */}
+      <div className="flex flex-col min-h-screen lg:min-h-0">
+        <div className="flex-1 flex items-center justify-center px-4 py-8 sm:px-6">
+          <div className="w-full max-w-sm">
 
-          {!isPlatform && (
-            <Field label="Sub-account code (optional)">
-              <input
-                type="text"
-                value={subAccount} onChange={e => setSubAccount(e.target.value.toUpperCase().trim())}
-                placeholder="e.g. AM333 — leave blank if unsure"
-                className="input font-mono"
-              />
-            </Field>
-          )}
-
-          <Field label="Password">
-            <div className="relative">
-              <input
-                type={showPass ? 'text' : 'password'} required
-                value={password} onChange={e => setPassword(e.target.value)}
-                placeholder="Your password"
-                className="input pr-14"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPass(p => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600"
-              >
-                {showPass ? 'Hide' : 'Show'}
-              </button>
+            {/* Compact logo — mobile only, since the branding panel is hidden below lg */}
+            <div className="flex lg:hidden flex-col items-center mb-8">
+              <img src="/logo.png" alt="DIGITRACKER" className="w-16 h-16 object-contain mb-2" />
+              <h1 className="text-xl font-bold tracking-tight text-gray-900">DIGITRACKER</h1>
+              <p className="text-xs text-gray-400 mt-0.5">by DIGI5Y</p>
             </div>
-          </Field>
 
-          {status === 'error' && <p className="text-sm text-red-600">{errorMsg}</p>}
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Welcome back</h2>
+              <p className="text-sm text-gray-500 mt-1">Sign in to your DIGITRACKER account.</p>
+            </div>
 
-          <button
-            type="submit"
-            disabled={status === 'loading'}
-            className={`w-full text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50 transition-colors ${
-              isPlatform ? 'bg-purple-600 hover:bg-purple-700' : 'bg-violet-600 hover:bg-violet-700'
-            }`}
-          >
-            {status === 'loading' ? 'Signing in…' : 'Sign In'}
-          </button>
+            <AuthForm accountType="team" />
 
-          <div className="flex items-center justify-between text-xs pt-1">
-            <button
-              type="button"
-              onClick={() => switchMode('forgot')}
-              className="text-gray-500 hover:text-violet-600"
-            >
-              Forgot password?
-            </button>
-            <button
-              type="button"
-              onClick={() => switchMode('magic')}
-              className="text-gray-500 hover:text-violet-600"
-            >
-              Sign in with magic link →
-            </button>
+            <div className="mt-7 pt-6 border-t border-gray-100 text-center space-y-3">
+              <p className="text-sm text-gray-500">
+                New to DIGITRACKER?
+              </p>
+              <a
+                href={SIGNUP_URL}
+                className="block w-full py-2.5 rounded-lg border border-violet-200 text-violet-700 text-sm font-semibold hover:bg-violet-50 transition-colors"
+                style={{ minHeight: '44px', lineHeight: '1.25rem', paddingTop: '0.7rem' }}
+              >
+                Create an account →
+              </a>
+            </div>
           </div>
-        </form>
-      )}
+        </div>
 
-      {/* ── MAGIC LINK ────────────────────────────────────────────────── */}
-      {mode === 'magic' && (
-        <form onSubmit={handleMagicLink} className="space-y-4">
-          <div className="bg-violet-50 border border-violet-200 rounded-lg px-4 py-3 text-xs text-violet-700">
-            We'll email you a one-click sign-in link — no password needed.
-            {isPlatform && " Use this if you haven't set a password yet."}
-          </div>
-
-          <Field label="Work email">
-            <input
-              type="email" required
-              value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              className="input"
-            />
-          </Field>
-
-          {!isPlatform && (
-            <Field label="Sub-account code (optional)">
-              <input
-                type="text"
-                value={subAccount} onChange={e => setSubAccount(e.target.value.toUpperCase().trim())}
-                placeholder="e.g. AM333 — leave blank if unsure"
-                className="input font-mono"
-              />
-            </Field>
-          )}
-
-          {status === 'error' && <p className="text-sm text-red-600">{errorMsg}</p>}
-
-          <button
-            type="submit"
-            disabled={status === 'loading'}
-            className={`w-full text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50 transition-colors ${
-              isPlatform ? 'bg-purple-600 hover:bg-purple-700' : 'bg-violet-600 hover:bg-violet-700'
-            }`}
-          >
-            {status === 'loading' ? 'Sending…' : 'Send magic link'}
-          </button>
-
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => switchMode('password')}
-              className="text-xs text-gray-500 hover:text-violet-600"
-            >
-              ← Sign in with password instead
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* ── FORGOT PASSWORD ────────────────────────────────────────────── */}
-      {mode === 'forgot' && (
-        <form onSubmit={handleForgotPassword} className="space-y-4">
-          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700">
-            Enter your email to receive a password reset link. The link expires in 1 hour.
-          </div>
-
-          <Field label="Work email">
-            <input
-              type="email" required
-              value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              className="input"
-            />
-          </Field>
-
-          {status === 'error' && <p className="text-sm text-red-600">{errorMsg}</p>}
-
-          <button
-            type="submit"
-            disabled={status === 'loading'}
-            className="w-full bg-violet-600 hover:bg-violet-700 text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50 transition-colors"
-          >
-            {status === 'loading' ? 'Sending…' : 'Send reset link'}
-          </button>
-
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => switchMode('password')}
-              className="text-xs text-gray-500 hover:text-violet-600"
-            >
-              ← Back to sign in
-            </button>
-          </div>
-        </form>
-      )}
-    </Screen>
-  )
-}
-
-function Screen({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-violet-50/30 p-4 py-8">
-      <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg shadow-gray-200/80 max-w-md w-full space-y-5 border border-gray-100">
-        {children}
+        <footer className="px-4 py-5 text-center">
+          <Link to="/" className="text-xs text-gray-400 hover:text-violet-600 transition-colors">
+            Know more about DIGITRACKER by DIGI5Y →
+          </Link>
+        </footer>
       </div>
-    </div>
-  )
-}
-
-function Logo() {
-  return (
-    <div className="flex flex-col items-center">
-      <img src="/logo.png" alt="DIGITRACKER" className="w-20 h-20 object-contain mb-2" />
-      <h1 className="text-2xl font-bold tracking-tight">DIGITRACKER</h1>
-      <p className="text-xs text-gray-400 mt-0.5">By DIGI5Y</p>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      {children}
     </div>
   )
 }

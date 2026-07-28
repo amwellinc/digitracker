@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { LoginPage } from '@/features/auth/LoginPage'
+import { AdminLoginPage } from '@/features/auth/AdminLoginPage'
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { AuthGuard } from '@/features/auth/AuthGuard'
 import { Layout } from './Layout'
@@ -86,6 +87,7 @@ export function AppRouter() {
       <Routes>
         {/* Public routes */}
         <Route path="/login"           element={<LoginPage />} />
+        <Route path="/platform-login"  element={<AdminLoginPage />} />
         <Route path="/reset-password"  element={<ResetPasswordPage />} />
         <Route path="/install"         element={<GHLInstallPage />} />
         <Route path="/ghl/callback"    element={<GHLConnectedPage />} />
