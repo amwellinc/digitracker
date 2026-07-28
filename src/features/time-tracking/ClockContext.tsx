@@ -5,11 +5,13 @@ import { useScreenCapture } from '@/hooks/useScreenCapture'
 import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import type { TimeLog } from '@/types'
 import { todayInTz } from '@/lib/timezone'
+import { IDLE_THRESHOLD_MS } from '@/lib/activity'
 
 const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 const HEARTBEAT_MS      = 2 * 60 * 1000   // ping DB every 2 min while clocked in
-const STALE_MS          = 20 * 60 * 1000  // >20 min gap = abandoned session (raised from 10 for resilience)
+const STALE_MS          = IDLE_THRESHOLD_MS  // >20 min gap = abandoned session (same threshold used for the Idle status)
+const ACTIVITY_EVENTS   = ['mousemove', 'keydown', 'scroll', 'click', 'touchstart'] as const
 
 // Module-level token cache — kept fresh by the Supabase auth listener so
 // pagehide/beforeunload handlers can call fetch() without an async look-up.
@@ -52,6 +54,16 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
   activeLogRef.current  = activeLog
   lunchStartRef.current = lunchStart
   userRef.current       = user
+
+  // Last genuine mouse/keyboard/scroll input — distinct from last_seen_at,
+  // which only proves the tab is alive, not that anyone is present.
+  const lastActivityRef = useRef<number>(Date.now())
+
+  useEffect(() => {
+    const markActive = () => { lastActivityRef.current = Date.now() }
+    ACTIVITY_EVENTS.forEach(e => window.addEventListener(e, markActive, { passive: true }))
+    return () => ACTIVITY_EVENTS.forEach(e => window.removeEventListener(e, markActive))
+  }, [])
 
   // ── Forced clock-out (screen share ended by user in browser) ───────────
   const handleForcedClockOut = useCallback(async () => {
@@ -215,7 +227,10 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
 
     const beat = async () => {
       const { error } = await supabase.from('time_logs')
-        .update({ last_seen_at: new Date().toISOString() })
+        .update({
+          last_seen_at: new Date().toISOString(),
+          last_activity_at: new Date(lastActivityRef.current).toISOString(),
+        })
         .eq('id', activeLog.id)
       // On failure the most common cause is an expired auth token.
       // Refresh the session so the next beat succeeds.
@@ -291,15 +306,17 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
 
     const ok = await startCapture()
     if (!ok) return
+    lastActivityRef.current = Date.now()
     const now = new Date().toISOString()
     const { data } = await supabase
       .from('time_logs')
       .insert({
-        user_id:      u.id,
-        date:         today,
-        clock_in:     now,
-        status:       'working',
-        last_seen_at: now,
+        user_id:          u.id,
+        date:             today,
+        clock_in:         now,
+        status:           'working',
+        last_seen_at:     now,
+        last_activity_at: now,
       })
       .select()
       .single()

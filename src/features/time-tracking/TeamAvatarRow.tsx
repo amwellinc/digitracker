@@ -7,8 +7,10 @@ import type { User } from '@/types'
 import { UserActivityDrawer } from './UserActivityDrawer'
 import { todayInTz } from '@/lib/timezone'
 import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
+import { isIdle } from '@/lib/activity'
 
-type Member = User & { isOnline: boolean }
+type PresenceStatus = 'online' | 'idle' | 'offline'
+type Member = User & { isOnline: boolean; presence: PresenceStatus }
 
 export function TeamAvatarRow() {
   const { user } = useAuth()
@@ -25,13 +27,20 @@ export function TeamAvatarRow() {
 
     const { data: active } = await supabase
       .from('time_logs')
-      .select('user_id')
+      .select('user_id, status, last_activity_at')
       .eq('date', today)
       .in('status', ['working', 'lunch'])
 
-    const onlineIds = new Set((active ?? []).map((r: { user_id: string }) => r.user_id))
+    type ActiveRow = { user_id: string; status: string; last_activity_at: string | null }
+    const activeMap = new Map((active ?? []).map((r: ActiveRow) => [r.user_id, r]))
 
-    setMembers((users ?? []).map((u: User) => ({ ...u, isOnline: onlineIds.has(u.id) })))
+    setMembers((users ?? []).map((u: User) => {
+      const row = activeMap.get(u.id)
+      const presence: PresenceStatus = !row ? 'offline'
+        : row.status === 'working' && isIdle(row.last_activity_at) ? 'idle'
+        : 'online'
+      return { ...u, isOnline: !!row, presence }
+    }))
   }, [user, timezone])
 
   useEffect(() => { void load() }, [load])
@@ -52,7 +61,7 @@ export function TeamAvatarRow() {
               onClick={() => setSelected(m)}
               className="flex flex-col items-center gap-1.5 group"
             >
-              <Avatar name={m.name} imageUrl={m.profile_image} size="lg" online={m.isOnline} />
+              <Avatar name={m.name} imageUrl={m.profile_image} size="lg" status={m.presence} />
               <span className="text-xs text-gray-600 max-w-[56px] truncate">
                 {m.name.split(' ')[0]}
               </span>

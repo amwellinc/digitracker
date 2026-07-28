@@ -50,8 +50,8 @@ describe('buildUserReport', () => {
   const todayStr = '2026-01-12' // the following Monday — whole week has elapsed
 
   const timeLogs: TimeLog[] = [
-    { id: 't1', user_id: 'u1', date: '2026-01-05', clock_in: '2026-01-05T02:00:00Z', clock_out: '2026-01-05T10:00:00Z', status: 'clocked_out', total_minutes: 480, last_seen_at: null },
-    { id: 't2', user_id: 'u1', date: '2026-01-06', clock_in: '2026-01-06T02:00:00Z', clock_out: '2026-01-06T10:00:00Z', status: 'clocked_out', total_minutes: 480, last_seen_at: null },
+    { id: 't1', user_id: 'u1', date: '2026-01-05', clock_in: '2026-01-05T02:00:00Z', clock_out: '2026-01-05T10:00:00Z', status: 'clocked_out', total_minutes: 480, last_seen_at: null, last_activity_at: null },
+    { id: 't2', user_id: 'u1', date: '2026-01-06', clock_in: '2026-01-06T02:00:00Z', clock_out: '2026-01-06T10:00:00Z', status: 'clocked_out', total_minutes: 480, last_seen_at: null, last_activity_at: null },
   ]
 
   const leaveRequests: LeaveRequest[] = [

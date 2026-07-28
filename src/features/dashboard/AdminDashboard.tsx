@@ -6,15 +6,17 @@ import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import { useRealtime } from '@/hooks/useRealtime'
 import { Avatar } from '@/components/ui/Avatar'
 import { UserActivityDrawer } from '@/features/time-tracking/UserActivityDrawer'
+import { isIdle } from '@/lib/activity'
 import type { User, LeaveRequest, Screenshot } from '@/types'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-type WorkStatus = 'working' | 'lunch' | 'absent'
+type WorkStatus = 'working' | 'idle' | 'lunch' | 'absent'
 
 interface MemberRow extends User {
   workStatus: WorkStatus
   clockIn: string | null
   lastSeenAt: string | null
+  lastActivityAt: string | null
   completedMins: number
 }
 
@@ -28,6 +30,7 @@ interface TeamStatusRow {
   log_status: string | null
   clock_in: string | null
   last_seen_at: string | null
+  last_activity_at: string | null
   completed_mins: number
 }
 
@@ -62,13 +65,20 @@ function useLiveClock() {
 function StatusBadge({ status }: { status: WorkStatus }) {
   const map = {
     working: 'bg-green-100 text-green-700',
+    idle:    'bg-violet-100 text-violet-700',
     lunch:   'bg-amber-100 text-amber-700',
     absent:  'bg-gray-100 text-gray-500',
   }
-  const label = { working: 'Online', lunch: 'On Lunch', absent: 'Offline' }
+  const dot = {
+    working: 'bg-green-500',
+    idle:    'bg-violet-400',
+    lunch:   'bg-amber-400',
+    absent:  'bg-gray-400',
+  }
+  const label = { working: 'Online', idle: 'Idle', lunch: 'On Lunch', absent: 'Offline' }
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full ${map[status]}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${status === 'working' ? 'bg-green-500' : status === 'lunch' ? 'bg-amber-400' : 'bg-gray-400'}`} />
+    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full ${map[status]}`} title={status === 'idle' ? 'Clocked in, but no activity for 20+ minutes' : undefined}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot[status]}`} />
       {label[status]}
     </span>
   )
@@ -130,15 +140,17 @@ export function AdminDashboard() {
     // Map to MemberRow — hoursToday is computed live in render via useLiveClock
     const rows: MemberRow[] = allUsers.map(u => {
       const s = statusMap.get(u.id)
-      const ws: WorkStatus = s?.log_status === 'working' ? 'working'
+      const ws: WorkStatus = s?.log_status === 'working'
+                           ? (isIdle(s.last_activity_at) ? 'idle' : 'working')
                            : s?.log_status === 'lunch'   ? 'lunch'
                            : 'absent'
       return {
         ...u,
-        workStatus:    ws,
-        clockIn:       s?.clock_in     ?? null,
-        lastSeenAt:    s?.last_seen_at ?? null,
-        completedMins: s?.completed_mins ?? 0,
+        workStatus:     ws,
+        clockIn:        s?.clock_in        ?? null,
+        lastSeenAt:     s?.last_seen_at    ?? null,
+        lastActivityAt: s?.last_activity_at ?? null,
+        completedMins:  s?.completed_mins ?? 0,
       }
     })
 
@@ -194,6 +206,7 @@ export function AdminDashboard() {
 
   // Computed counts
   const online  = members.filter(m => m.workStatus === 'working').length
+  const idle    = members.filter(m => m.workStatus === 'idle').length
   const onLunch = members.filter(m => m.workStatus === 'lunch').length
   const offline = members.filter(m => m.workStatus === 'absent').length
   const total   = members.length
@@ -233,6 +246,7 @@ export function AdminDashboard() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <StatCard label="Total Staff"    value={total}           sub="in workspace" />
         <StatCard label="Online Now"     value={online}          sub="clocked in"       accent="text-green-600" />
+        <StatCard label="Idle"           value={idle}            sub="clocked in, inactive 20+ min" accent="text-violet-600" />
         <StatCard label="On Lunch"       value={onLunch}         sub="lunch break"       accent="text-amber-500" />
         <StatCard label="Offline"        value={offline}         sub="not clocked in"   accent="text-gray-500" />
         <StatCard label="Pending Leaves" value={pending.length}  sub="awaiting approval" accent={pending.length > 0 ? 'text-violet-600' : 'text-gray-900'} />
@@ -290,7 +304,8 @@ export function AdminDashboard() {
                 <tr key={m.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-3.5">
                     <div className="flex items-center gap-3">
-                      <Avatar name={m.name} imageUrl={m.profile_image} size="md" online={m.workStatus !== 'absent'} />
+                      <Avatar name={m.name} imageUrl={m.profile_image} size="md"
+                        status={m.workStatus === 'idle' ? 'idle' : m.workStatus === 'absent' ? 'offline' : 'online'} />
                       <div>
                         <p className="font-medium text-gray-900 text-sm">{m.name}</p>
                         <p className="text-xs text-gray-400 truncate max-w-[160px]">{m.email}</p>
