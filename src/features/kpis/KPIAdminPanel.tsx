@@ -92,6 +92,11 @@ export function KPIAdminPanel() {
   const [newDuty,  setNewDuty]  = useState('')
   const [newCheck, setNewCheck] = useState('')
 
+  const [editCheckIndex, setEditCheckIndex] = useState<number | null>(null)
+  const [editCheckValue, setEditCheckValue] = useState('')
+  const [editDutyIndex,  setEditDutyIndex]  = useState<number | null>(null)
+  const [editDutyValue,  setEditDutyValue]  = useState('')
+
   const [logs,        setLogs]        = useState<KPIDailyLog[]>([])
   const [eodViewDate, setEodViewDate] = useState('')
 
@@ -129,6 +134,8 @@ export function KPIAdminPanel() {
     if (!selectedUserId) return
     setLoadingKpi(true); setKpiConfig(null); setLogs([]); setMemberPerfPoints([])
     setEodViewDate(''); setSelectedDate(today)
+    setEditCheckIndex(null); setEditCheckValue('')
+    setEditDutyIndex(null); setEditDutyValue('')
     Promise.all([
       supabase.from('kpis').select('*').eq('user_id', selectedUserId).maybeSingle(),
       supabase.from('kpi_daily_logs').select('*').eq('user_id', selectedUserId)
@@ -197,6 +204,17 @@ export function KPIAdminPanel() {
     await saveConfig({ duties: (kpiConfig?.duties ?? []).filter((_, j) => j !== i) })
   }
 
+  function startEditDuty(i: number, current: string) {
+    setEditDutyIndex(i); setEditDutyValue(current)
+  }
+
+  async function saveEditDuty() {
+    if (editDutyIndex === null || !editDutyValue.trim()) return
+    const updated = (kpiConfig?.duties ?? []).map((d, j) => j === editDutyIndex ? editDutyValue.trim() : d)
+    await saveConfig({ duties: updated })
+    setEditDutyIndex(null); setEditDutyValue('')
+  }
+
   async function addCheckItem(e: React.KeyboardEvent | React.MouseEvent) {
     if ('key' in e && e.key !== 'Enter') return
     if (!newCheck.trim()) return
@@ -206,6 +224,17 @@ export function KPIAdminPanel() {
 
   async function deleteCheckItem(i: number) {
     await saveConfig({ checklists: (kpiConfig?.checklists ?? []).filter((_, j) => j !== i) })
+  }
+
+  function startEditCheckItem(i: number, current: string) {
+    setEditCheckIndex(i); setEditCheckValue(current)
+  }
+
+  async function saveEditCheckItem() {
+    if (editCheckIndex === null || !editCheckValue.trim()) return
+    const updated = (kpiConfig?.checklists ?? []).map((c, j) => j === editCheckIndex ? editCheckValue.trim() : c)
+    await saveConfig({ checklists: updated })
+    setEditCheckIndex(null); setEditCheckValue('')
   }
 
   async function saveDailyPoints() {
@@ -334,11 +363,32 @@ export function KPIAdminPanel() {
                   <tbody>
                     {checklists.map((item, i) => (
                       <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
-                        <td className="px-4 py-2.5 text-sm text-gray-800">{item}</td>
-                        <td className="px-2 py-2.5 text-center">
-                          <button onClick={() => void deleteCheckItem(i)}
-                            className="text-gray-300 hover:text-red-500 text-sm transition-colors" title="Remove">✕</button>
-                        </td>
+                        {editCheckIndex === i ? (
+                          <td colSpan={2} className="px-4 py-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                autoFocus
+                                value={editCheckValue}
+                                onChange={e => setEditCheckValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') void saveEditCheckItem(); if (e.key === 'Escape') setEditCheckIndex(null) }}
+                                className="flex-1 border border-violet-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                              />
+                              <button onClick={() => void saveEditCheckItem()} disabled={!editCheckValue.trim() || saving}
+                                className="text-xs bg-violet-600 text-white px-2.5 py-1 rounded hover:bg-violet-700 disabled:opacity-40">Save</button>
+                              <button onClick={() => setEditCheckIndex(null)} className="text-xs text-gray-500 px-1">Cancel</button>
+                            </div>
+                          </td>
+                        ) : (
+                          <>
+                            <td className="px-4 py-2.5 text-sm text-gray-800">{item}</td>
+                            <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                              <button onClick={() => startEditCheckItem(i, item)}
+                                className="text-gray-300 hover:text-violet-600 text-xs transition-colors mr-2" title="Edit">✎</button>
+                              <button onClick={() => void deleteCheckItem(i)}
+                                className="text-gray-300 hover:text-red-500 text-sm transition-colors" title="Remove">✕</button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                     {Array.from({ length: checkPad }).map((_, i) => (
@@ -383,12 +433,33 @@ export function KPIAdminPanel() {
                   <tbody>
                     {duties.map((duty, i) => (
                       <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
-                        <td className="px-4 py-2.5 text-sm text-gray-800">{duty}</td>
-                        <td className="px-3 py-2.5 text-center text-xs text-gray-300 italic">—</td>
-                        <td className="px-2 py-2.5 text-center">
-                          <button onClick={() => void deleteDuty(i)}
-                            className="text-gray-300 hover:text-red-500 text-sm transition-colors" title="Remove">✕</button>
-                        </td>
+                        {editDutyIndex === i ? (
+                          <td colSpan={3} className="px-4 py-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                autoFocus
+                                value={editDutyValue}
+                                onChange={e => setEditDutyValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') void saveEditDuty(); if (e.key === 'Escape') setEditDutyIndex(null) }}
+                                className="flex-1 border border-purple-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                              />
+                              <button onClick={() => void saveEditDuty()} disabled={!editDutyValue.trim() || saving}
+                                className="text-xs bg-purple-900 text-white px-2.5 py-1 rounded hover:bg-purple-800 disabled:opacity-40">Save</button>
+                              <button onClick={() => setEditDutyIndex(null)} className="text-xs text-gray-500 px-1">Cancel</button>
+                            </div>
+                          </td>
+                        ) : (
+                          <>
+                            <td className="px-4 py-2.5 text-sm text-gray-800">{duty}</td>
+                            <td className="px-3 py-2.5 text-center text-xs text-gray-300 italic">—</td>
+                            <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                              <button onClick={() => startEditDuty(i, duty)}
+                                className="text-gray-300 hover:text-purple-700 text-xs transition-colors mr-2" title="Edit">✎</button>
+                              <button onClick={() => void deleteDuty(i)}
+                                className="text-gray-300 hover:text-red-500 text-sm transition-colors" title="Remove">✕</button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                     {Array.from({ length: dutyPad }).map((_, i) => (
