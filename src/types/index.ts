@@ -185,6 +185,7 @@ export interface SubAccount {
   status: 'active' | 'trialing' | 'cancelled' | 'suspended'
   timezone: string
   notes: string | null
+  trial_ends_at: string | null
   created_at: string
   updated_at: string
 }
@@ -192,7 +193,7 @@ export interface SubAccount {
 export interface Notification {
   id: string
   user_id: string
-  type: 'task_assigned' | 'task_reply' | 'task_completed' | 'task_closed' | 'leave_request' | 'leave_approved' | 'leave_rejected' | 'holiday_added'
+  type: 'task_assigned' | 'task_reply' | 'task_completed' | 'task_closed' | 'leave_request' | 'leave_approved' | 'leave_rejected' | 'holiday_added' | 'new_subscription'
   message: string
   read: boolean
   created_at: string

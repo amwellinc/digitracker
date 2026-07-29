@@ -1,8 +1,6 @@
 import { Link } from 'react-router-dom'
 import { AuthForm } from './AuthForm'
 
-const SIGNUP_URL = 'https://digitracker.digi5y.co/#pricing'
-
 const PANEL_FEATURES = [
   { icon: '⏱', title: 'Live Time Tracking', desc: 'Clock in/out with real-time heartbeat monitoring.' },
   { icon: '📸', title: 'Screen Capture Audit', desc: 'Automatic proof-of-work screenshots, built in.' },
@@ -84,13 +82,13 @@ export function LoginPage() {
               <p className="text-sm text-gray-500">
                 New to DIGITRACKER?
               </p>
-              <a
-                href={SIGNUP_URL}
+              <Link
+                to="/subscribe"
                 className="block w-full py-2.5 rounded-lg border border-violet-200 text-violet-700 text-sm font-semibold hover:bg-violet-50 transition-colors"
                 style={{ minHeight: '44px', lineHeight: '1.25rem', paddingTop: '0.7rem' }}
               >
                 Create an account →
-              </a>
+              </Link>
             </div>
           </div>
         </div>

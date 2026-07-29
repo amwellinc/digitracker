@@ -2,6 +2,8 @@ import { lazy, Suspense } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { AdminLoginPage } from '@/features/auth/AdminLoginPage'
+import { SubscribePage } from '@/features/subscribe/SubscribePage'
+import { ThankYouPage } from '@/features/subscribe/ThankYouPage'
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { AuthGuard } from '@/features/auth/AuthGuard'
 import { Layout } from './Layout'
@@ -86,9 +88,11 @@ export function AppRouter() {
     <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         {/* Public routes */}
-        <Route path="/login"           element={<LoginPage />} />
-        <Route path="/platform-login"  element={<AdminLoginPage />} />
-        <Route path="/reset-password"  element={<ResetPasswordPage />} />
+        <Route path="/login"              element={<LoginPage />} />
+        <Route path="/platform-login"     element={<AdminLoginPage />} />
+        <Route path="/subscribe"          element={<SubscribePage />} />
+        <Route path="/subscribe/thank-you" element={<ThankYouPage />} />
+        <Route path="/reset-password"     element={<ResetPasswordPage />} />
         <Route path="/install"         element={<GHLInstallPage />} />
         <Route path="/ghl/callback"    element={<GHLConnectedPage />} />
         <Route path="/ghl/connected"   element={<GHLConnectedPage />} />
