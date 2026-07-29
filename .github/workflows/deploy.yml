@@ -82,22 +82,32 @@ jobs:
             GHL_CLIENT_SECRET="${{ secrets.GHL_CLIENT_SECRET }}" \
             GHL_WEBHOOK_SECRET="${{ secrets.GHL_WEBHOOK_SECRET }}"
 
-      - name: Deploy ghl-oauth-callback
+      # Deploys every function under supabase/functions/ automatically — a
+      # named step per function (the old approach) silently deploys nothing
+      # for any function whose step was forgotten, which is exactly what
+      # happened to capture-ip and provision-subscription: CI stayed green,
+      # the frontend shipped calling them, and both 404'd in production
+      # until this loop replaced the fixed list.
+      #
+      # Functions called directly by external services (webhooks, OAuth
+      # callbacks) can't supply a Supabase session JWT, so they deploy with
+      # --no-verify-jwt — the signature/state check inside each one is the
+      # real auth boundary for those. Every other function is only ever
+      # called from the app itself (at minimum with the anon key, which is
+      # itself a valid JWT) and deploys with default JWT verification.
+      - name: Deploy Edge Functions
         if: steps.check.outputs.configured == 'true'
-        run: supabase functions deploy ghl-oauth-callback --no-verify-jwt
-
-      - name: Deploy ghl-webhook
-        if: steps.check.outputs.configured == 'true'
-        run: supabase functions deploy ghl-webhook --no-verify-jwt
-
-      - name: Deploy admin-set-password
-        if: steps.check.outputs.configured == 'true'
-        run: supabase functions deploy admin-set-password
-
-      - name: Deploy admin-set-suspension
-        if: steps.check.outputs.configured == 'true'
-        run: supabase functions deploy admin-set-suspension
-
-      - name: Deploy stripe-webhook
-        if: steps.check.outputs.configured == 'true'
-        run: supabase functions deploy stripe-webhook --no-verify-jwt
+        run: |
+          NO_VERIFY_JWT="ghl-oauth-callback ghl-webhook stripe-webhook"
+          for dir in supabase/functions/*/; do
+            fn=$(basename "$dir")
+            if [ "$fn" = "_shared" ]; then continue; fi
+            if echo "$NO_VERIFY_JWT" | grep -qw "$fn"; then
+              echo "::group::Deploy $fn (--no-verify-jwt)"
+              supabase functions deploy "$fn" --no-verify-jwt
+            else
+              echo "::group::Deploy $fn"
+              supabase functions deploy "$fn"
+            fi
+            echo "::endgroup::"
+          done
