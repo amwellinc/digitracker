@@ -148,7 +148,7 @@ export function SubscribePage() {
       {/* ── Top bar ── */}
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2.5">
+          <a href="https://digitracker.digi5y.co" className="flex items-center gap-2.5">
             <img src="/logo.png" alt="DIGITRACKER" className="w-8 h-8 rounded-lg object-contain" />
             <span
               className="font-heading font-extrabold tracking-tight text-base text-transparent bg-clip-text"
@@ -156,7 +156,7 @@ export function SubscribePage() {
             >
               DIGITRACKER
             </span>
-          </Link>
+          </a>
           <Link to="/login" className="text-sm font-medium text-violet-700 hover:text-violet-800">
             Already have an account? Sign in →
           </Link>

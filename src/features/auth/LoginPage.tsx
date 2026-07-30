@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 import { AuthForm } from './AuthForm'
 
+const MARKETING_SITE_URL = 'https://digitracker.digi5y.co'
+
 const PANEL_FEATURES = [
   { icon: '⏱', title: 'Live Time Tracking', desc: 'Clock in/out with real-time heartbeat monitoring.' },
   { icon: '📸', title: 'Screen Capture Audit', desc: 'Automatic proof-of-work screenshots, built in.' },
@@ -23,13 +25,13 @@ export function LoginPage() {
           style={{ background: 'radial-gradient(circle, #DDD6FE 0%, transparent 70%)' }}
         />
 
-        <div className="relative flex items-center gap-2.5">
+        <a href={MARKETING_SITE_URL} className="relative flex items-center gap-2.5 w-fit">
           <img src="/logo.png" alt="DIGITRACKER" className="w-9 h-9 rounded-lg object-contain" />
           <div className="leading-tight">
             <span className="font-heading font-extrabold tracking-tight text-sm block text-slate-900">DIGITRACKER</span>
             <span className="text-xs text-slate-400">by DIGI5Y</span>
           </div>
-        </div>
+        </a>
 
         <div className="relative max-w-md">
           <h1 className="font-heading text-3xl xl:text-4xl font-extrabold tracking-tight leading-[1.15] mb-5 text-slate-900">
@@ -68,11 +70,11 @@ export function LoginPage() {
           <div className="w-full max-w-sm">
 
             {/* Compact logo — mobile only, since the branding panel is hidden below lg */}
-            <div className="flex lg:hidden flex-col items-center mb-8">
+            <a href={MARKETING_SITE_URL} className="flex lg:hidden flex-col items-center mb-8">
               <img src="/logo.png" alt="DIGITRACKER" className="w-16 h-16 object-contain mb-2" />
               <h1 className="font-heading text-xl font-extrabold tracking-tight text-slate-900">DIGITRACKER</h1>
               <p className="text-xs text-slate-400 mt-0.5">by DIGI5Y</p>
-            </div>
+            </a>
 
             <div className="mb-6">
               <h2 className="font-heading text-2xl font-bold text-slate-900">Welcome back</h2>
@@ -97,9 +99,9 @@ export function LoginPage() {
         </div>
 
         <footer className="px-4 py-5 text-center">
-          <Link to="/" className="text-xs text-slate-400 hover:text-violet-700 transition-colors">
+          <a href={MARKETING_SITE_URL} className="text-xs text-slate-400 hover:text-violet-700 transition-colors">
             Know more about DIGITRACKER by DIGI5Y →
-          </Link>
+          </a>
         </footer>
       </div>
     </div>
