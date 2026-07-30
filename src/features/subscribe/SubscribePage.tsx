@@ -137,22 +137,27 @@ export function SubscribePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#F8FAFF' }}>
+        <div className="w-8 h-8 border-4 border-violet-700 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen" style={{ background: 'linear-gradient(180deg, #F8FAFF 0%, #FFFFFF 340px)' }}>
       {/* ── Top bar ── */}
-      <header className="border-b border-gray-200 bg-white">
+      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
             <img src="/logo.png" alt="DIGITRACKER" className="w-8 h-8 rounded-lg object-contain" />
-            <span className="font-bold tracking-tight text-sm text-gray-900">DIGITRACKER</span>
+            <span
+              className="font-heading font-extrabold tracking-tight text-base text-transparent bg-clip-text"
+              style={{ backgroundImage: 'linear-gradient(135deg, #6D28D9 0%, #2563EB 100%)' }}
+            >
+              DIGITRACKER
+            </span>
           </Link>
-          <Link to="/login" className="text-sm font-medium text-violet-600 hover:text-violet-700">
+          <Link to="/login" className="text-sm font-medium text-violet-700 hover:text-violet-800">
             Already have an account? Sign in →
           </Link>
         </div>
@@ -161,9 +166,9 @@ export function SubscribePage() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
         {/* ── Step indicator ── */}
         <div className="flex items-center justify-center gap-3 mb-8 text-xs font-semibold">
-          <span className={step === 'plan' ? 'text-violet-600' : 'text-gray-400'}>1. Choose your plan</span>
-          <span className="text-gray-300">—</span>
-          <span className={step === 'review' ? 'text-violet-600' : 'text-gray-400'}>2. Review & subscribe</span>
+          <span className={step === 'plan' ? 'text-violet-700' : 'text-slate-400'}>1. Choose your plan</span>
+          <span className="text-slate-300">—</span>
+          <span className={step === 'review' ? 'text-violet-700' : 'text-slate-400'}>2. Review & subscribe</span>
         </div>
 
         {cancelled && (
@@ -175,10 +180,10 @@ export function SubscribePage() {
         {step === 'plan' && (
           <div className="space-y-10">
             <div className="text-center max-w-xl mx-auto">
-              <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-gray-900 mb-3">
+              <h1 className="font-heading text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 mb-3">
                 Start managing your remote team today
               </h1>
-              <p className="text-gray-500 text-sm">
+              <p className="text-slate-500 text-sm">
                 {trialDays > 0
                   ? `Every paid plan includes a ${trialDays}-day free trial. Cancel any time.`
                   : 'Pick the plan that fits your team. Upgrade or downgrade any time.'}
@@ -187,14 +192,14 @@ export function SubscribePage() {
 
             {/* Billing cycle + currency controls */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1 text-sm">
+              <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 text-sm">
                 {(['monthly', 'annual'] as BillingCycle[]).map(c => (
                   <button
                     key={c}
                     type="button"
                     onClick={() => setCycle(c)}
                     className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
-                      cycle === c ? 'bg-violet-600 text-white' : 'text-gray-500 hover:text-gray-700'
+                      cycle === c ? 'bg-violet-700 text-white' : 'text-slate-500 hover:text-slate-700'
                     }`}
                   >
                     {c === 'monthly' ? 'Monthly' : 'Annual — save more'}
@@ -204,7 +209,7 @@ export function SubscribePage() {
               <select
                 value={currencyCode}
                 onChange={e => setCurrencyCode(e.target.value)}
-                className="border border-gray-200 rounded-xl bg-white px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="border border-slate-200 rounded-xl bg-white px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-600"
               >
                 {currencies.map(c => (
                   <option key={c.code} value={c.code}>{c.flag} {c.code}</option>
@@ -225,34 +230,34 @@ export function SubscribePage() {
                     onClick={() => setSelectedPlan(plan.id)}
                     className={`relative text-left rounded-2xl border-2 p-5 flex flex-col transition-all ${
                       isSelected
-                        ? 'border-violet-600 bg-violet-50/50 shadow-md'
-                        : 'border-gray-200 bg-white hover:border-violet-300'
+                        ? 'border-violet-700 bg-violet-50/50 shadow-md'
+                        : 'border-slate-200 bg-white hover:border-violet-300'
                     }`}
                   >
                     {isPopular && (
-                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-violet-600 text-white text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full">
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-violet-700 text-white text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full">
                         Most Popular
                       </span>
                     )}
-                    <p className="font-bold text-gray-900 mt-1">{plan.name}</p>
+                    <p className="font-heading font-bold text-slate-900 mt-1">{plan.name}</p>
                     <p className="mt-2">
-                      <span className="text-2xl font-black text-gray-900">
+                      <span className="font-heading text-2xl font-extrabold text-slate-900">
                         {plan.id === 'free' ? 'Free' : `${currency?.symbol ?? '$'}${price.toFixed(2)}`}
                       </span>
                       {plan.id !== 'free' && (
-                        <span className="text-xs text-gray-400"> /{cycle === 'annual' ? 'yr' : 'mo'}</span>
+                        <span className="text-xs text-slate-400"> /{cycle === 'annual' ? 'yr' : 'mo'}</span>
                       )}
                     </p>
-                    <p className="text-xs text-gray-400 mt-0.5">Up to {plan.max_seats} users</p>
-                    <ul className="mt-4 space-y-1.5 text-xs text-gray-600 flex-1">
+                    <p className="text-xs text-slate-400 mt-0.5">Up to {plan.max_seats} users</p>
+                    <ul className="mt-4 space-y-1.5 text-xs text-slate-600 flex-1">
                       {plan.features.slice(0, 5).map(f => (
                         <li key={f} className="flex items-start gap-1.5">
-                          <span className="text-violet-500 flex-shrink-0">✓</span> {f}
+                          <span className="text-violet-600 flex-shrink-0">✓</span> {f}
                         </li>
                       ))}
                     </ul>
                     <div className={`mt-4 text-center text-xs font-semibold rounded-lg py-2 ${
-                      isSelected ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600'
+                      isSelected ? 'bg-violet-700 text-white' : 'bg-slate-100 text-slate-600'
                     }`}>
                       {isSelected ? '✓ Selected' : 'Select plan'}
                     </div>
@@ -262,8 +267,8 @@ export function SubscribePage() {
             </div>
 
             {/* Company + admin details */}
-            <form onSubmit={goToReview} className="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
-              <h2 className="font-semibold text-gray-900">Your business details</h2>
+            <form onSubmit={goToReview} className="max-w-md mx-auto bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+              <h2 className="font-heading font-bold text-slate-900">Your business details</h2>
 
               <Field label="Business / Company Name">
                 <input required value={form.companyName}
@@ -293,7 +298,7 @@ export function SubscribePage() {
               </Field>
 
               <button type="submit" disabled={!formValid}
-                className="w-full bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg py-3 text-sm font-semibold transition-colors"
+                className="w-full bg-violet-700 hover:bg-violet-800 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-violet-600/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none text-white rounded-lg py-3 text-sm font-semibold transition-all"
                 style={{ minHeight: '46px' }}>
                 Continue to Review →
               </button>
@@ -302,10 +307,10 @@ export function SubscribePage() {
         )}
 
         {step === 'review' && chosenPlan && (
-          <div className="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
-            <h2 className="font-semibold text-gray-900 text-lg">Review your order</h2>
+          <div className="max-w-md mx-auto bg-white rounded-2xl border border-slate-200 p-6 space-y-5">
+            <h2 className="font-heading font-bold text-slate-900 text-lg">Review your order</h2>
 
-            <div className="rounded-xl bg-gray-50 border border-gray-200 divide-y divide-gray-200">
+            <div className="rounded-xl bg-[#F8FAFF] border border-slate-200 divide-y divide-slate-200">
               <SummaryRow label="Business" value={form.companyName} />
               <SummaryRow label="Admin" value={form.adminEmail} />
               <SummaryRow label="Plan" value={`${chosenPlan.name} · ${cycle === 'annual' ? 'Annual' : 'Monthly'}`} />
@@ -319,7 +324,7 @@ export function SubscribePage() {
             </div>
 
             {chosenPlan.id !== 'free' && (
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-slate-400">
                 You'll be redirected to Stripe's secure checkout to add a payment method.
                 {trialDays > 0 ? ' You will not be charged until your trial ends.' : ''}
               </p>
@@ -329,11 +334,11 @@ export function SubscribePage() {
 
             <div className="flex gap-3">
               <button type="button" onClick={() => setStep('plan')}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50">
                 ← Back
               </button>
               <button type="button" onClick={() => void confirmSubscribe()} disabled={submitting}
-                className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold disabled:opacity-50 transition-colors">
+                className="flex-1 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-800 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-violet-600/30 text-white text-sm font-semibold disabled:opacity-50 disabled:transform-none disabled:shadow-none transition-all">
                 {submitting ? 'Processing…' : chosenPlan.id === 'free' ? 'Start Free Plan' : 'Confirm & Subscribe'}
               </button>
             </div>
@@ -341,7 +346,7 @@ export function SubscribePage() {
         )}
 
         <footer className="text-center mt-16">
-          <Link to="/" className="text-xs text-gray-400 hover:text-violet-600 transition-colors">
+          <Link to="/" className="text-xs text-slate-400 hover:text-violet-700 transition-colors">
             Know more about DIGITRACKER by DIGI5Y →
           </Link>
         </footer>
@@ -353,7 +358,7 @@ export function SubscribePage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
       {children}
     </div>
   )

@@ -38,7 +38,7 @@ export function AuthForm({ accountType }: AuthFormProps) {
   const isPlatform = accountType === 'platform'
   const accent = isPlatform
     ? 'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500'
-    : 'bg-violet-600 hover:bg-violet-700 focus:ring-violet-500'
+    : 'bg-violet-700 hover:bg-violet-800 focus:ring-violet-600 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-violet-600/30'
 
   async function handlePasswordSignIn(e: React.FormEvent) {
     e.preventDefault()

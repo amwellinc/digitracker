@@ -36,6 +36,15 @@
 }
 
 @layer utilities {
+  /* Marketing-site typography (digitracker.digi5y.co) — opt-in only, used on
+     the public Login/Subscribe pages so the rest of the app keeps its
+     existing system font stack. */
+  .font-heading {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+  .font-marketing-body {
+    font-family: 'Inter', sans-serif;
+  }
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
