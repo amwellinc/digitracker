@@ -99,15 +99,40 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         run: |
           NO_VERIFY_JWT="ghl-oauth-callback ghl-webhook stripe-webhook"
+
+          # Retries each function up to 3 times before giving up on it — the
+          # Supabase deploy API occasionally hiccups on a single function in
+          # a batch (rate limiting, transient network error) with no useful
+          # detail beyond "exit code 1", so a bare failure on attempt 1
+          # shouldn't red-X the whole deploy.
+          deploy_with_retry() {
+            fn="$1"; shift
+            for attempt in 1 2 3; do
+              if supabase functions deploy "$fn" "$@"; then
+                return 0
+              fi
+              echo "::warning::Deploy of $fn failed (attempt $attempt/3)"
+              sleep $((attempt * 5))
+            done
+            echo "::error::Deploy of $fn failed after 3 attempts"
+            return 1
+          }
+
+          failed=""
           for dir in supabase/functions/*/; do
             fn=$(basename "$dir")
             if [ "$fn" = "_shared" ]; then continue; fi
             if echo "$NO_VERIFY_JWT" | grep -qw "$fn"; then
               echo "::group::Deploy $fn (--no-verify-jwt)"
-              supabase functions deploy "$fn" --no-verify-jwt
+              deploy_with_retry "$fn" --no-verify-jwt || failed="$failed $fn"
             else
               echo "::group::Deploy $fn"
-              supabase functions deploy "$fn"
+              deploy_with_retry "$fn" || failed="$failed $fn"
             fi
             echo "::endgroup::"
           done
+
+          if [ -n "$failed" ]; then
+            echo "::error::Functions that failed to deploy after retries:$failed"
+            exit 1
+          fi
