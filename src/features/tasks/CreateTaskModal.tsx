@@ -28,6 +28,7 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
   const [showUserDrop, setShowUserDrop] = useState(false)
   const [debugInfo, setDebugInfo] = useState<string | null>(null)
   const [loadingDebug, setLoadingDebug] = useState(false)
+  const lastAttemptRef = useRef<{ creator_id: string; assignee_id: string | null } | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -84,7 +85,16 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
   // (see migration 041) — safe to leave in place.
   async function loadDebugInfo() {
     setLoadingDebug(true)
-    const { data, error: rpcErr } = await supabase.rpc('debug_my_task_insert_check')
+    // Prefer checking the EXACT values from the failed request (which
+    // clause, which id) over a generic self-check — a self-check can pass
+    // cleanly while the real insert still fails on the assignee side.
+    const attempt = lastAttemptRef.current
+    const { data, error: rpcErr } = attempt
+      ? await supabase.rpc('debug_task_insert_values', {
+          p_creator_id: attempt.creator_id,
+          p_assignee_id: attempt.assignee_id,
+        })
+      : await supabase.rpc('debug_my_task_insert_check')
     setLoadingDebug(false)
     setDebugInfo(rpcErr ? `RPC error: ${rpcErr.message}` : JSON.stringify(data, null, 2))
   }
@@ -93,6 +103,7 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
     e.preventDefault()
     if (!user || !title.trim()) return
     setError(null)
+    setDebugInfo(null)
     setSaving(true)
 
     const primaryAssignee = selectedIds[0] ?? null
@@ -104,6 +115,8 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
       due_date: dueDate ? new Date(dueDate).toISOString() : null,
       recurring: recurring ?? null,
     }
+
+    lastAttemptRef.current = { creator_id: payload.creator_id, assignee_id: payload.assignee_id }
 
     if (task) {
       // Update existing
