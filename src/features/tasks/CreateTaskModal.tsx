@@ -89,7 +89,7 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
     // clause, which id) over a generic self-check — a self-check can pass
     // cleanly while the real insert still fails on the assignee side.
     const attempt = lastAttemptRef.current
-    const [valuesResult, policiesResult, liveTestResult] = await Promise.all([
+    const [valuesResult, policiesResult, liveTestResult, returningTestResult] = await Promise.all([
       attempt
         ? supabase.rpc('debug_task_insert_values', {
             p_creator_id: attempt.creator_id,
@@ -109,6 +109,15 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
             p_assignee_id: attempt.assignee_id,
           })
         : Promise.resolve({ data: null, error: null }),
+      // Same test, but shaped like PostgREST's actual "return=representation"
+      // query (INSERT in a CTE, RETURNING, read by an outer SELECT) — the
+      // exact shape .insert().select() used to generate.
+      attempt
+        ? supabase.rpc('debug_try_task_insert_returning', {
+            p_creator_id: attempt.creator_id,
+            p_assignee_id: attempt.assignee_id,
+          })
+        : Promise.resolve({ data: null, error: null }),
     ])
     setLoadingDebug(false)
     const parts: string[] = []
@@ -117,6 +126,8 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
     parts.push(policiesResult.error ? `policies RPC error: ${policiesResult.error.message}` : JSON.stringify(policiesResult.data, null, 2))
     parts.push('--- live insert test (real RLS, rolled back) ---')
     parts.push(liveTestResult.error ? `live test RPC error: ${liveTestResult.error.message}` : JSON.stringify(liveTestResult.data, null, 2))
+    parts.push('--- live insert test, RETURNING shape (real RLS, rolled back) ---')
+    parts.push(returningTestResult.error ? `returning test RPC error: ${returningTestResult.error.message}` : JSON.stringify(returningTestResult.data, null, 2))
     setDebugInfo(parts.join('\n\n'))
   }
 
@@ -155,12 +166,16 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
         if (assignErr) { setError(`Task saved, but assignees failed to update: ${assignErr.message}`); setSaving(false); return }
       }
     } else {
-      // Create new
-      const { data: newTask, error: insErr } = await supabase.from('tasks')
-        .insert({ ...payload, attachments: [] }).select().single()
-      if (insErr || !newTask) { setError(insErr?.message ?? 'Failed'); setSaving(false); return }
+      // Create new. The id is generated client-side and the insert never
+      // requests a representation back (no .select()) — Supabase implements
+      // "return the inserted row" as an INSERT wrapped in a CTE with
+      // RETURNING, read by an outer SELECT, which is a meaningfully
+      // different query shape under RLS than a bare INSERT. Knowing the id
+      // upfront means we never need that shape at all.
+      const tid = crypto.randomUUID()
+      const { error: insErr } = await supabase.from('tasks').insert({ id: tid, ...payload, attachments: [] })
+      if (insErr) { setError(insErr.message); setSaving(false); return }
 
-      const tid = (newTask as Task).id
       const uploads = await uploadAttachments(tid)
       if (uploads.length > 0) {
         await supabase.from('tasks').update({ attachments: uploads }).eq('id', tid)
