@@ -26,6 +26,8 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showUserDrop, setShowUserDrop] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<string | null>(null)
+  const [loadingDebug, setLoadingDebug] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -74,6 +76,17 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
 
   async function sendNotification(recipientId: string, type: string, msg: string) {
     await supabase.from('notifications').insert({ user_id: recipientId, type, message: msg, read: false })
+  }
+
+  // Temporary diagnostic — surfaces exactly what the RLS-relevant identity
+  // functions resolve to for the CURRENT session, so a real save failure can
+  // be reported with ground truth instead of another guess. Self-scoped only
+  // (see migration 041) — safe to leave in place.
+  async function loadDebugInfo() {
+    setLoadingDebug(true)
+    const { data, error: rpcErr } = await supabase.rpc('debug_my_task_insert_check')
+    setLoadingDebug(false)
+    setDebugInfo(rpcErr ? `RPC error: ${rpcErr.message}` : JSON.stringify(data, null, 2))
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -252,7 +265,27 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
             )}
           </div>
 
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          {error && (
+            <div className="space-y-2">
+              <p className="text-red-500 text-sm">{error}</p>
+              {error.toLowerCase().includes('row-level security') && (
+                <div>
+                  <button type="button" onClick={() => void loadDebugInfo()} disabled={loadingDebug}
+                    className="text-xs text-violet-600 hover:text-violet-800 underline disabled:opacity-50">
+                    {loadingDebug ? 'Loading diagnostic info…' : 'Show diagnostic info (for support)'}
+                  </button>
+                  {debugInfo && (
+                    <textarea
+                      readOnly
+                      value={debugInfo}
+                      onClick={e => (e.target as HTMLTextAreaElement).select()}
+                      className="mt-2 w-full h-40 text-[11px] font-mono border border-gray-200 rounded-lg p-2 bg-gray-50"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose}
