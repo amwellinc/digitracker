@@ -89,14 +89,24 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
     // clause, which id) over a generic self-check — a self-check can pass
     // cleanly while the real insert still fails on the assignee side.
     const attempt = lastAttemptRef.current
-    const { data, error: rpcErr } = attempt
-      ? await supabase.rpc('debug_task_insert_values', {
-          p_creator_id: attempt.creator_id,
-          p_assignee_id: attempt.assignee_id,
-        })
-      : await supabase.rpc('debug_my_task_insert_check')
+    const [valuesResult, policiesResult] = await Promise.all([
+      attempt
+        ? supabase.rpc('debug_task_insert_values', {
+            p_creator_id: attempt.creator_id,
+            p_assignee_id: attempt.assignee_id,
+          })
+        : supabase.rpc('debug_my_task_insert_check'),
+      // Ground truth from Postgres's own catalog — a mirrored check can pass
+      // while the real deployed policy differs from what the migrations say
+      // it should be (e.g. a migration-history mismatch).
+      supabase.rpc('debug_tasks_policies'),
+    ])
     setLoadingDebug(false)
-    setDebugInfo(rpcErr ? `RPC error: ${rpcErr.message}` : JSON.stringify(data, null, 2))
+    const parts: string[] = []
+    parts.push(valuesResult.error ? `values RPC error: ${valuesResult.error.message}` : JSON.stringify(valuesResult.data, null, 2))
+    parts.push('--- live policies on public.tasks ---')
+    parts.push(policiesResult.error ? `policies RPC error: ${policiesResult.error.message}` : JSON.stringify(policiesResult.data, null, 2))
+    setDebugInfo(parts.join('\n\n'))
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -292,7 +302,7 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
                       readOnly
                       value={debugInfo}
                       onClick={e => (e.target as HTMLTextAreaElement).select()}
-                      className="mt-2 w-full h-40 text-[11px] font-mono border border-gray-200 rounded-lg p-2 bg-gray-50"
+                      className="mt-2 w-full h-64 text-[11px] font-mono border border-gray-200 rounded-lg p-2 bg-gray-50"
                     />
                   )}
                 </div>
