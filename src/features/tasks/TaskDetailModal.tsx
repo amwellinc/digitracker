@@ -206,6 +206,13 @@ export function TaskDetailModal({ task: initialTask, members, assigneeIds, onClo
                   Close
                 </button>
               )}
+              {(task.status === 'closed' || task.status === 'archived') && (
+                <button onClick={() => void updateStatus('pending')}
+                  disabled={statusUpdating}
+                  className="text-xs font-medium bg-violet-50 text-violet-700 px-3 py-1.5 rounded-lg hover:bg-violet-100 disabled:opacity-50">
+                  ↺ Reopen
+                </button>
+              )}
               {task.status !== 'archived' && (
                 <button onClick={() => void updateStatus('archived')}
                   disabled={statusUpdating}
