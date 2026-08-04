@@ -298,6 +298,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                     </button>
                   </div>
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 border-b border-gray-100">
                         <tr>
@@ -380,6 +381,7 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 </div>
               )}

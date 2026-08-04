@@ -157,8 +157,8 @@ export function SubscribePage() {
               DIGITRACKER
             </span>
           </a>
-          <Link to="/login" className="text-sm font-medium text-violet-700 hover:text-violet-800">
-            Already have an account? Sign in →
+          <Link to="/login" className="text-sm font-medium text-violet-700 hover:text-violet-800 whitespace-nowrap">
+            <span className="hidden sm:inline">Already have an account? </span>Sign in →
           </Link>
         </div>
       </header>

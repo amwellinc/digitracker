@@ -344,10 +344,10 @@ export function KPIAdminPanel() {
           <KPIIndicators user={selectedUser} />
 
           {/* ── 3-panel layout: Checklist left | Duties + EOD right ── */}
-          <div className="grid grid-cols-5 gap-4 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
 
             {/* ── LEFT: Daily Check List ── */}
-            <div className="col-span-2">
+            <div className="lg:col-span-2">
               <Panel border="border-violet-700">
                 <table className="w-full border-collapse">
                   <thead>
@@ -413,7 +413,7 @@ export function KPIAdminPanel() {
             </div>
 
             {/* ── RIGHT: Duties + EOD stacked ── */}
-            <div className="col-span-3 space-y-4">
+            <div className="lg:col-span-3 space-y-4">
 
               {/* Main Duties & Responsibilities */}
               <Panel border="border-purple-900">

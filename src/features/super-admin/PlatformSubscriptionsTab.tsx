@@ -175,6 +175,7 @@ export function PlatformSubscriptionsTab() {
         {loading ? (
           <div className="flex items-center justify-center h-40 text-sm text-gray-400">Loading…</div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -231,6 +232,7 @@ export function PlatformSubscriptionsTab() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
