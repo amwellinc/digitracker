@@ -110,8 +110,9 @@ export function PayrollTab() {
 
   async function handleDelete(id: string) {
     setDeleting(id)
-    await supabase.from('payroll_entries').delete().eq('id', id)
+    const { error } = await supabase.from('payroll_entries').delete().eq('id', id)
     setDeleting(null)
+    if (error) { setMsg({ type: 'error', text: `Could not delete payroll entry: ${error.message}` }); return }
     void fetchEntries()
   }
 

@@ -58,6 +58,7 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
   const [leaves, setLeaves] = useState<LeaveRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState<string | null>(null)
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -89,8 +90,10 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
 
   async function cancelLeave(id: string) {
     setCancelling(id)
-    await supabase.from('leave_requests').delete().eq('id', id)
+    setCancelError(null)
+    const { error } = await supabase.from('leave_requests').delete().eq('id', id)
     setCancelling(null)
+    if (error) setCancelError(`Could not cancel leave request: ${error.message}`)
   }
 
   const approved = leaves.filter(l => l.status === 'approved')
@@ -105,6 +108,12 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
 
   return (
     <div className="space-y-5">
+      {cancelError && (
+        <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-600">
+          {cancelError}
+        </div>
+      )}
+
       {/* Balance cards */}
       <div className="flex gap-4">
         <BalanceCard label="Annual Leave" icon="🌴" used={annualUsed}  total={annualTotal}  unit="days"  color="text-violet-600" />

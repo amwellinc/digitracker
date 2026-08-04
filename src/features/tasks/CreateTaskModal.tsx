@@ -158,7 +158,8 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
       if (updErr) { setError(updErr.message); setSaving(false); return }
 
       // Sync assignees: delete all then re-insert
-      await supabase.from('task_assignees').delete().eq('task_id', task.id)
+      const { error: delErr } = await supabase.from('task_assignees').delete().eq('task_id', task.id)
+      if (delErr) { setError(`Task saved, but assignees failed to update: ${delErr.message}`); setSaving(false); return }
       if (selectedIds.length > 0) {
         const { error: assignErr } = await supabase.from('task_assignees').insert(
           selectedIds.map(uid => ({ task_id: task.id, user_id: uid }))
@@ -178,7 +179,8 @@ export function CreateTaskModal({ task, assigneeIds: initAssignees = [], onClose
 
       const uploads = await uploadAttachments(tid)
       if (uploads.length > 0) {
-        await supabase.from('tasks').update({ attachments: uploads }).eq('id', tid)
+        const { error: attachErr } = await supabase.from('tasks').update({ attachments: uploads }).eq('id', tid)
+        if (attachErr) { setError(`Task created, but attachments failed to save: ${attachErr.message}`); setSaving(false); return }
       }
 
       // Insert assignees junction rows

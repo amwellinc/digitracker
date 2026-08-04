@@ -71,13 +71,16 @@ export function DepartmentsTab() {
     setSelectedManagerIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id])
   }
 
-  async function syncManagerLinks(departmentId: string) {
-    await supabase.from('department_managers').delete().eq('department_id', departmentId)
+  async function syncManagerLinks(departmentId: string): Promise<string | null> {
+    const { error: deleteError } = await supabase.from('department_managers').delete().eq('department_id', departmentId)
+    if (deleteError) return deleteError.message
     if (selectedManagerIds.length > 0) {
-      await supabase.from('department_managers').insert(
+      const { error: insertError } = await supabase.from('department_managers').insert(
         selectedManagerIds.map(manager_id => ({ department_id: departmentId, manager_id }))
       )
+      if (insertError) return insertError.message
     }
+    return null
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -93,8 +96,9 @@ export function DepartmentsTab() {
       setMsg({ type: 'error', text: error?.message ?? 'Failed to create department.' })
       return
     }
-    await syncManagerLinks((data as { id: string }).id)
+    const syncError = await syncManagerLinks((data as { id: string }).id)
     setSaving(false)
+    if (syncError) { setMsg({ type: 'error', text: `Could not assign managers: ${syncError}` }); return }
     setShowAddModal(false)
     void load()
   }
@@ -109,8 +113,9 @@ export function DepartmentsTab() {
       setMsg({ type: 'error', text: error.message })
       return
     }
-    await syncManagerLinks(editDept.id)
+    const syncError = await syncManagerLinks(editDept.id)
     setSaving(false)
+    if (syncError) { setMsg({ type: 'error', text: `Could not assign managers: ${syncError}` }); return }
     setEditDept(null)
     void load()
   }

@@ -44,6 +44,7 @@ export function TaskDetailModal({ task: initialTask, members, assigneeIds, onClo
   const [statusUpdating, setStatusUpdating] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const assignees = members.filter(m => assigneeIds.includes(m.id))
   const creator = members.find(m => m.id === task.creator_id)
@@ -67,9 +68,11 @@ export function TaskDetailModal({ task: initialTask, members, assigneeIds, onClo
 
   async function updateStatus(status: Task['status']) {
     setStatusUpdating(true)
-    await supabase.from('tasks').update({ status }).eq('id', task.id)
-    setTask(t => ({ ...t, status }))
+    setActionError(null)
+    const { error } = await supabase.from('tasks').update({ status }).eq('id', task.id)
     setStatusUpdating(false)
+    if (error) { setActionError(`Could not update status: ${error.message}`); return }
+    setTask(t => ({ ...t, status }))
     onChanged()
 
     // Notifications
@@ -124,7 +127,10 @@ export function TaskDetailModal({ task: initialTask, members, assigneeIds, onClo
   async function deleteTask() {
     if (!window.confirm('Delete this task? This cannot be undone.')) return
     setDeleting(true)
-    await supabase.from('tasks').delete().eq('id', task.id)
+    setActionError(null)
+    const { error } = await supabase.from('tasks').delete().eq('id', task.id)
+    setDeleting(false)
+    if (error) { setActionError(`Could not delete task: ${error.message}`); return }
     onChanged()
     onClose()
   }
@@ -171,6 +177,11 @@ export function TaskDetailModal({ task: initialTask, members, assigneeIds, onClo
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          {actionError && (
+            <div className="mx-5 mt-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-600">
+              {actionError}
+            </div>
+          )}
           {/* Meta row */}
           <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-5 flex-wrap text-sm">
             <div>

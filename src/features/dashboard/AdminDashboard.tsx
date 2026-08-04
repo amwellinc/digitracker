@@ -108,6 +108,7 @@ export function AdminDashboard() {
   const [selected, setSelected] = useState<(User & { isOnline: boolean }) | null>(null)
   const [actioning, setActioning] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [leaveActionError, setLeaveActionError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -199,9 +200,11 @@ export function AdminDashboard() {
 
   async function handleLeave(id: string, status: 'approved' | 'rejected') {
     setActioning(id)
-    await supabase.from('leave_requests').update({ status }).eq('id', id)
-    setPending(p => p.filter(l => l.id !== id))
+    setLeaveActionError(null)
+    const { error } = await supabase.from('leave_requests').update({ status }).eq('id', id)
     setActioning(null)
+    if (error) { setLeaveActionError(`Could not ${status === 'approved' ? 'approve' : 'reject'} leave request: ${error.message}`); return }
+    setPending(p => p.filter(l => l.id !== id))
   }
 
   // Computed counts
@@ -374,6 +377,12 @@ export function AdminDashboard() {
               </span>
             )}
           </div>
+
+          {leaveActionError && (
+            <div className="mx-6 mt-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-600">
+              {leaveActionError}
+            </div>
+          )}
 
           {pending.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-gray-400">

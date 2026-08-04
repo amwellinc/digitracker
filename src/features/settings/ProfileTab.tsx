@@ -82,9 +82,10 @@ export function ProfileTab() {
     if (upErr) { setMsg({ type: 'error', text: upErr.message }); setUploading(false); return }
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
     const url = data.publicUrl
-    await supabase.from('users').update({ profile_image: url }).eq('id', user.id)
-    setAvatarUrl(url)
+    const { error: updateErr } = await supabase.from('users').update({ profile_image: url }).eq('id', user.id)
     setUploading(false)
+    if (updateErr) { setMsg({ type: 'error', text: `Could not update profile picture: ${updateErr.message}` }); return }
+    setAvatarUrl(url)
     await refreshUser()
     setMsg({ type: 'success', text: 'Profile picture updated.' })
   }

@@ -70,6 +70,7 @@ export function TimeTrackingPage() {
     lunchStart,
     isCapturing,
     captureError,
+    clockError,
     handleClockIn,
     handleClockOut,
     handleStartLunch,
@@ -264,6 +265,12 @@ export function TimeTrackingPage() {
       {captureError && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
           {captureError}
+        </div>
+      )}
+
+      {clockError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+          {clockError}
         </div>
       )}
 

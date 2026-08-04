@@ -106,6 +106,7 @@ export function HRDocumentsPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [search, setSearch] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [viewDoc, setViewDoc] = useState<Document | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -166,14 +167,23 @@ export function HRDocumentsPage() {
   async function deleteDoc(doc: Document) {
     if (!window.confirm(`Delete "${doc.title}"? This cannot be undone.`)) return
     setDeleting(doc.id)
+    setDeleteError(null)
 
     const path = storagePathFromUrl(doc.url)
-    if (path) await supabase.storage.from('documents').remove([path])
-    await supabase.from('documents').delete().eq('id', doc.id)
+    if (path) {
+      const { error: storageError } = await supabase.storage.from('documents').remove([path])
+      if (storageError) {
+        setDeleting(null)
+        setDeleteError(`Could not delete "${doc.title}": ${storageError.message}`)
+        return
+      }
+    }
+    const { error } = await supabase.from('documents').delete().eq('id', doc.id)
+    setDeleting(null)
+    if (error) { setDeleteError(`Could not delete "${doc.title}": ${error.message}`); return }
 
     setDocCounts(c => ({ ...c, [doc.user_id]: Math.max(0, (c[doc.user_id] ?? 1) - 1) }))
     setTick(t => t + 1)
-    setDeleting(null)
   }
 
   function onUploaded() {
@@ -274,6 +284,12 @@ export function HRDocumentsPage() {
 
         {/* Right panel: document list + identity banner */}
         <div className="flex-1 min-w-0 space-y-4">
+          {deleteError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">
+              {deleteError}
+            </div>
+          )}
+
           {/* Identity verification card */}
           {selectedUser ? (
             <div className={`rounded-2xl border p-4 ${

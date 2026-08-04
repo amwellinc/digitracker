@@ -26,6 +26,7 @@ interface ClockContextValue {
   lunchStart:       Date | null
   isCapturing:      boolean
   captureError:     string | null
+  clockError:       string | null
   handleClockIn:    () => Promise<void>
   handleClockOut:   () => Promise<void>
   handleStartLunch: () => Promise<void>
@@ -46,6 +47,7 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
   const [activeLog,  setActiveLog]  = useState<TimeLog | null>(null)
   const [dayMinutes, setDayMinutes] = useState(0)
   const [lunchStart, setLunchStart] = useState<Date | null>(null)
+  const [clockError, setClockError] = useState<string | null>(null)
 
   // Always-fresh refs so event handlers and callbacks never capture stale values
   const activeLogRef  = useRef<TimeLog | null>(null)
@@ -308,19 +310,21 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     if (!ok) return
     lastActivityRef.current = Date.now()
     const now = new Date().toISOString()
-    const { data } = await supabase
-      .from('time_logs')
-      .insert({
-        user_id:          u.id,
-        date:             today,
-        clock_in:         now,
-        status:           'working',
-        last_seen_at:     now,
-        last_activity_at: now,
-      })
-      .select()
-      .single()
-    if (data) setActiveLog(data as TimeLog)
+    const newLog: TimeLog = {
+      id:                crypto.randomUUID(),
+      user_id:           u.id,
+      date:              today,
+      clock_in:          now,
+      clock_out:         null,
+      status:            'working',
+      total_minutes:     0,
+      last_seen_at:      now,
+      last_activity_at:  now,
+    }
+    setClockError(null)
+    const { error } = await supabase.from('time_logs').insert(newLog)
+    if (error) { setClockError(`Could not clock in: ${error.message}`); return }
+    setActiveLog(newLog)
   }, [startCapture, timezone])
 
   const handleClockOut = useCallback(async () => {
@@ -358,9 +362,11 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     const lunchMin = lunch ? (Date.now() - lunch.getTime()) / 60000 : 0
     const total    = Math.round(elapsed - lunchMin)
 
-    await supabase.from('time_logs')
+    setClockError(null)
+    const { error } = await supabase.from('time_logs')
       .update({ clock_out: now, status: 'clocked_out', total_minutes: total })
       .eq('id', log.id)
+    if (error) { setClockError(`Could not clock out: ${error.message}`); return }
 
     setDayMinutes(p => p + total)
     setActiveLog(null)
@@ -370,23 +376,27 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
   const handleStartLunch = useCallback(async () => {
     const log = activeLogRef.current
     if (!log) return
+    setClockError(null)
+    const { error } = await supabase.from('time_logs').update({ status: 'lunch' }).eq('id', log.id)
+    if (error) { setClockError(`Could not start lunch: ${error.message}`); return }
     setLunchStart(new Date())
-    await supabase.from('time_logs').update({ status: 'lunch' }).eq('id', log.id)
     setActiveLog(p => p ? { ...p, status: 'lunch' } : null)
   }, [])
 
   const handleEndLunch = useCallback(async () => {
     const log = activeLogRef.current
     if (!log) return
+    setClockError(null)
+    const { error } = await supabase.from('time_logs').update({ status: 'working' }).eq('id', log.id)
+    if (error) { setClockError(`Could not end lunch: ${error.message}`); return }
     setLunchStart(null)
-    await supabase.from('time_logs').update({ status: 'working' }).eq('id', log.id)
     setActiveLog(p => p ? { ...p, status: 'working' } : null)
   }, [])
 
   return (
     <ClockContext.Provider value={{
       activeLog, dayMinutes, lunchStart,
-      isCapturing, captureError,
+      isCapturing, captureError, clockError,
       handleClockIn, handleClockOut, handleStartLunch, handleEndLunch,
     }}>
       {children}
