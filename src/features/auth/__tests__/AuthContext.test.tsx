@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 import { AuthProvider } from '../AuthContext'
 import { useAuth } from '@/hooks/useAuth'
+import { supabase } from '@/lib/supabase'
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
@@ -37,21 +38,40 @@ describe('AuthProvider', () => {
   })
 })
 
+// signIn only ever sends the magic link — it never pre-checks whether the
+// email belongs to a registered user before sending it (see LoginPage.test.tsx:
+// "must not be able to block submission of an otherwise-valid request just
+// because a user doesn't know an internal sub-account code"). Whether the
+// account actually exists is discovered later, when loadUser() runs after
+// the user clicks the link and comes back — not synchronously from signIn.
 describe('AuthContext.signIn', () => {
-  it('returns error when user not found in sub_account', async () => {
-    let result: { error: string | null } = { error: null }
-    function SignInTest() {
-      const { signIn } = useAuth()
-      return (
-        <button onClick={async () => { result = await signIn('x@x.com', 'AM333') }}>
-          go
-        </button>
-      )
-    }
-    render(<AuthProvider><SignInTest /></AuthProvider>)
+  function SignInTest({ onResult }: { onResult: (r: { error: string | null }) => void }) {
+    const { signIn } = useAuth()
+    return (
+      <button onClick={async () => onResult(await signIn('x@x.com', 'AM333'))}>
+        go
+      </button>
+    )
+  }
+
+  it('sends the magic link and reports no error on success', async () => {
+    let result: { error: string | null } = { error: 'not set' }
+    render(<AuthProvider><SignInTest onResult={r => { result = r }} /></AuthProvider>)
     await userEvent.click(screen.getByRole('button'))
-    await waitFor(() => {
-      expect(result.error).toBe('Not registered. Contact your administrator.')
+    await waitFor(() => expect(result.error).toBeNull())
+    expect(supabase.auth.signInWithOtp).toHaveBeenCalledWith({
+      email: 'x@x.com',
+      options: { emailRedirectTo: window.location.origin },
     })
+  })
+
+  it('surfaces the error message when signInWithOtp itself fails', async () => {
+    vi.mocked(supabase.auth.signInWithOtp).mockResolvedValueOnce({
+      data: { user: null, session: null }, error: { message: 'Email rate limit exceeded' } as never,
+    })
+    let result: { error: string | null } = { error: null }
+    render(<AuthProvider><SignInTest onResult={r => { result = r }} /></AuthProvider>)
+    await userEvent.click(screen.getByRole('button'))
+    await waitFor(() => expect(result.error).toBe('Email rate limit exceeded'))
   })
 })
