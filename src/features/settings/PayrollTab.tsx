@@ -116,9 +116,19 @@ export function PayrollTab() {
     void fetchEntries()
   }
 
-  const visible = filterUser === 'all'
+  // Defense-in-depth: never render an entry for a user outside the already
+  // correctly-scoped `users` list (same sub-account / downline), even if the
+  // server ever returns more than it should. Super-Admin is unrestricted by
+  // design. See: cross-tenant payroll data leak, 2026-08-05.
+  const allowedUserIds = new Set<string>(users.map(u => u.id))
+  if (user) allowedUserIds.add(user.id)
+  const scopedEntries = user?.role === 'Super-Admin'
     ? entries
-    : entries.filter(e => e.user_id === filterUser)
+    : entries.filter(e => allowedUserIds.has(e.user_id))
+
+  const visible = filterUser === 'all'
+    ? scopedEntries
+    : scopedEntries.filter(e => e.user_id === filterUser)
 
   const totalByCurrency = visible.reduce<Record<string, number>>((acc, e) => {
     acc[e.currency] = (acc[e.currency] ?? 0) + Number(e.amount)
