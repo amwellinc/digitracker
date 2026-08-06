@@ -131,7 +131,7 @@ export function GHLIntegrationTab() {
       <div>
         <h2 className="text-lg font-semibold text-gray-900">GoHighLevel Integration</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Connect DIGITRACKER to your GHL sub-account to sync contacts, push time data, and automate CRM workflows.
+          Connect DIGITRACKER to your DIGI5Y sub-account to sync contacts, push time data, and automate CRM workflows.
         </p>
       </div>
 
@@ -251,7 +251,7 @@ export function GHLIntegrationTab() {
           <div>
             <p className="font-semibold text-gray-900 text-lg">Not Connected</p>
             <p className="text-sm text-gray-500 mt-1 max-w-xs mx-auto">
-              Link your GoHighLevel sub-account to sync contacts and automate data flows with DIGITRACKER.
+              Link your DIGI5Y sub-account to sync contacts and automate data flows with DIGITRACKER.
             </p>
           </div>
 
@@ -260,7 +260,7 @@ export function GHLIntegrationTab() {
               href={buildOAuthUrl()}
               className="inline-flex items-center gap-2 bg-violet-600 text-white rounded-xl px-6 py-3 text-sm font-semibold hover:bg-violet-700 active:bg-violet-800 transition-colors"
             >
-              Connect GoHighLevel →
+              Connect DIGI5Y →
             </a>
           ) : (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700 text-left max-w-sm mx-auto">
