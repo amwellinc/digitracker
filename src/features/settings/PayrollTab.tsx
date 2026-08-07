@@ -213,7 +213,7 @@ export function PayrollTab() {
                 required placeholder="e.g. July 2026 Salary, Performance Bonus…" className="input text-sm" />
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Currency</label>
                 <select value={form.currency} onChange={e => patch('currency', e.target.value)}
