@@ -84,17 +84,33 @@ export interface TaskComment {
   created_at: string
 }
 
+export type LeaveType = 'Annual' | 'Medical' | 'Time-off' | 'PH/Off-in-Lieu' | 'Other'
+
 export interface LeaveRequest {
   id: string
   user_id: string
-  type: 'Annual' | 'Medical' | 'Time-off'
+  type: LeaveType
   start_date: string
   end_date: string
   hours: number | null
   reason: string
+  other_type_label: string | null
   status: 'pending' | 'approved' | 'rejected'
   remarks: string | null
   created_at: string
+}
+
+export interface LeaveAdjustment {
+  id: string
+  user_id: string
+  type: LeaveType
+  direction: 'credit' | 'debit'
+  days: number
+  remarks: string
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  creator?: { name: string } | null
 }
 
 export interface PublicHoliday {

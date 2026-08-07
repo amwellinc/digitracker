@@ -350,7 +350,9 @@ export function ManageLeaveTab() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-700 font-medium whitespace-nowrap">{l.type}</td>
+                      <td className="px-4 py-3 text-gray-700 font-medium whitespace-nowrap">
+                        {l.type === 'Other' && l.other_type_label ? `Other — ${l.other_type_label}` : l.type}
+                      </td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                         {l.type === 'Time-off' || l.start_date === l.end_date
                           ? fmtDate(l.start_date)

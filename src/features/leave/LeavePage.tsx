@@ -2,12 +2,14 @@ import { useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { MyLeaveTab } from './MyLeaveTab'
 import { ManageLeaveTab } from './ManageLeaveTab'
+import { LeaveAdjustmentsPanel } from './LeaveAdjustmentsPanel'
 import { RequestLeaveModal } from './RequestLeaveModal'
 
 export function LeavePage() {
   const { user } = useAuth()
   const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
-  const [activeTab, setActiveTab] = useState<'my' | 'manage'>('my')
+  const canAdjust = user?.role === 'Admin' || user?.role === 'Super-Admin'
+  const [activeTab, setActiveTab] = useState<'my' | 'manage' | 'adjustments'>('my')
   const [showModal, setShowModal] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
 
@@ -18,6 +20,7 @@ export function LeavePage() {
   const tabs = [
     { id: 'my' as const, label: 'My Leave' },
     ...(canManage ? [{ id: 'manage' as const, label: 'Manage Team Leave' }] : []),
+    ...(canAdjust ? [{ id: 'adjustments' as const, label: 'Leave Adjustments' }] : []),
   ]
 
   return (
@@ -57,6 +60,7 @@ export function LeavePage() {
         <MyLeaveTab onRequest={() => setShowModal(true)} refreshTick={refreshTick} />
       )}
       {activeTab === 'manage' && canManage && <ManageLeaveTab />}
+      {activeTab === 'adjustments' && canAdjust && <LeaveAdjustmentsPanel />}
 
       {showModal && (
         <RequestLeaveModal

@@ -55,8 +55,8 @@ describe('buildUserReport', () => {
   ]
 
   const leaveRequests: LeaveRequest[] = [
-    { id: 'l1', user_id: 'u1', type: 'Annual', start_date: '2026-01-07', end_date: '2026-01-07', hours: null, reason: 'Personal', status: 'approved', remarks: null, created_at: '' },
-    { id: 'l2', user_id: 'u1', type: 'Time-off', start_date: '2026-01-08', end_date: '2026-01-08', hours: null, reason: 'Errand', status: 'approved', remarks: null, created_at: '' },
+    { id: 'l1', user_id: 'u1', type: 'Annual', start_date: '2026-01-07', end_date: '2026-01-07', hours: null, reason: 'Personal', other_type_label: null, status: 'approved', remarks: null, created_at: '' },
+    { id: 'l2', user_id: 'u1', type: 'Time-off', start_date: '2026-01-08', end_date: '2026-01-08', hours: null, reason: 'Errand', other_type_label: null, status: 'approved', remarks: null, created_at: '' },
   ]
 
   const kpiDailyLogs: KpiDailyLogRow[] = [

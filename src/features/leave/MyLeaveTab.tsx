@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
-import type { LeaveRequest } from '@/types'
+import type { LeaveAdjustment, LeaveRequest, LeaveType } from '@/types'
 
 const MEDICAL_DAYS = 14
 
@@ -56,6 +56,7 @@ interface Props {
 export function MyLeaveTab({ onRequest, refreshTick }: Props) {
   const { user } = useAuth()
   const [leaves, setLeaves] = useState<LeaveRequest[]>([])
+  const [adjustments, setAdjustments] = useState<LeaveAdjustment[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState<string | null>(null)
   const [cancelError, setCancelError] = useState<string | null>(null)
@@ -63,13 +64,21 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
   const load = useCallback(async () => {
     if (!user) return
     const year = new Date().getFullYear()
-    const { data } = await supabase
-      .from('leave_requests')
-      .select('*')
-      .eq('user_id', user.id)
-      .gte('start_date', `${year}-01-01`)
-      .order('created_at', { ascending: false })
-    setLeaves((data ?? []) as LeaveRequest[])
+    const [{ data: lv }, { data: adj }] = await Promise.all([
+      supabase
+        .from('leave_requests')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('start_date', `${year}-01-01`)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('leave_adjustments')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false }),
+    ])
+    setLeaves((lv ?? []) as LeaveRequest[])
+    setAdjustments((adj ?? []) as LeaveAdjustment[])
     setLoading(false)
   }, [user])
 
@@ -98,11 +107,24 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
 
   const approved = leaves.filter(l => l.status === 'approved')
 
+  // Net effect of Admin credit/debit adjustments for a type, in days.
+  function netAdjustmentDays(type: LeaveType) {
+    return adjustments
+      .filter(a => a.type === type)
+      .reduce((s, a) => s + (a.direction === 'credit' ? a.days : -a.days), 0)
+  }
+
   const annualUsed   = approved.filter(l => l.type === 'Annual').reduce((s, l) => s + diffDays(l.start_date, l.end_date), 0)
   const medicalUsed  = approved.filter(l => l.type === 'Medical').reduce((s, l) => s + diffDays(l.start_date, l.end_date), 0)
   const timeOffUsed  = approved.filter(l => l.type === 'Time-off').reduce((s, l) => s + (l.hours ?? 0), 0)
-  const annualTotal  = user?.annual_leave ?? 14
-  const timeOffTotal = (user?.time_off ?? 5) * 8
+  const phUsed       = approved.filter(l => l.type === 'PH/Off-in-Lieu').reduce((s, l) => s + diffDays(l.start_date, l.end_date), 0)
+  const otherUsed    = approved.filter(l => l.type === 'Other').reduce((s, l) => s + diffDays(l.start_date, l.end_date), 0)
+
+  const annualTotal  = (user?.annual_leave ?? 14) + netAdjustmentDays('Annual')
+  const medicalTotal = MEDICAL_DAYS + netAdjustmentDays('Medical')
+  const timeOffTotal = (user?.time_off ?? 5) * 8 + netAdjustmentDays('Time-off') * 8
+  const phTotal      = netAdjustmentDays('PH/Off-in-Lieu')
+  const otherTotal   = netAdjustmentDays('Other')
 
   if (loading) return <div className="flex justify-center py-16"><div className="w-6 h-6 border-4 border-violet-600 border-t-transparent rounded-full animate-spin" /></div>
 
@@ -115,11 +137,39 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
       )}
 
       {/* Balance cards */}
-      <div className="flex gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <BalanceCard label="Annual Leave" icon="🌴" used={annualUsed}  total={annualTotal}  unit="days"  color="text-violet-600" />
-        <BalanceCard label="Medical Leave" icon="🏥" used={medicalUsed} total={MEDICAL_DAYS} unit="days"  color="text-blue-600" />
+        <BalanceCard label="Medical Leave" icon="🏥" used={medicalUsed} total={medicalTotal} unit="days"  color="text-blue-600" />
         <BalanceCard label="Time-off"     icon="⏱" used={timeOffUsed} total={timeOffTotal} unit="hours" color="text-green-600" />
+        {(phTotal > 0 || phUsed > 0) && (
+          <BalanceCard label="PH / Off-in-Lieu" icon="🗓" used={phUsed} total={phTotal} unit="days" color="text-amber-600" />
+        )}
+        {(otherTotal > 0 || otherUsed > 0) && (
+          <BalanceCard label="Other" icon="📌" used={otherUsed} total={otherTotal} unit="days" color="text-pink-600" />
+        )}
       </div>
+
+      {/* Adjustment history — transparency into why a balance changed */}
+      {adjustments.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-800">Leave Adjustments</h3>
+          </div>
+          <ul className="divide-y divide-gray-50">
+            {adjustments.map(a => (
+              <li key={a.id} className="px-5 py-2.5 flex items-center justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <span className="text-gray-700">{a.type}</span>
+                  {a.remarks && <span className="text-gray-400"> — {a.remarks}</span>}
+                </div>
+                <span className={`flex-shrink-0 font-mono text-xs font-semibold ${a.direction === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
+                  {a.direction === 'credit' ? '+' : '−'}{a.days}d
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Leave history */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -151,7 +201,9 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
               <tbody className="divide-y divide-gray-100">
                 {leaves.map(l => (
                   <tr key={l.id} className="hover:bg-gray-50">
-                    <td className="px-5 py-3 font-medium text-gray-900">{l.type}</td>
+                    <td className="px-5 py-3 font-medium text-gray-900">
+                      {l.type === 'Other' && l.other_type_label ? `Other — ${l.other_type_label}` : l.type}
+                    </td>
                     <td className="px-5 py-3 text-gray-600">
                       {l.type === 'Time-off'
                         ? fmtDate(l.start_date)

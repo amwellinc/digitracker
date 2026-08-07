@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import { todayInTz } from '@/lib/timezone'
-import type { User } from '@/types'
+import type { LeaveType, User } from '@/types'
 
 interface Props {
   onClose: () => void
@@ -13,7 +13,7 @@ interface Props {
   targetUser?: User
 }
 
-type LeaveType = 'Annual' | 'Medical' | 'Time-off'
+const LEAVE_TYPES: LeaveType[] = ['Annual', 'Medical', 'Time-off', 'PH/Off-in-Lieu', 'Other']
 
 function fmtRange(start: string, end: string) {
   const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
@@ -53,6 +53,7 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
   const [endDate, setEndDate] = useState(today())
   const [hours, setHours] = useState(1)
   const [reason, setReason] = useState('')
+  const [otherTypeLabel, setOtherTypeLabel] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [autoConverted, setAutoConverted] = useState(false)
@@ -61,6 +62,7 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
     setType(t)
     setAutoConverted(false)
     if (t === 'Time-off') setEndDate(startDate)
+    if (t !== 'Other') setOtherTypeLabel('')
   }
 
   function handleHoursChange(v: number) {
@@ -76,6 +78,9 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!user) return
+    if (type === 'Other' && !otherTypeLabel.trim()) {
+      setError('Describe what this "Other" leave is for.'); return
+    }
     setError(null)
     setSaving(true)
 
@@ -86,6 +91,7 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
       end_date: type === 'Time-off' ? startDate : endDate,
       hours: type === 'Time-off' ? hours : null,
       reason: reason.trim(),
+      other_type_label: type === 'Other' ? otherTypeLabel.trim() : null,
       status: 'pending',
     }
 
@@ -123,13 +129,13 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
           {/* Type */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Leave Type</label>
-            <div className="flex gap-2">
-              {(['Annual', 'Medical', 'Time-off'] as LeaveType[]).map(t => (
+            <div className="flex flex-wrap gap-2">
+              {LEAVE_TYPES.map(t => (
                 <button
                   key={t}
                   type="button"
                   onClick={() => handleTypeChange(t)}
-                  className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
+                  className={`py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
                     type === t
                       ? 'bg-violet-600 text-white border-violet-600'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-violet-300'
@@ -140,6 +146,20 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
               ))}
             </div>
           </div>
+
+          {/* "Other" description — distinct from the general Reason field below */}
+          {type === 'Other' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Describe this leave type *</label>
+              <input
+                value={otherTypeLabel}
+                onChange={e => setOtherTypeLabel(e.target.value)}
+                required
+                placeholder="e.g. Compensate"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+          )}
 
           {/* Auto-converted notice */}
           {autoConverted && (
