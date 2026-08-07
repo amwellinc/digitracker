@@ -273,13 +273,13 @@ export function GHLIntegrationTab() {
 
       {/* ── What syncs ──────────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-gray-900">What syncs between DIGITRACKER &amp; GHL?</h3>
+        <h3 className="text-sm font-semibold text-gray-900">What syncs between DIGITRACKER &amp; DIGI5Y?</h3>
         <ul className="space-y-3">
           {[
-            { icon: '👤', label: 'Contacts',  desc: 'GHL contacts mirrored as potential team members' },
-            { icon: '🕐', label: 'Time Data', desc: 'Daily punch-in/out summaries pushed to GHL contact notes' },
-            { icon: '📋', label: 'Tasks',     desc: 'Completed DIGITRACKER tasks logged as GHL conversation activity' },
-            { icon: '🔔', label: 'Events',    desc: 'Real-time contact and appointment events received from GHL' },
+            { icon: '👤', label: 'Contacts',  desc: 'DIGI5Y contacts mirrored as potential team members' },
+            { icon: '🕐', label: 'Time Data', desc: 'Daily punch-in/out summaries pushed to DIGI5Y contact notes' },
+            { icon: '📋', label: 'Tasks',     desc: 'Completed DIGITRACKER tasks logged as DIGI5Y conversation activity' },
+            { icon: '🔔', label: 'Events',    desc: 'Real-time contact and appointment events received from DIGI5Y' },
           ].map(item => (
             <li key={item.label} className="flex items-start gap-3 text-sm">
               <span className="text-lg flex-shrink-0">{item.icon}</span>
