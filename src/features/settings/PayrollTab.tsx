@@ -4,9 +4,12 @@ import { supabase } from '@/lib/supabase'
 import type { User } from '@/types'
 import { todayInTz } from '@/lib/timezone'
 import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
+import { CURRENCIES, fmtAmount } from './payrollShared'
+import { PayrollSettingsPanel } from './PayrollSettingsPanel'
+import { GeneratePayrollPanel } from './GeneratePayrollPanel'
 
-const CURRENCIES = ['SGD', 'MYR', 'PHP', 'USD', 'GBP', 'AUD', 'INR', 'AED', 'IDR', 'THB', 'VND', 'CNY', 'JPY']
 const PAYMENT_MODES = ['Bank Transfer', 'Cash', 'Cheque', 'PayNow', 'FAST', 'NEFT', 'RTGS', 'Wise Transfer', 'Crypto', 'Other']
+type SubTab = 'history' | 'settings' | 'generate'
 
 interface PayrollEntry {
   id: string
@@ -135,19 +138,44 @@ export function PayrollTab() {
     return acc
   }, {})
 
-  function fmtAmount(amount: number, currency: string) {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
-  }
+  const [subTab, setSubTab] = useState<SubTab>('history')
 
   return (
     <div className="max-w-3xl">
       <div className="mb-5">
         <h2 className="text-base font-semibold text-gray-900">Payroll</h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          {isManager ? 'Add payroll entries and view payment history for your team.' : 'Your payroll payment history.'}
+          {isManager ? 'Manage salary structure and generate payroll for your team.' : 'Your payroll and payslips.'}
         </p>
       </div>
 
+      <div className="border-b border-gray-200 mb-5">
+        <nav className="-mb-px flex gap-1 sm:gap-4 overflow-x-auto scrollbar-hide pb-px">
+          {([
+            ['history', 'Payment History'],
+            ['settings', 'Payroll Settings'],
+            ['generate', 'Generate Payroll'],
+          ] as [SubTab, string][]).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setSubTab(key)}
+              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                subTab === key
+                  ? 'border-violet-600 text-violet-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {subTab === 'settings' && <PayrollSettingsPanel isManager={isManager} users={users} />}
+      {subTab === 'generate' && <GeneratePayrollPanel isManager={isManager} users={users} />}
+
+      {subTab === 'history' && (
+      <>
       {msg && (
         <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${
           msg.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'
@@ -301,6 +329,8 @@ export function PayrollTab() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   )
 }

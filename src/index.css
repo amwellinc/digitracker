@@ -57,3 +57,25 @@
     @apply px-4 py-3 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between;
   }
 }
+
+/* Print isolation: when printing, show only the element marked
+   .print-area (and its contents) — everything else is hidden. Used by the
+   payslip view so "Print" / "Save as PDF" produces just the document, not
+   the surrounding app chrome. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area, .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
