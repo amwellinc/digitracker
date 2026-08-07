@@ -16,6 +16,7 @@ import type { Screenshot } from '@/types'
 import { StatCards } from './StatCards'
 import { TeamAvatarRow } from './TeamAvatarRow'
 import { AdminDashboard } from '@/features/dashboard/AdminDashboard'
+import { MessageBoard } from '@/features/message-board/MessageBoard'
 
 interface DayLog {
   date: string
@@ -233,6 +234,8 @@ export function TimeTrackingPage() {
 
   return (
     <div className="space-y-6">
+      <MessageBoard />
+
       {isSuperAdmin && <AdminDashboard />}
 
       {isSuperAdmin && (
