@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import { todayInTz } from '@/lib/timezone'
-import type { LeaveType, User } from '@/types'
+import type { LeaveAttachment, LeaveRequest, LeaveType, User } from '@/types'
+import { uploadLeaveAttachments } from './leaveAttachments'
 
 interface Props {
   onClose: () => void
@@ -11,7 +12,12 @@ interface Props {
   // When set, an Admin/Manager is filing this request on behalf of one of
   // their assigned users instead of themselves.
   targetUser?: User
+  // When set, edits this existing request instead of creating a new one —
+  // only ever passed by the Admin-only "Edit" action in ManageLeaveTab.
+  editRequest?: LeaveRequest
 }
+
+interface NewFile { file: File; preview: string }
 
 const LEAVE_TYPES: LeaveType[] = ['Annual', 'Medical', 'Time-off', 'PH/Off-in-Lieu', 'Other']
 
@@ -44,19 +50,29 @@ async function notifyApprovers(applicant: User, type: LeaveType, startDate: stri
   )
 }
 
-export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
+export function RequestLeaveModal({ onClose, onSuccess, targetUser, editRequest }: Props) {
   const { user } = useAuth()
   const timezone = useSubAccountTimezone()
   const today = () => todayInTz(timezone)
-  const [type, setType] = useState<LeaveType>('Annual')
-  const [startDate, setStartDate] = useState(today())
-  const [endDate, setEndDate] = useState(today())
-  const [hours, setHours] = useState(1)
-  const [reason, setReason] = useState('')
-  const [otherTypeLabel, setOtherTypeLabel] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const [type, setType] = useState<LeaveType>(editRequest?.type ?? 'Annual')
+  const [startDate, setStartDate] = useState(editRequest?.start_date ?? today())
+  const [endDate, setEndDate] = useState(editRequest?.end_date ?? today())
+  const [hours, setHours] = useState(editRequest?.hours ?? 1)
+  const [reason, setReason] = useState(editRequest?.reason ?? '')
+  const [otherTypeLabel, setOtherTypeLabel] = useState(editRequest?.other_type_label ?? '')
+  const [existingFiles, setExistingFiles] = useState<LeaveAttachment[]>(editRequest?.attachments ?? [])
+  const [newFiles, setNewFiles] = useState<NewFile[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [autoConverted, setAutoConverted] = useState(false)
+
+  // Only Admin/Super-Admin can backdate — filing or correcting a leave
+  // record for a date that's already passed, for themselves or on behalf
+  // of someone else. Everyone else still requests in advance only.
+  const canBackdate = user?.role === 'Admin' || user?.role === 'Super-Admin'
+  const dateMin = canBackdate ? undefined : today()
 
   function handleTypeChange(t: LeaveType) {
     setType(t)
@@ -75,6 +91,12 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
     setHours(Math.max(1, v))
   }
 
+  function addFiles(files: FileList | null) {
+    if (!files) return
+    const added = Array.from(files).map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : '' }))
+    setNewFiles(p => [...p, ...added])
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!user) return
@@ -84,25 +106,40 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
     setError(null)
     setSaving(true)
 
+    const applicant = targetUser ?? user
+    const requestId = editRequest?.id ?? crypto.randomUUID()
+    const attachments = await uploadLeaveAttachments(
+      newFiles.map(f => f.file), applicant.id, requestId, existingFiles
+    )
+
     const payload = {
-      user_id: targetUser?.id ?? user.id,
       type,
       start_date: startDate,
       end_date: type === 'Time-off' ? startDate : endDate,
       hours: type === 'Time-off' ? hours : null,
       reason: reason.trim(),
       other_type_label: type === 'Other' ? otherTypeLabel.trim() : null,
-      status: 'pending',
+      attachments,
     }
 
-    const { error: err } = await supabase.from('leave_requests').insert(payload)
-    setSaving(false)
-    if (err) { setError(err.message); return }
+    if (editRequest) {
+      const { error: err } = await supabase.from('leave_requests').update(payload).eq('id', editRequest.id)
+      setSaving(false)
+      if (err) { setError(err.message); return }
+    } else {
+      const { error: err } = await supabase.from('leave_requests').insert({
+        id: requestId,
+        user_id: applicant.id,
+        status: 'pending',
+        ...payload,
+      })
+      setSaving(false)
+      if (err) { setError(err.message); return }
 
-    // Both the assigned Manager and workspace Admins can approve a request,
-    // so both need to know one is waiting on them — not just whoever the
-    // requester happens to be looking at right now.
-    await notifyApprovers(targetUser ?? user, type, payload.start_date, payload.end_date, user.id)
+      // Both the assigned Manager and workspace Admins can approve a
+      // request, so both need to know one is waiting on them.
+      await notifyApprovers(applicant, type, payload.start_date, payload.end_date, user.id)
+    }
 
     onSuccess()
     onClose()
@@ -111,11 +148,11 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-lg font-semibold text-gray-900">Request Leave</h2>
+          <h2 className="text-lg font-semibold text-gray-900">{editRequest ? 'Edit Leave Request' : 'Request Leave'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         {targetUser && (
@@ -168,6 +205,13 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
             </div>
           )}
 
+          {/* Backdating notice */}
+          {canBackdate && (
+            <div className="bg-violet-50 border border-violet-200 text-violet-700 rounded-lg px-3 py-2 text-xs">
+              As an Admin, you can set a date in the past to record leave retroactively.
+            </div>
+          )}
+
           {/* Date(s) */}
           {type === 'Time-off' ? (
             <div>
@@ -175,20 +219,20 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
               <input
                 type="date"
                 value={startDate}
-                min={today()}
+                min={dateMin}
                 onChange={e => setStartDate(e.target.value)}
                 required
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
               />
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
                 <input
                   type="date"
                   value={startDate}
-                  min={today()}
+                  min={dateMin}
                   onChange={e => { setStartDate(e.target.value); if (e.target.value > endDate) setEndDate(e.target.value) }}
                   required
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
@@ -241,6 +285,36 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
             />
           </div>
 
+          {/* Attachments — e.g. medical certificate */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Attachments</label>
+            <button type="button" onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-2 text-sm text-violet-600 border border-dashed border-violet-300 rounded-lg px-3 py-2 hover:bg-violet-50 w-full justify-center">
+              📎 Add document, e.g. medical certificate
+            </button>
+            <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx"
+              className="hidden" onChange={e => addFiles(e.target.files)} />
+            {(existingFiles.length > 0 || newFiles.length > 0) && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {existingFiles.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1 text-xs text-gray-700">
+                    📄 {f.name}
+                    <button type="button" onClick={() => setExistingFiles(p => p.filter((_, j) => j !== i))}
+                      className="text-gray-400 hover:text-red-600 ml-1">✕</button>
+                  </div>
+                ))}
+                {newFiles.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1.5 bg-violet-50 rounded-lg px-2.5 py-1 text-xs text-violet-700">
+                    {f.preview ? <img src={f.preview} className="w-5 h-5 rounded object-cover" alt="" /> : '📄'}
+                    {f.file.name}
+                    <button type="button" onClick={() => setNewFiles(p => p.filter((_, j) => j !== i))}
+                      className="text-violet-400 hover:text-violet-700 ml-1">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {error && (
             <p className="text-red-500 text-sm">{error}</p>
           )}
@@ -258,7 +332,7 @@ export function RequestLeaveModal({ onClose, onSuccess, targetUser }: Props) {
               disabled={saving}
               className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50"
             >
-              {saving ? 'Submitting…' : 'Submit Request'}
+              {saving ? 'Saving…' : editRequest ? 'Save Changes' : 'Submit Request'}
             </button>
           </div>
         </form>

@@ -86,6 +86,13 @@ export interface TaskComment {
 
 export type LeaveType = 'Annual' | 'Medical' | 'Time-off' | 'PH/Off-in-Lieu' | 'Other'
 
+export interface LeaveAttachment {
+  path: string
+  name: string
+  size: number
+  type: string
+}
+
 export interface LeaveRequest {
   id: string
   user_id: string
@@ -97,6 +104,7 @@ export interface LeaveRequest {
   other_type_label: string | null
   status: 'pending' | 'approved' | 'rejected'
   remarks: string | null
+  attachments: LeaveAttachment[]
   created_at: string
 }
 

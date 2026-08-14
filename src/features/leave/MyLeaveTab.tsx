@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { LeaveAdjustment, LeaveRequest, LeaveType } from '@/types'
+import { RequestLeaveModal } from './RequestLeaveModal'
+import { viewLeaveAttachment } from './leaveAttachments'
 
 const MEDICAL_DAYS = 14
 
@@ -59,7 +61,10 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
   const [adjustments, setAdjustments] = useState<LeaveAdjustment[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState<string | null>(null)
-  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [editingLeave, setEditingLeave] = useState<LeaveRequest | null>(null)
+
+  const canEdit = user?.role === 'Admin' || user?.role === 'Super-Admin'
 
   const load = useCallback(async () => {
     if (!user) return
@@ -99,10 +104,10 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
 
   async function cancelLeave(id: string) {
     setCancelling(id)
-    setCancelError(null)
+    setActionError(null)
     const { error } = await supabase.from('leave_requests').delete().eq('id', id)
     setCancelling(null)
-    if (error) setCancelError(`Could not cancel leave request: ${error.message}`)
+    if (error) setActionError(`Could not cancel leave request: ${error.message}`)
   }
 
   const approved = leaves.filter(l => l.status === 'approved')
@@ -130,9 +135,9 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
 
   return (
     <div className="space-y-5">
-      {cancelError && (
+      {actionError && (
         <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-600">
-          {cancelError}
+          {actionError}
         </div>
       )}
 
@@ -193,7 +198,7 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                 <tr>
-                  {['Type', 'Date(s)', 'Duration', 'Reason', 'Status', 'Remarks', ''].map(h => (
+                  {['Type', 'Date(s)', 'Duration', 'Reason', 'Docs', 'Status', 'Remarks', ''].map(h => (
                     <th key={h} className="px-5 py-3 text-left font-medium">{h}</th>
                   ))}
                 </tr>
@@ -216,6 +221,21 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
                     </td>
                     <td className="px-5 py-3 text-gray-600 max-w-xs truncate">{l.reason}</td>
                     <td className="px-5 py-3">
+                      {l.attachments.length === 0 ? (
+                        <span className="text-gray-300">—</span>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          {l.attachments.map((a, i) => (
+                            <button key={i} type="button"
+                              onClick={() => void viewLeaveAttachment(a.path).then(msg => msg && setActionError(msg))}
+                              className="text-xs text-violet-600 hover:text-violet-800 text-left truncate max-w-[120px]" title={a.name}>
+                              📎 {a.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_STYLE[l.status]}`}>
                         {l.status}
                       </span>
@@ -230,15 +250,22 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
                       )}
                     </td>
                     <td className="px-5 py-3">
-                      {l.status === 'pending' && (
-                        <button
-                          onClick={() => void cancelLeave(l.id)}
-                          disabled={cancelling === l.id}
-                          className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
-                        >
-                          {cancelling === l.id ? 'Cancelling…' : 'Cancel'}
-                        </button>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {l.status === 'pending' && (
+                          <button
+                            onClick={() => void cancelLeave(l.id)}
+                            disabled={cancelling === l.id}
+                            className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                          >
+                            {cancelling === l.id ? 'Cancelling…' : 'Cancel'}
+                          </button>
+                        )}
+                        {canEdit && (
+                          <button onClick={() => setEditingLeave(l)} className="text-xs text-gray-400 hover:text-violet-600">
+                            Edit
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -247,6 +274,14 @@ export function MyLeaveTab({ onRequest, refreshTick }: Props) {
           </div>
         )}
       </div>
+
+      {editingLeave && (
+        <RequestLeaveModal
+          editRequest={editingLeave}
+          onClose={() => setEditingLeave(null)}
+          onSuccess={() => void load()}
+        />
+      )}
     </div>
   )
 }

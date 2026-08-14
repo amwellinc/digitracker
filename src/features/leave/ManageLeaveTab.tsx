@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { LeaveRequest, User } from '@/types'
 import { RequestLeaveModal } from './RequestLeaveModal'
+import { viewLeaveAttachment } from './leaveAttachments'
 
 function fmtDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -98,6 +99,7 @@ export function ManageLeaveTab() {
   const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null)
   const [requestForId, setRequestForId] = useState('')
   const [showRequestModal, setShowRequestModal] = useState(false)
+  const [editingLeave, setEditingLeave] = useState<LeaveRequest | null>(null)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -243,6 +245,7 @@ export function ManageLeaveTab() {
 
   const visible = filter === 'all' ? leaves : leaves.filter(l => l.status === filter)
   const pendingCount = leaves.filter(l => l.status === 'pending').length
+  const canEdit = user?.role === 'Admin' || user?.role === 'Super-Admin'
 
   if (loading) return (
     <div className="flex justify-center py-16">
@@ -308,6 +311,15 @@ export function ManageLeaveTab() {
         />
       )}
 
+      {editingLeave && (
+        <RequestLeaveModal
+          targetUser={memberMap[editingLeave.user_id]}
+          editRequest={editingLeave}
+          onClose={() => setEditingLeave(null)}
+          onSuccess={() => void load()}
+        />
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
           <span>{error}</span>
@@ -326,7 +338,7 @@ export function ManageLeaveTab() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                 <tr>
-                  {['Employee', 'Type', 'Date(s)', 'Duration', 'Reason', 'Submitted', 'Status', 'Remarks', 'Action'].map(h => (
+                  {['Employee', 'Type', 'Date(s)', 'Duration', 'Reason', 'Docs', 'Submitted', 'Status', 'Remarks', 'Action'].map(h => (
                     <th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -360,6 +372,21 @@ export function ManageLeaveTab() {
                       </td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{dur}</td>
                       <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate" title={l.reason}>{l.reason}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {l.attachments.length === 0 ? (
+                          <span className="text-gray-300">—</span>
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            {l.attachments.map((a, i) => (
+                              <button key={i} type="button"
+                                onClick={() => void viewLeaveAttachment(a.path).then(msg => msg && setError(msg))}
+                                className="text-xs text-violet-600 hover:text-violet-800 text-left truncate max-w-[120px]" title={a.name}>
+                                📎 {a.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-xs">
                         {new Date(l.created_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })}
                       </td>
@@ -378,24 +405,34 @@ export function ManageLeaveTab() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {l.status === 'pending' && (
-                          <div className="flex gap-1.5">
+                        <div className="flex gap-1.5">
+                          {l.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => void approve(l.id)}
+                                disabled={acting === l.id}
+                                className="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+                              >
+                                {acting === l.id ? '…' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => setRejectTarget({ id: l.id, memberName: member?.name ?? 'this employee' })}
+                                disabled={acting === l.id}
+                                className="px-2.5 py-1 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          {canEdit && (
                             <button
-                              onClick={() => void approve(l.id)}
-                              disabled={acting === l.id}
-                              className="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+                              onClick={() => setEditingLeave(l)}
+                              className="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs font-medium hover:border-violet-300 hover:text-violet-700 transition-colors"
                             >
-                              {acting === l.id ? '…' : 'Approve'}
+                              Edit
                             </button>
-                            <button
-                              onClick={() => setRejectTarget({ id: l.id, memberName: member?.name ?? 'this employee' })}
-                              disabled={acting === l.id}
-                              className="px-2.5 py-1 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
