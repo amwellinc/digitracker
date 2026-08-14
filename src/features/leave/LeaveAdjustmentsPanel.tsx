@@ -17,6 +17,11 @@ const emptyForm = (userId = ''): FormState => ({
   user_id: userId, type: 'PH/Off-in-Lieu', direction: 'credit', days: '1', remarks: '',
 })
 
+const DAY_PRESETS = [
+  { label: 'Half Day', value: '0.5' },
+  { label: 'Full Day', value: '1' },
+]
+
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
@@ -30,6 +35,7 @@ export function LeaveAdjustmentsPanel() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<LeaveAdjustment | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
+  const [customAmount, setCustomAmount] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -61,6 +67,7 @@ export function LeaveAdjustmentsPanel() {
   function openNew() {
     setEditing(null)
     setForm(emptyForm(filterUser !== 'all' ? filterUser : members[0]?.id ?? ''))
+    setCustomAmount(false)
     setError(null)
     setShowForm(true)
   }
@@ -68,8 +75,14 @@ export function LeaveAdjustmentsPanel() {
   function openEdit(a: LeaveAdjustment) {
     setEditing(a)
     setForm({ user_id: a.user_id, type: a.type, direction: a.direction, days: String(a.days), remarks: a.remarks })
+    setCustomAmount(a.type !== 'Time-off' && a.days !== 0.5 && a.days !== 1)
     setError(null)
     setShowForm(true)
+  }
+
+  function handleTypeChange(t: LeaveType) {
+    setForm(f => ({ ...f, type: t, days: t === 'Time-off' ? '0.5' : '1' }))
+    setCustomAmount(false)
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -223,35 +236,66 @@ export function LeaveAdjustmentsPanel() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Leave Type</label>
-                <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as LeaveType }))}
+                <select value={form.type} onChange={e => handleTypeChange(e.target.value as LeaveType)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
                   {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Adjustment</label>
-                  <div className="flex gap-2">
-                    {(['credit', 'debit'] as const).map(d => (
-                      <button key={d} type="button" onClick={() => setForm(f => ({ ...f, direction: d }))}
-                        className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
-                          form.direction === d
-                            ? d === 'credit' ? 'bg-green-600 text-white border-green-600' : 'bg-red-500 text-white border-red-500'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                        }`}>
-                        {d}
-                      </button>
-                    ))}
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Adjustment</label>
+                <div className="flex gap-2">
+                  {(['credit', 'debit'] as const).map(d => (
+                    <button key={d} type="button" onClick={() => setForm(f => ({ ...f, direction: d }))}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
+                        form.direction === d
+                          ? d === 'credit' ? 'bg-green-600 text-white border-green-600' : 'bg-red-500 text-white border-red-500'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                      }`}>
+                      {d}
+                    </button>
+                  ))}
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Days</label>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {form.type === 'Time-off' ? 'Hours' : 'Amount'}
+                  </label>
+                  {form.type !== 'Time-off' && (
+                    <button type="button" onClick={() => setCustomAmount(v => !v)}
+                      className="text-xs text-violet-600 hover:text-violet-800 font-medium">
+                      {customAmount ? 'Use half / full day' : 'Custom amount'}
+                    </button>
+                  )}
+                </div>
+
+                {form.type === 'Time-off' ? (
+                  <input type="number" step="0.5" min="0.5" max="24"
+                    value={form.days ? String(Number(form.days) * 8) : ''}
+                    onChange={e => setForm(f => ({ ...f, days: e.target.value ? String(Number(e.target.value) / 8) : '' }))}
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                ) : customAmount ? (
                   <input type="number" step="0.5" min="0.5" value={form.days}
                     onChange={e => setForm(f => ({ ...f, days: e.target.value }))}
                     required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500" />
-                </div>
+                ) : (
+                  <div className="flex gap-2">
+                    {DAY_PRESETS.map(p => (
+                      <button key={p.value} type="button" onClick={() => setForm(f => ({ ...f, days: p.value }))}
+                        className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                          form.days === p.value
+                            ? 'bg-violet-600 text-white border-violet-600'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-violet-300'
+                        }`}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
