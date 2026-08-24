@@ -98,7 +98,7 @@ jobs:
       - name: Deploy Edge Functions
         if: steps.check.outputs.configured == 'true'
         run: |
-          NO_VERIFY_JWT="ghl-oauth-callback ghl-webhook stripe-webhook"
+          NO_VERIFY_JWT="oauth-callback crm-webhook stripe-webhook"
 
           # Retries each function up to 3 times before giving up on it — the
           # Supabase deploy API occasionally hiccups on a single function in

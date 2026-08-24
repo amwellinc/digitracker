@@ -41,6 +41,12 @@ export function GHLInstallPage() {
             </a>
           </p>
         </div>
+
+        <div className="pt-1 flex items-center justify-center gap-3 text-xs text-gray-400">
+          <a href="/#/privacy" className="hover:text-violet-600 hover:underline">Privacy Policy</a>
+          <span>·</span>
+          <a href="/#/terms" className="hover:text-violet-600 hover:underline">Terms of Service</a>
+        </div>
       </div>
     </div>
   )

@@ -1,7 +1,12 @@
+// Named oauth-callback, not ghl-oauth-callback: GHL's redirect_uri
+// validation rejects URLs that contain "ghl" anywhere in the path.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const GHL_TOKEN_URL = 'https://services.leadconnectorhq.com/oauth/token'
-const FRONTEND_URL  = 'https://digitracker.digi5y.co'
+// The APP, not the marketing site — this was pointed at digitracker.digi5y.co
+// (which has no /#/ghl/connected route at all) until this fix; every OAuth
+// completion would have landed on a broken page there.
+const FRONTEND_URL  = 'https://digitracker-app.digi5y.co'
 
 Deno.serve(async (req) => {
   const url = new URL(req.url)
@@ -25,7 +30,11 @@ Deno.serve(async (req) => {
     return redirect('error', '&reason=not_configured')
   }
 
-  const redirectUri = `${supabaseUrl}/functions/v1/ghl-oauth-callback`
+  // Must exactly match what was sent to GHL's authorize endpoint, including
+  // this function's own URL — GHL rejects redirect_uri values that contain
+  // "ghl" in the path (an anti-impersonation rule), which is the reason
+  // this function isn't named ghl-oauth-callback.
+  const redirectUri = `${supabaseUrl}/functions/v1/oauth-callback`
 
   // Exchange authorization code for tokens
   let tokenData: {

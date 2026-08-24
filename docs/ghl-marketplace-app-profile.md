@@ -12,11 +12,11 @@
 | **App Name** | DIGITRACKER |
 | **Tagline** | Remote Workforce Management — Built for GHL Sub-Accounts |
 | **Developer / Company** | DIGI5Y |
-| **Support Email** | admin@digi5y.com |
-| **Support URL** | https://digitracker.digi5y.co/#/install |
-| **App Website** | https://digitracker.digi5y.co |
-| **Privacy Policy URL** | https://digitracker.digi5y.co/#/privacy |
-| **Terms of Service URL** | https://digitracker.digi5y.co/#/terms |
+| **Support Email** | admin@digi5y.co |
+| **Support URL** | https://digitracker-app.digi5y.co/#/install |
+| **App Website** | https://www.digitracker.co |
+| **Privacy Policy URL** | https://digitracker-app.digi5y.co/#/privacy |
+| **Terms of Service URL** | https://digitracker-app.digi5y.co/#/terms |
 | **Category** | Productivity / HR & Team Management |
 | **Tags** | time tracking, remote work, HR, workforce, screen capture, KPIs, tasks |
 
@@ -26,9 +26,13 @@
 
 | Field | Value |
 |---|---|
-| **Install / Landing URL** | `https://digitracker.digi5y.co/#/install` |
-| **OAuth Redirect URI** | `https://digitracker.digi5y.co/ghl/callback` |
-| **Webhook URL** | `https://mllrjejqyddgaxxtjsqf.supabase.co/functions/v1/ghl-webhook` |
+| **Install / Landing URL** | `https://digitracker-app.digi5y.co/#/install` |
+| **OAuth Redirect URI** | `https://mllrjejqyddgaxxtjsqf.supabase.co/functions/v1/oauth-callback` |
+| **Webhook URL** | `https://mllrjejqyddgaxxtjsqf.supabase.co/functions/v1/crm-webhook` |
+
+> The redirect URI and webhook URL point at Supabase Edge Functions, not the
+> app itself — and deliberately avoid the substring "ghl" in the path, which
+> GHL's own URL validation rejects.
 
 ---
 
@@ -38,7 +42,6 @@
 contacts.readonly
 contacts.write
 locations.readonly
-calendars.readonly
 users.readonly
 ```
 
@@ -91,9 +94,8 @@ Upload contracts, policies, appraisals, and other HR documents. Role-based acces
 #### 🔗 GoHighLevel Integration
 Once connected, DIGITRACKER:
 - Mirrors GHL contacts as potential team members
-- Pushes daily time summaries to GHL contact notes
-- Receives real-time contact and calendar events via GHL webhooks
-- Supports single-sign-on flow through GHL sub-account linking
+- Receives real-time contact create/update events via GHL webhooks
+- Reflects app install/uninstall state automatically
 
 ---
 
@@ -146,7 +148,7 @@ v1.0 — Initial Release
 - KPI dashboards per role
 - HR document storage with role-based access
 - GoHighLevel sub-account integration via OAuth
-- Real-time GHL webhook events (contacts, appointments)
+- Real-time GHL webhook events (contact create/update, install/uninstall)
 - 3-tier role system: Super-Admin, Manager, Staff
 - Magic-link authentication (no passwords)
 - Responsive — works on desktop, tablet, and mobile
@@ -178,7 +180,7 @@ Capture and upload these screens before submitting:
 | 3 | Leave Management | Show pending requests + approve/reject UI |
 | 4 | Tasks & KPI page | Show task list with completion badges |
 | 5 | Settings → GHL Integration tab | Show "Connected" green card |
-| 6 | Install / landing page | https://digitracker.digi5y.co/#/install |
+| 6 | Install / landing page | https://digitracker-app.digi5y.co/#/install |
 
 **Recommended dimensions:** 1280×800px or 1920×1080px, PNG or JPEG
 
@@ -197,13 +199,13 @@ Capture and upload these screens before submitting:
 - [ ] App Name: `DIGITRACKER`
 - [ ] Short description filled in (≤160 chars)
 - [ ] Full description pasted (markdown)
-- [ ] Install URL set: `https://digitracker.digi5y.co/#/install`
-- [ ] OAuth Redirect URI set: `https://digitracker.digi5y.co/ghl/callback`
-- [ ] Webhook URL set: `https://mllrjejqyddgaxxtjsqf.supabase.co/functions/v1/ghl-webhook`
-- [ ] Scopes selected: contacts.readonly, contacts.write, locations.readonly, calendars.readonly, users.readonly
+- [ ] Install URL set: `https://digitracker-app.digi5y.co/#/install`
+- [ ] OAuth Redirect URI set: `https://mllrjejqyddgaxxtjsqf.supabase.co/functions/v1/oauth-callback`
+- [ ] Webhook URL set: `https://mllrjejqyddgaxxtjsqf.supabase.co/functions/v1/crm-webhook`
+- [ ] Scopes selected: contacts.readonly, contacts.write, locations.readonly, users.readonly
 - [ ] 6 screenshots uploaded
 - [ ] App icon (512×512) uploaded
-- [ ] Support email: admin@digi5y.com
+- [ ] Support email: admin@digi5y.co
 - [ ] Privacy Policy URL added
 - [ ] Terms of Service URL added
 - [ ] Pricing listed (Basic / Business / Professional)

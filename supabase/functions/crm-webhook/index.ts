@@ -1,3 +1,6 @@
+// Receives GHL webhook events. Named crm-webhook, not ghl-webhook: GHL
+// rejects registered URLs that contain "ghl" anywhere in the path (same
+// reason oauth-callback isn't named ghl-oauth-callback).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 Deno.serve(async (req) => {

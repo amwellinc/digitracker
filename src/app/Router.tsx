@@ -10,6 +10,8 @@ import { Layout } from './Layout'
 import { LandingPage } from '@/features/landing/LandingPage'
 import { GHLInstallPage } from '@/features/ghl/GHLInstallPage'
 import { GHLConnectedPage } from '@/features/ghl/GHLConnectedPage'
+import { PrivacyPolicyPage } from '@/features/legal/PrivacyPolicyPage'
+import { TermsOfServicePage } from '@/features/legal/TermsOfServicePage'
 import { useAuth } from '@/hooks/useAuth'
 import { useReportsAccess } from '@/hooks/useReportsAccess'
 
@@ -96,6 +98,8 @@ export function AppRouter() {
         <Route path="/install"         element={<GHLInstallPage />} />
         <Route path="/ghl/callback"    element={<GHLConnectedPage />} />
         <Route path="/ghl/connected"   element={<GHLConnectedPage />} />
+        <Route path="/privacy"         element={<PrivacyPolicyPage />} />
+        <Route path="/terms"           element={<TermsOfServicePage />} />
 
         {/* Root: landing page for guests, app shell for authenticated users */}
         <Route
