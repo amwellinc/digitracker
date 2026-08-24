@@ -5,12 +5,18 @@ import { useScreenCapture } from '@/hooks/useScreenCapture'
 import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import type { TimeLog } from '@/types'
 import { todayInTz } from '@/lib/timezone'
-import { IDLE_THRESHOLD_MS } from '@/lib/activity'
+import { IDLE_DISCONNECT_MS, IDLE_THRESHOLD_MS, shouldIdleDisconnect } from '@/lib/activity'
 
 const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 const HEARTBEAT_MS      = 2 * 60 * 1000   // ping DB every 2 min while clocked in
-const STALE_MS          = IDLE_THRESHOLD_MS  // >20 min gap = abandoned session (same threshold used for the Idle status)
+const STALE_MS          = IDLE_THRESHOLD_MS  // >20 min heartbeat gap = abandoned session (tab/browser gone)
+// >40 min with no real input while "working" = idle disconnect. Deliberately
+// separate from STALE_MS: that one detects an abandoned TAB (heartbeat stops
+// because the browser is gone); this one detects a PRESENT but idle user —
+// the tab keeps heartbeating every 2 min regardless of activity, so without
+// this check a session with no input at all would never auto clock-out.
+// Never applies while status is 'lunch' — a stationary hour there is expected.
 const ACTIVITY_EVENTS   = ['mousemove', 'keydown', 'scroll', 'click', 'touchstart'] as const
 
 // Module-level token cache — kept fresh by the Supabase auth listener so
@@ -87,6 +93,25 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
     start: startCapture,
     stop:  stopCapture,
   } = useScreenCapture(handleForcedClockOut)
+
+  // ── Idle disconnect: 40+ min with no real input while "working" ────────
+  // Clocks out AT the moment the idle threshold was actually crossed
+  // (lastActivityMs + IDLE_DISCONNECT_MS), not "now" — the check itself may
+  // run a couple minutes late depending on heartbeat/visibility timing, and
+  // that gap shouldn't be counted as worked time.
+  const handleIdleClockOut = useCallback(async (log: TimeLog, lastActivityMs: number) => {
+    const clockOut = new Date(lastActivityMs + IDLE_DISCONNECT_MS).toISOString()
+    const total    = Math.round((new Date(clockOut).getTime() - new Date(log.clock_in).getTime()) / 60000)
+    stopCapture()
+    const { error } = await supabase.from('time_logs')
+      .update({ clock_out: clockOut, status: 'clocked_out', total_minutes: total })
+      .eq('id', log.id)
+    if (error) return
+    setDayMinutes(p => p + total)
+    setActiveLog(null)
+    setLunchStart(null)
+    setClockError('You were automatically clocked out after 40 minutes of inactivity.')
+  }, [stopCapture])
 
   // ── On mount: restore today's session + detect stale abandoned logs ────
   useEffect(() => {
@@ -215,6 +240,18 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
           setDayMinutes(p => p + total)
           setActiveLog(null)
           setLunchStart(null)
+          return
+        }
+      }
+
+      // Backstop for the idle-disconnect check in the heartbeat loop — a
+      // backgrounded tab's setInterval can be throttled well past
+      // HEARTBEAT_MS, so re-validate against the DB's last_activity_at (not
+      // the local ref) the moment the tab is visible again.
+      if (fresh.last_activity_at) {
+        const lastActivityMs = new Date(fresh.last_activity_at).getTime()
+        if (shouldIdleDisconnect(fresh.status, lastActivityMs)) {
+          await handleIdleClockOut(fresh, lastActivityMs)
         }
       }
     }
@@ -236,7 +273,12 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
         .eq('id', activeLog.id)
       // On failure the most common cause is an expired auth token.
       // Refresh the session so the next beat succeeds.
-      if (error) await supabase.auth.refreshSession()
+      if (error) { await supabase.auth.refreshSession(); return }
+
+      // Idle disconnect — never while on lunch, per policy.
+      if (shouldIdleDisconnect(activeLog.status, lastActivityRef.current)) {
+        await handleIdleClockOut(activeLog, lastActivityRef.current)
+      }
     }
 
     void beat()  // immediate first beat
