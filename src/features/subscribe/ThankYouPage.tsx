@@ -1,9 +1,17 @@
 import { Link, useSearchParams } from 'react-router-dom'
 
+const PRODUCT_WEBSITE = 'www.digitracker.co'
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 export function ThankYouPage() {
   const [searchParams] = useSearchParams()
   const code = searchParams.get('code')
-  const isFree = searchParams.get('plan') === 'free'
+  const planName = searchParams.get('planName')
+  const trialStart = searchParams.get('trialStart')
+  const trialEnd = searchParams.get('trialEnd')
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-12" style={{ background: '#F8FAFF' }}>
@@ -13,17 +21,20 @@ export function ThankYouPage() {
         </div>
         <h1 className="font-heading text-2xl font-extrabold text-slate-900 mb-2">You're all set!</h1>
         <p className="text-sm text-slate-500 leading-relaxed">
-          {isFree
-            ? "Your DIGITRACKER workspace is ready. Sign in with the email and password you just created to get started."
-            : "Payment received — your DIGITRACKER workspace is ready. Sign in with the email and password you just created to get started."}
+          Your DIGITRACKER workspace is ready. We've emailed an invite link to activate your
+          account and set your password — check your inbox to get started.
         </p>
 
-        {code && (
-          <div className="mt-5 border border-slate-200 rounded-lg px-4 py-3" style={{ background: '#F8FAFF' }}>
-            <p className="text-xs text-slate-400">Your workspace code</p>
-            <p className="font-mono font-semibold text-slate-800">{code}</p>
-          </div>
-        )}
+        {/* Order summary — what was purchased */}
+        <div className="mt-6 text-left rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+          <SummaryRow label="Product" value="DIGITRACKER" />
+          {planName && <SummaryRow label="Plan" value={planName} />}
+          {code && <SummaryRow label="Workspace code" value={code} mono />}
+          {trialStart && trialEnd && (
+            <SummaryRow label="Trial period" value={`${fmtDate(trialStart)} – ${fmtDate(trialEnd)}`} />
+          )}
+          <SummaryRow label="Website" value={PRODUCT_WEBSITE} />
+        </div>
 
         <Link
           to="/login"
@@ -34,9 +45,18 @@ export function ThankYouPage() {
         </Link>
 
         <p className="text-xs text-slate-400 mt-5">
-          A confirmation email is on its way to your inbox.
+          Didn't get the email? Check spam, or contact support once you're signed in.
         </p>
       </div>
+    </div>
+  )
+}
+
+function SummaryRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+      <span className="text-slate-400">{label}</span>
+      <span className={`font-medium text-slate-800 text-right ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   )
 }

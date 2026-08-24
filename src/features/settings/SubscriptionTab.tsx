@@ -21,6 +21,7 @@ export function SubscriptionTab() {
   const { user } = useAuth()
   const [sub, setSub] = useState<Subscription | null>(null)
   const [plans, setPlans] = useState<PlanConfig[]>([])
+  const [trial, setTrial] = useState<{ trial_starts_at: string | null; trial_ends_at: string | null } | null>(null)
   const [loading, setLoading] = useState(true)
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null)
   const [portalLoading, setPortalLoading] = useState(false)
@@ -32,12 +33,14 @@ export function SubscriptionTab() {
   useEffect(() => {
     if (!user) return
     void (async () => {
-      const [{ data: subData }, { data: planData }] = await Promise.all([
+      const [{ data: subData }, { data: planData }, { data: trialData }] = await Promise.all([
         supabase.from('subscriptions').select('*').eq('sub_account', user.sub_account).maybeSingle(),
         supabase.from('plan_configs').select('*').eq('is_active', true).order('sort_order'),
+        supabase.from('sub_accounts').select('trial_starts_at, trial_ends_at').eq('code', user.sub_account).maybeSingle(),
       ])
       setSub(subData as Subscription | null)
       setPlans((planData ?? []) as PlanConfig[])
+      setTrial(trialData as { trial_starts_at: string | null; trial_ends_at: string | null } | null)
       setLoading(false)
     })()
   }, [user])
@@ -133,6 +136,16 @@ export function SubscriptionTab() {
                     {sub.status === 'cancelled' ? 'Access until' : 'Next billing'}:{' '}
                     <strong className="text-gray-700">
                       {new Date(sub.billing_date).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    </strong>
+                  </p>
+                )}
+                {trial?.trial_starts_at && trial?.trial_ends_at && (
+                  <p>
+                    Trial period:{' '}
+                    <strong className="text-gray-700">
+                      {new Date(trial.trial_starts_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })}
+                      {' – '}
+                      {new Date(trial.trial_ends_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })}
                     </strong>
                   </p>
                 )}

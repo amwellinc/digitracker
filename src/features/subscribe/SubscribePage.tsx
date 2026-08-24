@@ -36,7 +36,6 @@ interface FormState {
   companyName: string
   adminName: string
   adminEmail: string
-  password: string
 }
 
 export function SubscribePage() {
@@ -53,8 +52,7 @@ export function SubscribePage() {
   const [cycle, setCycle] = useState<BillingCycle>('monthly')
   const [currencyCode, setCurrencyCode] = useState('USD')
   const [selectedPlan, setSelectedPlan] = useState<PlanConfig['id']>('business')
-  const [form, setForm] = useState<FormState>({ companyName: '', adminName: '', adminEmail: '', password: '' })
-  const [showPass, setShowPass] = useState(false)
+  const [form, setForm] = useState<FormState>({ companyName: '', adminName: '', adminEmail: '' })
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -93,8 +91,7 @@ export function SubscribePage() {
 
   const formValid = useMemo(() => (
     form.companyName.trim().length > 0 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.adminEmail) &&
-    form.password.length >= 8
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.adminEmail)
   ), [form])
 
   function goToReview(e: React.FormEvent) {
@@ -113,14 +110,16 @@ export function SubscribePage() {
         companyName: form.companyName.trim(),
         adminName: form.adminName.trim(),
         adminEmail: form.adminEmail.trim(),
-        password: form.password,
         plan: selectedPlan,
         billingCycle: cycle,
         currencyCode,
       },
     })
 
-    const result = data as { success?: boolean; code?: string; checkoutUrl?: string; error?: string } | null
+    const result = data as {
+      success?: boolean; code?: string; checkoutUrl?: string; error?: string
+      planName?: string; trialStartsAt?: string | null; trialEndsAt?: string | null
+    } | null
     if (fnError || !result?.success) {
       setSubmitting(false)
       setError(result?.error ?? fnError?.message ?? 'Something went wrong. Please try again.')
@@ -132,7 +131,8 @@ export function SubscribePage() {
       return
     }
 
-    navigate(`/subscribe/thank-you?code=${result.code}&plan=free`)
+    const params = new URLSearchParams({ code: result.code ?? '', plan: 'free', planName: result.planName ?? 'Free' })
+    navigate(`/subscribe/thank-you?${params.toString()}`)
   }
 
   if (loading) {
@@ -284,17 +284,7 @@ export function SubscribePage() {
                 <input required type="email" value={form.adminEmail}
                   onChange={e => setForm(f => ({ ...f, adminEmail: e.target.value }))}
                   placeholder="you@company.com" className="input" />
-              </Field>
-              <Field label="Password">
-                <div className="relative">
-                  <input required type={showPass ? 'text' : 'password'} value={form.password}
-                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                    placeholder="At least 8 characters" className="input pr-14" />
-                  <button type="button" onClick={() => setShowPass(p => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600">
-                    {showPass ? 'Hide' : 'Show'}
-                  </button>
-                </div>
+                <p className="text-xs text-slate-400 mt-1">We'll email you an invite link to set your password.</p>
               </Field>
 
               <button type="submit" disabled={!formValid}

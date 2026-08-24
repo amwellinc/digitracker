@@ -264,6 +264,11 @@ export function SubAccountDetailPanel({ account, onClose }: Props) {
                       <Row label="Monthly value" value={`$${PLAN_MRR[account.plan]?.toFixed(2) ?? '0.00'}`} />
                       <Row label="Admin email" value={account.admin_email ?? '—'} />
                       <Row label="Created" value={new Date(account.created_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })} />
+                      {account.trial_starts_at && account.trial_ends_at && (
+                        <Row label="Trial period" value={
+                          `${new Date(account.trial_starts_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })} – ${new Date(account.trial_ends_at).toLocaleDateString('en-SG', { year: 'numeric', month: 'long', day: 'numeric' })}`
+                        } />
+                      )}
                       {account.notes && <Row label="Notes" value={account.notes} />}
                     </dl>
                   </div>

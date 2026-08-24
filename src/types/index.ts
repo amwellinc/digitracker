@@ -209,6 +209,7 @@ export interface SubAccount {
   status: 'active' | 'trialing' | 'cancelled' | 'suspended'
   timezone: string
   notes: string | null
+  trial_starts_at: string | null
   trial_ends_at: string | null
   created_at: string
   updated_at: string

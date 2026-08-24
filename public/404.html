@@ -31,13 +31,15 @@
         return;
       }
 
-      // ── Password reset — IMPLICIT FLOW ───────────────────────────────────
-      // Supabase sends: /auth/reset#access_token=...&type=recovery
+      // ── Password reset / account invite — IMPLICIT FLOW ──────────────────
+      // Supabase sends: /auth/reset#access_token=...&type=recovery (reset)
+      // or /auth/reset#access_token=...&type=invite (new account invite) —
+      // ResetPasswordPage's "set your password" form serves both equally.
       // HashRouter only has one hash slot, so we can't embed the token there.
       // Store the raw hash params in sessionStorage; ResetPasswordPage reads them.
       if (p === '/auth/reset' &&
           hp.get('access_token') &&
-          hp.get('type') === 'recovery') {
+          (hp.get('type') === 'recovery' || hp.get('type') === 'invite')) {
         try { sessionStorage.setItem('dt_recovery', h.slice(1)); } catch (e) {}
         window.location.replace('/#/reset-password');
         return;
