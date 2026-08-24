@@ -64,11 +64,10 @@ export function GHLIntegrationTab() {
   const load = useCallback(async () => {
     if (!user) return
     const [{ data: inst }, { data: links }] = await Promise.all([
-      supabase
-        .from('ghl_installations')
-        .select('id, sub_account, ghl_location_id, ghl_company_id, ghl_user_id, scope, expires_at, installed_at, updated_at')
-        .eq('sub_account', user.sub_account)
-        .maybeSingle(),
+      // SECURITY DEFINER RPC, not a direct table select: it returns only
+      // non-sensitive columns, so access_token/refresh_token can never leak
+      // through this call regardless of what the client asks for.
+      supabase.rpc('get_ghl_installation').maybeSingle(),
       supabase
         .from('ghl_contact_links')
         .select('id, ghl_contact_id, ghl_name, ghl_email, ghl_phone, synced_at')
