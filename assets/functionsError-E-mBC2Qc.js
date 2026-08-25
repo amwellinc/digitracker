@@ -1,0 +1,1 @@
+async function c(r,t){if(!r)return t==null?void 0:t.error;const e=r.context;if(e&&typeof e.json=="function")try{const n=await e.json();if(n!=null&&n.error)return n.error}catch{}return r.message??"Request failed."}export{c as e};
