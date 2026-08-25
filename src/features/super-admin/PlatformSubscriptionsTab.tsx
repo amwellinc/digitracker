@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Subscription } from '@/types'
 import { PLAN_LABELS } from '@/lib/constants'
+import { extractFunctionError } from '@/lib/functionsError'
 
 const PLAN_MRR: Record<string, number> = { free: 0, basic: 19.9, business: 39.9, professional: 99.9 }
 
@@ -127,7 +128,8 @@ export function PlatformSubscriptionsTab() {
     })
     setResendingCode(null)
     if (error) {
-      setResendMsg({ type: 'error', text: `Failed to resend invite for ${subAccountCode}: ${error.message}` })
+      const fnError = await extractFunctionError(error, data)
+      setResendMsg({ type: 'error', text: `Failed to resend invite for ${subAccountCode}: ${fnError}` })
       return
     }
     if (!data?.emailDelivered) {

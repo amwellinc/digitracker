@@ -5,6 +5,7 @@ import type { SubAccount } from '@/types'
 import { SubAccountDetailPanel } from './SubAccountDetailPanel'
 import { useAuth } from '@/hooks/useAuth'
 import { PLAN_LABELS } from '@/lib/constants'
+import { extractFunctionError } from '@/lib/functionsError'
 
 const PLAN_OPTIONS = ['free', 'basic', 'business', 'professional'] as const
 const STATUS_OPTIONS = ['active', 'trialing', 'cancelled', 'suspended'] as const
@@ -60,6 +61,10 @@ export function SubAccountsTab() {
   const [editForm, setEditForm] = useState<EditForm | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [deleteAccount, setDeleteAccount] = useState<SubAccount | null>(null)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -181,6 +186,29 @@ export function SubAccountsTab() {
     setEditForm(null)
   }
 
+  function openDelete(a: SubAccount) {
+    setDeleteAccount(a)
+    setDeleteConfirmText('')
+    setDeleteError(null)
+  }
+
+  async function handleDelete() {
+    if (!deleteAccount || deleteConfirmText !== deleteAccount.code) return
+    setDeleting(true)
+    setDeleteError(null)
+    const { data, error } = await supabase.functions.invoke('delete-sub-account', {
+      body: { subAccountCode: deleteAccount.code },
+    })
+    setDeleting(false)
+    const fnError = await extractFunctionError(error, data)
+    if (fnError) { setDeleteError(fnError); return }
+    setDeleteAccount(null)
+    setDeleteConfirmText('')
+    setMsg({ type: 'success', text: `${deleteAccount.code} and everything in it has been permanently deleted.` })
+    void load()
+    setTimeout(() => setMsg(null), 4000)
+  }
+
   const filtered = accounts.filter(a =>
     a.code.toLowerCase().includes(search.toLowerCase()) ||
     a.company_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -201,6 +229,16 @@ export function SubAccountsTab() {
           <span className="text-lg leading-none">+</span> New Sub-Account
         </button>
       </div>
+
+      {msg && !showCreate && !editAccount && (
+        <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${
+          msg.type === 'success'
+            ? 'border-green-200 bg-green-50 text-green-700'
+            : 'border-red-200 bg-red-50 text-red-700'
+        }`}>
+          {msg.text}
+        </div>
+      )}
 
       <input
         placeholder="Search by code, company, or email…"
@@ -273,6 +311,13 @@ export function SubAccountsTab() {
                         className="text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 rounded px-2.5 py-1"
                       >
                         Edit
+                      </button>
+                      <button
+                        onClick={() => openDelete(a)}
+                        className="text-xs font-medium text-red-600 hover:text-red-800 border border-red-200 rounded px-2.5 py-1"
+                        title="Permanently delete this sub-account and everything in it"
+                      >
+                        Delete
                       </button>
                     </div>
                   </td>
@@ -438,6 +483,49 @@ export function SubAccountsTab() {
               <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Save Changes'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteAccount && (
+        <Modal title={`Delete ${deleteAccount.code}`} onClose={() => { setDeleteAccount(null); setDeleteConfirmText('') }}>
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm font-semibold text-red-800">This cannot be undone.</p>
+              <p className="text-sm text-red-700 mt-1">
+                Permanently deletes <strong>{deleteAccount.company_name || deleteAccount.code}</strong> ({deleteAccount.code}) —
+                {' '}{userCounts[deleteAccount.code] ?? 0} user{(userCounts[deleteAccount.code] ?? 0) !== 1 ? 's' : ''}, every
+                task, time log, leave request, document, and screenshot they own, their subscription record, and their
+                login accounts.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Type <span className="font-mono font-bold">{deleteAccount.code}</span> to confirm
+              </label>
+              <input
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder={deleteAccount.code}
+                className="input font-mono"
+                autoComplete="off"
+              />
+            </div>
+            {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => { setDeleteAccount(null); setDeleteConfirmText('') }} className="btn-ghost">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting || deleteConfirmText !== deleteAccount.code}
+                className="bg-red-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? 'Deleting…' : 'Delete Permanently'}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>
