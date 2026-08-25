@@ -41,6 +41,8 @@ export function PlatformSubscriptionsTab() {
   const [editForm, setEditForm] = useState<EditForm | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [resendingCode, setResendingCode] = useState<string | null>(null)
+  const [resendMsg, setResendMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -117,6 +119,27 @@ export function PlatformSubscriptionsTab() {
     setEditForm(null)
   }
 
+  async function handleResendInvite(subAccountCode: string) {
+    setResendingCode(subAccountCode)
+    setResendMsg(null)
+    const { data, error } = await supabase.functions.invoke('resend-invite', {
+      body: { subAccountCode },
+    })
+    setResendingCode(null)
+    if (error) {
+      setResendMsg({ type: 'error', text: `Failed to resend invite for ${subAccountCode}: ${error.message}` })
+      return
+    }
+    if (!data?.emailDelivered) {
+      setResendMsg({
+        type: 'error',
+        text: `Invite link generated for ${subAccountCode} but email delivery failed (${data?.error ?? 'unknown error'}). Copy this link and send it manually: ${data?.inviteLink}`,
+      })
+      return
+    }
+    setResendMsg({ type: 'success', text: `Invite resent to ${subAccountCode}'s admin.` })
+  }
+
   const filtered = subs
     .filter(s => filterPlan === 'all' || s.plan === filterPlan)
     .filter(s => filterStatus === 'all' || s.status === filterStatus)
@@ -139,6 +162,16 @@ export function PlatformSubscriptionsTab() {
         <SummaryCard label="Active Accounts" value={String(activeCount)} sub={`${subs.length} total`} color="text-violet-700" />
         <SummaryCard label="On Trial" value={String(trialingCount)} sub="need conversion" color="text-amber-700" />
       </div>
+
+      {resendMsg && (
+        <div className={`mb-4 rounded-lg border px-4 py-3 text-sm break-all ${
+          resendMsg.type === 'success'
+            ? 'border-green-200 bg-green-50 text-green-700'
+            : 'border-red-200 bg-red-50 text-red-700'
+        }`}>
+          {resendMsg.text}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4">
@@ -220,7 +253,15 @@ export function PlatformSubscriptionsTab() {
                   <td className="px-4 py-3 text-right font-semibold text-gray-800">
                     {s.status === 'active' ? `$${PLAN_MRR[s.plan].toFixed(2)}` : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                    <button
+                      onClick={() => handleResendInvite(s.sub_account)}
+                      disabled={resendingCode === s.sub_account}
+                      className="text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded px-2.5 py-1 disabled:opacity-50"
+                      title="Re-send the account-activation invite email to this sub-account's admin"
+                    >
+                      {resendingCode === s.sub_account ? 'Sending…' : 'Resend Invite'}
+                    </button>
                     <button
                       onClick={() => openEdit(s)}
                       className="text-xs font-medium text-violet-600 hover:text-violet-800 border border-violet-200 rounded px-2.5 py-1"

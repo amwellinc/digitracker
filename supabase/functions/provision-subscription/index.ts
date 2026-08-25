@@ -21,20 +21,29 @@
 // that SMTP send fails or isn't configured, Supabase's own default invite
 // email is sent as a fallback so the customer always has a way in.
 //
+// A paid-plan signup then reported the same symptom despite that fallback:
+// only Stripe's own payment receipt arrived, no DIGITRACKER invite. The
+// fallback's error was being discarded with .catch(() => {}) — there was no
+// way to tell whether it ran, let alone why it failed, and if both channels
+// are actually broken (e.g. Supabase's own email sending isn't configured
+// either) the account is created with genuinely no way for the customer to
+// get in. Now: the fallback's outcome is captured, not discarded, and
+// whichever result comes back is included in the Super-Admin notification —
+// including the raw invite link — so a failure is visible immediately and
+// recoverable via the resend-invite function without needing to guess.
+//
 // stripe-webhook already handles checkout.session.completed by UPDATING
 // sub_accounts (via client_reference_id) rather than inserting — this
 // function is what makes that assumption true: the row always exists first.
 import Stripe from 'https://esm.sh/stripe@17?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { SMTPClient } from 'https://deno.land/x/denomailer@1.6.0/mod.ts'
+import { sendInviteAndInvoiceEmail } from '../_shared/inviteEmail.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
-
-const PRODUCT_WEBSITE = 'www.digitracker.co'
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -57,10 +66,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 function slugCode(name: string): string {
   const base = name.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
   return base || 'COMPANY'
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 Deno.serve(async (req) => {
@@ -194,8 +199,41 @@ Deno.serve(async (req) => {
     company_name:  companyName,
   })
 
+  const priceForEmail = plan === 'free'
+    ? 'Free'
+    : `${currencyCode} ${(billingCycle === 'annual' ? planCfg.price_annual : planCfg.price_monthly).toFixed(2)} / ${billingCycle === 'annual' ? 'year' : 'month'}`
+
+  const primary = await sendInviteAndInvoiceEmail(admin, {
+    companyName, adminName: adminName || companyName, adminEmail,
+    planName: planCfg.name, priceForEmail,
+    trialStartsAt, trialEndsAt,
+    inviteLink,
+  })
+
+  // Our branded email is the primary channel; if it didn't go out (SMTP not
+  // configured or failed), fall back to Supabase's own default invite email
+  // so the customer is never left with zero way to activate their account.
+  // The fallback's own outcome is captured too, not discarded — if BOTH
+  // channels fail, that has to be visible somewhere, not silent.
+  let fallbackError: string | null = null
+  if (!primary.sent) {
+    const { error: fallbackErr } = await admin.auth.admin.inviteUserByEmail(adminEmail, { redirectTo })
+    fallbackError = fallbackErr?.message ?? null
+  }
+  const emailDelivered = primary.sent || !fallbackError
+
   // ── Notify Super-Admins — in-app is guaranteed, email is best-effort ────
-  const notifyMessage = `New ${planCfg.name} plan signup: ${companyName} (${adminEmail}).`
+  // Always includes the raw invite link and the failure reason(s) when
+  // delivery didn't succeed, so a Super-Admin can act immediately (forward
+  // the link manually, or use Settings > Subscriptions > Resend Invite)
+  // instead of the customer being silently stuck with an account they can't
+  // reach — exactly what happened before this was added.
+  const notifyMessage = emailDelivered
+    ? `New ${planCfg.name} plan signup: ${companyName} (${adminEmail}).`
+    : `New ${planCfg.name} plan signup: ${companyName} (${adminEmail}). ⚠️ Invite email failed to send ` +
+      `(${primary.error ?? 'unknown'}${fallbackError ? `; fallback also failed: ${fallbackError}` : ''}). ` +
+      `Invite link: ${inviteLink ?? 'unavailable'}`
+
   const { data: superAdmins } = await admin
     .from('users')
     .select('id, email, name')
@@ -206,25 +244,6 @@ Deno.serve(async (req) => {
     await admin.from('notifications').insert(
       superAdmins.map((s: { id: string }) => ({ user_id: s.id, type: 'new_subscription', message: notifyMessage, read: false }))
     )
-  }
-
-  const priceForEmail = plan === 'free'
-    ? 'Free'
-    : `${currencyCode} ${(billingCycle === 'annual' ? planCfg.price_annual : planCfg.price_monthly).toFixed(2)} / ${billingCycle === 'annual' ? 'year' : 'month'}`
-
-  const emailSent = await sendInviteAndInvoiceEmail(admin, {
-    companyName, adminName: adminName || companyName, adminEmail,
-    planName: planCfg.name, priceForEmail,
-    trialStartsAt, trialEndsAt,
-    inviteLink,
-    superAdmins: (superAdmins ?? []) as { email: string; name: string }[],
-  })
-
-  // Our branded email is the primary channel; if it didn't go out (SMTP not
-  // configured or failed), fall back to Supabase's own default invite email
-  // so the customer is never left with zero way to activate their account.
-  if (!emailSent) {
-    await admin.auth.admin.inviteUserByEmail(adminEmail, { redirectTo }).catch(() => {})
   }
 
   const responsePayload = {
@@ -286,91 +305,3 @@ Deno.serve(async (req) => {
     return await rollback(err instanceof Error ? err.message : 'Failed to start checkout.')
   }
 })
-
-// Best-effort — a missing/invalid SMTP configuration must never fail signup.
-// Returns whether the customer's invite/invoice email actually sent, so the
-// caller can fall back to Supabase's own default invite email if not.
-async function sendInviteAndInvoiceEmail(
-  admin: ReturnType<typeof createClient>,
-  info: {
-    companyName: string; adminName: string; adminEmail: string
-    planName: string; priceForEmail: string
-    trialStartsAt: string | null; trialEndsAt: string | null
-    inviteLink: string | null
-    superAdmins: { email: string; name: string }[]
-  },
-): Promise<boolean> {
-  try {
-    const { data: platform } = await admin
-      .from('platform_settings')
-      .select('smtp_host, smtp_port, smtp_secure, smtp_user, smtp_pass, from_email, from_name')
-      .limit(1)
-      .maybeSingle()
-
-    if (!platform?.smtp_host || !platform.smtp_user || !platform.smtp_pass || !platform.from_email) return false
-
-    const client = new SMTPClient({
-      connection: {
-        hostname: platform.smtp_host,
-        port: platform.smtp_port,
-        tls: platform.smtp_secure,
-        auth: { username: platform.smtp_user, password: platform.smtp_pass },
-      },
-    })
-    const from = `${platform.from_name || 'DIGITRACKER'} <${platform.from_email}>`
-
-    const trialRow = info.trialStartsAt && info.trialEndsAt
-      ? `<tr><td style="padding:6px 0;color:#64748b;">Trial period</td><td style="padding:6px 0;text-align:right;font-weight:600;">${fmtDate(info.trialStartsAt)} – ${fmtDate(info.trialEndsAt)}</td></tr>`
-      : ''
-
-    const inviteButton = info.inviteLink
-      ? `<p style="text-align:center;margin:28px 0;">
-           <a href="${info.inviteLink}" style="background:#6D28D9;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;display:inline-block;">Activate Your Account →</a>
-         </p>`
-      : ''
-
-    await client.send({
-      from,
-      to: info.adminEmail,
-      subject: `Your DIGITRACKER order — ${info.planName} plan`,
-      content: 'auto',
-      html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
-          <p>Hi ${info.adminName},</p>
-          <p>Thanks for signing up for <strong>DIGITRACKER</strong> — here's your order summary and account invite.</p>
-
-          <table style="width:100%;border-collapse:collapse;margin:20px 0;font-size:14px;">
-            <tr><td style="padding:6px 0;color:#64748b;">Product</td><td style="padding:6px 0;text-align:right;font-weight:600;">DIGITRACKER</td></tr>
-            <tr><td style="padding:6px 0;color:#64748b;">Plan</td><td style="padding:6px 0;text-align:right;font-weight:600;">${info.planName}</td></tr>
-            <tr><td style="padding:6px 0;color:#64748b;">Company</td><td style="padding:6px 0;text-align:right;font-weight:600;">${info.companyName}</td></tr>
-            <tr><td style="padding:6px 0;color:#64748b;">Price</td><td style="padding:6px 0;text-align:right;font-weight:600;">${info.priceForEmail}</td></tr>
-            ${trialRow}
-          </table>
-
-          ${inviteButton}
-
-          <p style="font-size:13px;color:#64748b;">Click the button above to activate your account and set your password. If the button doesn't work, copy and paste this link:<br>
-          <a href="${info.inviteLink ?? ''}">${info.inviteLink ?? ''}</a></p>
-
-          <p style="font-size:13px;color:#94a3b8;margin-top:24px;">${PRODUCT_WEBSITE}</p>
-        </div>`,
-    })
-
-    for (const sa of info.superAdmins) {
-      await client.send({
-        from,
-        to: sa.email,
-        subject: `New signup: ${info.companyName} (${info.planName})`,
-        content: 'auto',
-        html: `<p>Hi ${sa.name},</p>
-          <p><strong>${info.companyName}</strong> (${info.adminEmail}) just signed up for the <strong>${info.planName}</strong> plan.</p>`,
-      })
-    }
-
-    await client.close()
-    return true
-  } catch (err) {
-    console.error('provision-subscription: notification email failed', err)
-    return false
-  }
-}
