@@ -14,11 +14,20 @@
 | **Developer / Company** | DIGI5Y |
 | **Support Email** | admin@digi5y.co |
 | **Support URL** | https://digitracker-app.digi5y.co/#/install |
-| **App Website** | https://www.digitracker.co |
+| **App Website** | https://digitracker-app.digi5y.co (see note below) |
 | **Privacy Policy URL** | https://digitracker-app.digi5y.co/#/privacy |
 | **Terms of Service URL** | https://digitracker-app.digi5y.co/#/terms |
 | **Category** | Productivity / HR & Team Management |
 | **Tags** | time tracking, remote work, HR, workforce, screen capture, KPIs, tasks |
+
+> **App Website note:** `www.digitracker.co` currently does not resolve at all
+> (DNS failure — confirmed via `curl`/`dig`, not a temporary blip). A dead
+> "App Website" link is a common, easy reason a Marketplace review gets
+> rejected or held. Until that domain is fixed, use
+> `https://digitracker-app.digi5y.co` (confirmed live) as the App Website
+> field instead. Separately, `digitracker.digi5y.co` currently resolves but
+> serves an unrelated GoHighLevel funnel page, not this app — do not use it
+> here either until that's resolved.
 
 ---
 
@@ -84,12 +93,16 @@ Assign tasks to team members, set deadlines, and track completion rates. Define 
 #### 📄 HR Document Storage
 Upload contracts, policies, appraisals, and other HR documents. Role-based access ensures staff only see what they're meant to see.
 
-#### 👥 3-Tier Role System
+#### 👥 Role-Based Access
 | Role | Access |
 |---|---|
-| **Super-Admin** | Full platform management across all sub-accounts |
+| **Admin** | Manage users, departments, payroll, subscription/billing, and integrations |
 | **Manager** | Approve leave, review time logs, manage team tasks and KPIs |
 | **Staff** | Clock in/out, view personal records, submit leave, complete tasks |
+
+> Note: "Super-Admin" is DIGI5Y's own internal platform-operator role and is
+> not something a subscribing customer ever has — it must not appear in
+> customer-facing listing copy. Removed from this table for that reason.
 
 #### 🔗 GoHighLevel Integration
 Once connected, DIGITRACKER:
@@ -102,20 +115,26 @@ Once connected, DIGITRACKER:
 ### How It Works
 
 1. **Install** — Click "Install App" and authorize DIGITRACKER to connect to your GHL sub-account.
-2. **Invite Team** — Add managers and staff with their emails. They receive a magic-link to join.
+2. **Invite Team** — Add managers and staff with their emails. They receive a secure invite link to set their password and join.
 3. **Go Live** — Staff clock in from any device. Screenshots capture automatically. Everything syncs to GHL.
 
 ---
 
 ### Subscription Plans
 
-| Plan | Users | Features |
+| Plan | Seats | Features |
 |---|---|---|
-| **Basic** | Up to 5 | Time tracking, screen capture, leave management |
-| **Business** | Up to 20 | + Tasks, KPIs, HR documents, GHL contact sync |
-| **Professional** | Unlimited | + Priority support, custom KPI frameworks, advanced reporting |
+| **Free** | Up to 3 | Time tracking, 7-day screenshots, basic reports |
+| **Standard** | Up to 10 | + Calendar & Leave, Tasks & KPIs, 30-day screenshots |
+| **Business** | Up to 100 | + HR Documents, advanced reports, GHL/Digi5y AI-CRM integration |
+| **Professional** | Up to 1,000 | + Custom branding, priority support |
 
-All plans include a **14-day free trial** — no credit card required.
+The Free plan requires no card and no trial — it's free indefinitely. Paid
+plans may include a trial period (configurable), but checkout runs through
+Stripe, which collects payment details upfront even during a trial — do
+**not** advertise paid plans as "no credit card required." Exact current
+pricing and seat limits are always shown live on the subscribe page and
+should be treated as the source of truth over this table.
 
 ---
 
@@ -149,8 +168,8 @@ v1.0 — Initial Release
 - HR document storage with role-based access
 - GoHighLevel sub-account integration via OAuth
 - Real-time GHL webhook events (contact create/update, install/uninstall)
-- 3-tier role system: Super-Admin, Manager, Staff
-- Magic-link authentication (no passwords)
+- Role-based access: Admin, Manager, Staff
+- Secure email invite links for onboarding — new users set their own password, no passwords shared or managed by Admins
 - Responsive — works on desktop, tablet, and mobile
 ```
 
@@ -158,13 +177,13 @@ v1.0 — Initial Release
 
 ## 7. Support & Onboarding
 
-**Support Email:** admin@digi5y.com  
+**Support Email:** admin@digi5y.co  
 **Response time:** Within 1 business day
 
 **Onboarding steps provided in-app:**
 1. Install DIGITRACKER from GHL Marketplace
 2. Create your first sub-account in DIGITRACKER
-3. Invite your team via email (magic-link, no password)
+3. Invite your team via email (secure invite link — they set their own password)
 4. Staff clock in — data starts flowing
 
 ---
@@ -208,5 +227,5 @@ Capture and upload these screens before submitting:
 - [ ] Support email: admin@digi5y.co
 - [ ] Privacy Policy URL added
 - [ ] Terms of Service URL added
-- [ ] Pricing listed (Basic / Business / Professional)
+- [ ] Pricing listed (Free / Standard / Business / Professional — "Standard" is the id `basic` shown to users; don't call it "Basic" in copy)
 - [ ] Copy Client ID and Client Secret from this form → paste into GitHub Secrets
