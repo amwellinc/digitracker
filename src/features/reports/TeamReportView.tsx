@@ -4,7 +4,10 @@ import { HoursBarChart } from './HoursBarChart'
 import { DayStatusStackedBar, type DayStatusDatum } from './DayStatusStackedBar'
 
 export function TeamReportView({ reports, range }: { reports: UserReportRow[]; range: DateRange }) {
-  const teamTotalHours = reports.reduce((s, r) => s + r.totalHours, 0)
+  // Each r.totalHours is already rounded to 1 decimal, but summing floats
+  // re-introduces binary floating-point drift (e.g. 182.7999999999999) —
+  // round the sum too before it's ever displayed.
+  const teamTotalHours = Math.round(reports.reduce((s, r) => s + r.totalHours, 0) * 100) / 100
   const teamOnLeave = reports.reduce((s, r) => s + r.daysOnLeave, 0)
   const teamTimeOff = reports.reduce((s, r) => s + r.daysTimeOff, 0)
   const eligibleTotal = reports.reduce((s, r) => s + r.eodrEligibleDays, 0)
@@ -29,7 +32,7 @@ export function TeamReportView({ reports, range }: { reports: UserReportRow[]; r
       {/* Stat tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatTile label="Team Members" value={String(reports.length)} />
-        <StatTile label="Total Hours" value={`${teamTotalHours}h`} color="text-emerald-600" />
+        <StatTile label="Total Hours" value={`${teamTotalHours.toFixed(2)}h`} color="text-emerald-600" />
         <StatTile label="On Leave / Time Off" value={`${teamOnLeave} / ${teamTimeOff}`} color="text-blue-600" />
         <StatTile label="EODR Compliance" value={`${teamEodrPct}%`} color={teamEodrPct >= 80 ? 'text-emerald-600' : teamEodrPct >= 50 ? 'text-amber-600' : 'text-red-600'} />
       </div>
