@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { ClockProvider, useClockContext } from '@/features/time-tracking/ClockContext'
 import { useReportsAccess } from '@/hooks/useReportsAccess'
 import { useSubAccountBranding } from '@/hooks/useSubAccountBranding'
+import { useProjectMemberships } from '@/hooks/useProjectMemberships'
 
 const STAFF_NAV = [
   { to: '/',           end: true,  label: 'Time Tracking',   icon: '⏱',
@@ -59,9 +60,17 @@ function LayoutInner() {
   const isViewingAs = isSuperAdmin && !!viewAsUser
   const isVisiting  = isSuperAdmin && !!visitingAccount && !isViewingAs
   const isSuperAdminView = isSuperAdmin && !isVisiting && !isViewingAs
+  const { memberships: projectMemberships } = useProjectMemberships()
+  const PROJECT_NAV_ITEMS = projectMemberships.map(p => ({
+    to: `/projects/${p.id}`,
+    end: false,
+    label: `PROJECTS-${p.name}`,
+    icon: '🗂',
+    children: [] as { to: string; label: string; icon: string }[],
+  }))
   const NAV = isSuperAdminView
     ? SUPER_ADMIN_NAV
-    : canViewReports ? [...STAFF_NAV, REPORTS_NAV_ITEM] : STAFF_NAV
+    : [...(canViewReports ? [...STAFF_NAV, REPORTS_NAV_ITEM] : STAFF_NAV), ...PROJECT_NAV_ITEMS]
 
   // Close sidebar on route change (mobile nav)
   useEffect(() => {
