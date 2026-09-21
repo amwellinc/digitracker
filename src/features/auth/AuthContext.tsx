@@ -13,6 +13,13 @@ type AuthAction =
   | { type: 'SIGNED_IN'; user: User }
   | { type: 'SIGNED_OUT'; blockedMessage?: string }
 
+// Outcome of loadUser() itself, so callers that need to know what actually
+// happened (e.g. the password sign-in flow) don't have to guess from a timer.
+type LoadUserResult =
+  | { outcome: 'signed_in' }
+  | { outcome: 'blocked'; message: string }
+  | { outcome: 'not_found' }
+
 function reducer(_state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
     case 'SIGNED_IN': return { user: action.user, loading: false, accountBlockedMessage: null }
@@ -60,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [visitingAccount, setVisitingAccount] = useState<SubAccount | null>(null)
   const [viewAsUser, setViewAsUser] = useState<User | null>(null)
 
-  const loadUser = useCallback(async (authEmail: string) => {
+  const loadUser = useCallback(async (authEmail: string): Promise<LoadUserResult> => {
     // Primary: email lookup — works for all users regardless of how they were created
     const { data: byEmail } = await supabase
       .from('users')
@@ -73,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (byEmail) {
       dispatch({ type: 'SIGNED_IN', user: byEmail as User })
       void captureIp()
-      return
+      return { outcome: 'signed_in' }
     }
 
     // Fallback: match by Supabase auth UID — works when users.id = auth.uid()
@@ -89,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (byId) {
         dispatch({ type: 'SIGNED_IN', user: byId as User })
         void captureIp()
-        return
+        return { outcome: 'signed_in' }
       }
     }
 
@@ -99,12 +106,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // can tell the person why, instead of a silent bounce back to login.
     const { data: statusCheck } = await supabase.rpc('check_account_status', { p_email: authEmail })
     await supabase.auth.signOut()
-    dispatch({
-      type: 'SIGNED_OUT',
-      blockedMessage: statusCheck === 'suspended'
-        ? 'Your account has been suspended. Contact your Administrator for access.'
-        : undefined,
-    })
+    const blockedMessage = statusCheck === 'suspended'
+      ? 'Your account has been suspended. Contact your Administrator for access.'
+      : undefined
+    dispatch({ type: 'SIGNED_OUT', blockedMessage })
+    return blockedMessage ? { outcome: 'blocked', message: blockedMessage } : { outcome: 'not_found' }
   }, [])
 
   useEffect(() => {
@@ -162,16 +168,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const auth: Promise<Result> = supabase.auth.signInWithPassword({
       email: email.toLowerCase().trim(),
       password,
-    }).then(({ error }) => {
-      if (!error) return { error: null }
-      if (error.message.includes('Invalid login credentials')) {
-        return { error: 'Incorrect password. Use "Forgot password?" to set one, or sign in with a magic link.' }
+    }).then(async ({ error }) => {
+      if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          return { error: 'Incorrect password. Use "Forgot password?" to set one, or sign in with a magic link.' }
+        }
+        return { error: error.message }
       }
-      return { error: error.message }
+
+      // Supabase auth succeeded. Resolve the app-level account lookup here,
+      // synchronously with this call, instead of guessing from a fixed
+      // timer — loadUser can legitimately take longer than any fixed window
+      // (cold DB connection, network latency) without the account actually
+      // being missing. (onAuthStateChange also fires and calls loadUser
+      // again independently; that's redundant but harmless.)
+      const result = await loadUser(email.toLowerCase().trim())
+      if (result.outcome === 'not_found') {
+        return { error: 'Account not found in the system. Try a magic link or contact your administrator.' }
+      }
+      if (result.outcome === 'blocked') {
+        return { error: result.message }
+      }
+      return { error: null }
     })
 
     return Promise.race([auth, timeout])
-  }, [])
+  }, [loadUser])
 
   // Send password reset email.
   // No custom redirectTo — Supabase uses the project's configured Site URL

@@ -45,6 +45,8 @@ export function AuthForm({ accountType }: AuthFormProps) {
     setStatus('loading')
     setErrorMsg('')
 
+    // UI-level backstop only — signInWithPassword already races a 15 s
+    // timeout internally, so this only fires if something hangs beyond that.
     const fallback = setTimeout(() => {
       setStatus(prev => {
         if (prev !== 'loading') return prev
@@ -55,22 +57,17 @@ export function AuthForm({ accountType }: AuthFormProps) {
 
     const code = isPlatform ? '__saas__' : subAccount
     const { error } = await signInWithPassword(email, code, password)
+    clearTimeout(fallback)
 
     if (error) {
-      clearTimeout(fallback)
       setErrorMsg(error)
       setStatus('error')
       return
     }
 
-    clearTimeout(fallback)
-    setTimeout(() => {
-      setStatus(prev => {
-        if (prev !== 'loading') return prev
-        setErrorMsg('Account not found in the system. Try a magic link or contact your administrator.')
-        return 'error'
-      })
-    }, 6_000)
+    // Success — signInWithPassword only resolves with no error once the app
+    // account was actually found and AuthContext's user state is set. The
+    // effect above redirects as soon as `user` becomes truthy.
   }
 
   async function handleMagicLink(e: React.FormEvent) {
