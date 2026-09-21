@@ -84,6 +84,47 @@ export interface TaskComment {
   created_at: string
 }
 
+export interface Project {
+  id: string
+  name: string
+  created_by: string
+  created_at: string
+}
+
+export interface ProjectMember {
+  project_id: string
+  user_id: string
+  added_at: string
+}
+
+export interface ProjectTask {
+  id: string
+  project_id: string
+  title: string
+  description: string | null
+  creator_id: string
+  assignee_id: string | null
+  status: 'pending' | 'in_progress' | 'completed' | 'closed' | 'archived'
+  due_date: string | null
+  recurring: 'Daily' | 'Weekly' | 'Monthly' | null
+  attachments: Array<{ url: string; name: string; size: number; type: string }>
+  created_at: string
+}
+
+export interface ProjectTaskAssignee {
+  project_task_id: string
+  user_id: string
+}
+
+export interface ProjectTaskComment {
+  id: string
+  project_task_id: string
+  user_id: string
+  body: string
+  attachments: unknown | null
+  created_at: string
+}
+
 export type LeaveType = 'Annual' | 'Medical' | 'Time-off' | 'PH/Off-in-Lieu' | 'Other'
 
 export interface LeaveAttachment {

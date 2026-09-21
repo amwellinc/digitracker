@@ -1,8 +1,13 @@
-import type { Task } from '@/types'
-
 export type AlertLevel = 'overdue' | 'soon' | null
 
-export function getAlertLevel(task: Task): AlertLevel {
+// Structural, not `Task`-specific — ProjectTask has the same status/due_date
+// shape and reuses this directly rather than duplicating it.
+export interface AlertLevelInput {
+  status: string
+  due_date: string | null
+}
+
+export function getAlertLevel(task: AlertLevelInput): AlertLevel {
   if (!task.due_date) return null
   if (['completed', 'closed', 'archived'].includes(task.status)) return null
   const now = Date.now()
