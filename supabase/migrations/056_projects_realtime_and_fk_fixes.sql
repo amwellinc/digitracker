@@ -15,6 +15,12 @@
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.project_tasks; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.project_task_assignees; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.project_task_comments; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+-- project_members itself also needs this: useProjectMemberships.ts subscribes
+-- to postgres_changes on it so a newly-added member's sidebar entry appears
+-- without a full reload. Without publication membership the subscription is
+-- wired up correctly but never fires — the same failure mode as the three
+-- tables above, just for the membership table itself.
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.project_members; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 -- ── Fix 2: add missing ON DELETE clauses to 5 new foreign keys ──────────────
 -- 055 declared these 5 FKs to public.users(id) with no ON DELETE clause
