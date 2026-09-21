@@ -263,3 +263,74 @@ describe('UsersTab — Set Password', () => {
     await waitFor(() => expect(screen.getByText(/password must be at least 8 characters/i)).toBeInTheDocument())
   })
 })
+
+describe('UsersTab — Edit User email change', () => {
+  beforeEach(() => {
+    orderMock.mockClear().mockResolvedValue({ data: [cecillia] })
+    functionsInvokeMock.mockClear().mockResolvedValue({ data: { success: true, noticeSent: true }, error: null })
+    signInWithOtpMock.mockClear().mockResolvedValue({ error: null })
+    updateMock.mockClear().mockResolvedValue({ error: null })
+  })
+
+  async function openEditAndChangeEmail(newEmail: string) {
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const emailInput = await screen.findByDisplayValue('cecillia@amwelltechnologies.com')
+    await userEvent.clear(emailInput)
+    if (newEmail) await userEvent.type(emailInput, newEmail)
+    await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  }
+
+  it('routes an email change through admin-change-email, then invites the new address', async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await openEditAndChangeEmail('cecillia.new@amwelltechnologies.com')
+
+    await waitFor(() => expect(functionsInvokeMock).toHaveBeenCalledWith('admin-change-email', {
+      body: { targetUserId: 'user-cecillia', newEmail: 'cecillia.new@amwelltechnologies.com' },
+    }))
+    await waitFor(() => expect(signInWithOtpMock).toHaveBeenCalledWith({
+      email: 'cecillia.new@amwelltechnologies.com',
+      options: { emailRedirectTo: window.location.origin },
+    }))
+    await waitFor(() => expect(screen.getAllByText(/sign-in link was sent/i).length).toBeGreaterThan(0))
+  })
+
+  it('does not call admin-change-email when the email field is left unchanged', async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(functionsInvokeMock).not.toHaveBeenCalledWith('admin-change-email', expect.anything())
+    expect(signInWithOtpMock).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the error and does not send an invite when the email change fails', async () => {
+    functionsInvokeMock.mockResolvedValueOnce({
+      data: { error: 'That email is already used by another account.' }, error: null,
+    })
+
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await openEditAndChangeEmail('taken@amwelltechnologies.com')
+
+    await waitFor(() => expect(screen.getAllByText(/already used by another account/i).length).toBeGreaterThan(0))
+    expect(signInWithOtpMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
+  })
+})

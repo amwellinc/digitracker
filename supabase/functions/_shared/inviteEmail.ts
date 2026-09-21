@@ -5,8 +5,8 @@
 // the Supabase inviteUserByEmail fallback), and the fallback's error was
 // being discarded with .catch(() => {}), so there was no way to even tell
 // what had gone wrong, let alone recover the account it left stranded.
-import { SMTPClient } from 'https://deno.land/x/denomailer@1.6.0/mod.ts'
 import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getPlatformSmtp } from './smtp.ts'
 
 const PRODUCT_WEBSITE = 'www.digitracker.co'
 
@@ -33,25 +33,9 @@ export async function sendInviteAndInvoiceEmail(
   info: InviteEmailInfo,
 ): Promise<{ sent: boolean; error: string | null }> {
   try {
-    const { data: platform } = await admin
-      .from('platform_settings')
-      .select('smtp_host, smtp_port, smtp_secure, smtp_user, smtp_pass, from_email, from_name')
-      .limit(1)
-      .maybeSingle()
-
-    if (!platform?.smtp_host || !platform.smtp_user || !platform.smtp_pass || !platform.from_email) {
-      return { sent: false, error: 'SMTP is not configured in platform_settings.' }
-    }
-
-    const client = new SMTPClient({
-      connection: {
-        hostname: platform.smtp_host,
-        port: platform.smtp_port,
-        tls: platform.smtp_secure,
-        auth: { username: platform.smtp_user, password: platform.smtp_pass },
-      },
-    })
-    const from = `${platform.from_name || 'DIGITRACKER'} <${platform.from_email}>`
+    const { smtp, error } = await getPlatformSmtp(admin)
+    if (!smtp) return { sent: false, error }
+    const { client, from } = smtp
 
     const trialRow = info.trialStartsAt && info.trialEndsAt
       ? `<tr><td style="padding:6px 0;color:#64748b;">Trial period</td><td style="padding:6px 0;text-align:right;font-weight:600;">${fmtDate(info.trialStartsAt)} – ${fmtDate(info.trialEndsAt)}</td></tr>`

@@ -230,6 +230,26 @@ export function UsersTab() {
     e.preventDefault()
     if (!editUser) return
     setSaving(true); setMsg(null)
+
+    const newEmail = form.email.trim().toLowerCase()
+    const emailChanged = newEmail !== editUser.email.toLowerCase()
+
+    // Changing the sign-in email touches Supabase Auth, which needs the
+    // service-role key — that has to go through admin-change-email, not a
+    // plain client update(). Do this before the rest of the profile fields
+    // so an email-change error is reported before anything else is saved.
+    if (emailChanged) {
+      const { data, error } = await supabase.functions.invoke('admin-change-email', {
+        body: { targetUserId: editUser.id, newEmail },
+      })
+      const fnError = await extractFunctionError(error, data)
+      if (fnError) {
+        setSaving(false)
+        setMsg({ type: 'error', text: `Could not change email: ${fnError}` })
+        return
+      }
+    }
+
     const { error } = await supabase.from('users').update({
       name: form.name.trim(),
       role: form.role,
@@ -243,10 +263,24 @@ export function UsersTab() {
       appointed_as: form.appointed_as.trim() || null,
       department_id: form.department_id || null,
     }).eq('id', editUser.id)
+
+    if (emailChanged) {
+      // The email itself already changed regardless of how the update above
+      // goes, so send the sign-in invite to the new address either way.
+      const appUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
+      await supabase.auth.signInWithOtp({ email: newEmail, options: { emailRedirectTo: appUrl } })
+    }
+
     setSaving(false)
     if (error) { setMsg({ type: 'error', text: error.message }); return }
     void fetchUsers()
-    setEditUser(null)
+
+    if (emailChanged) {
+      setMsg({ type: 'success', text: `Email changed to ${newEmail} — a sign-in link was sent there.` })
+      setTimeout(() => { setEditUser(null); setMsg(null) }, 2500)
+    } else {
+      setEditUser(null)
+    }
   }
 
   async function toggleSuspend(u: User) {
@@ -803,7 +837,14 @@ export function UsersTab() {
               <input required value={form.name} onChange={e => patch('name', e.target.value)} className="input" />
             </FormRow>
             <FormRow label="Email">
-              <input value={form.email} readOnly className="input bg-gray-50 text-gray-400 cursor-not-allowed" />
+              <input
+                required type="email"
+                value={form.email} onChange={e => patch('email', e.target.value)}
+                className="input"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Changing this signs {editUser.name} out of their current session and emails them a new sign-in link.
+              </p>
             </FormRow>
             <div className="grid grid-cols-2 gap-3">
               <FormRow label="Role">
