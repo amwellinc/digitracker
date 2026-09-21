@@ -8,19 +8,21 @@ interface Props {
   members: User[]
   onClose: () => void
   onCreated: () => void
+  task?: ProjectTask
+  assigneeIds?: string[]
 }
 
 interface Attachment { file: File; preview: string }
 
-export function CreateProjectTaskModal({ projectId, members, onClose, onCreated }: Props) {
+export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: initAssignees = [], onClose, onCreated }: Props) {
   const { user } = useAuth()
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const [title, setTitle] = useState('')
-  const [desc, setDesc] = useState('')
-  const [dueDate, setDueDate] = useState('')
-  const [recurring, setRecurring] = useState<ProjectTask['recurring']>(null)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [title, setTitle] = useState(task?.title ?? '')
+  const [desc, setDesc] = useState(task?.description ?? '')
+  const [dueDate, setDueDate] = useState(task?.due_date ? task.due_date.slice(0, 16) : '')
+  const [recurring, setRecurring] = useState<ProjectTask['recurring']>(task?.recurring ?? null)
+  const [selectedIds, setSelectedIds] = useState<string[]>(initAssignees)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -41,7 +43,7 @@ export function CreateProjectTaskModal({ projectId, members, onClose, onCreated 
   }
 
   async function uploadAttachments(taskId: string) {
-    const uploaded: ProjectTask['attachments'] = []
+    const uploaded: ProjectTask['attachments'] = [...(task?.attachments ?? [])]
     for (const a of attachments) {
       const path = `${taskId}/${Date.now()}-${a.file.name}`
       const { error: upErr } = await supabase.storage.from('task-attachments')
@@ -74,37 +76,54 @@ export function CreateProjectTaskModal({ projectId, members, onClose, onCreated 
       assignee_id: primaryAssignee,
       due_date: dueDate ? new Date(dueDate).toISOString() : null,
       recurring: recurring ?? null,
-      project_id: projectId,
     }
 
-    // Create new. The id is generated client-side and the insert never
-    // requests a representation back (no .select()) — Supabase implements
-    // "return the inserted row" as an INSERT wrapped in a CTE with
-    // RETURNING, read by an outer SELECT, which is a meaningfully
-    // different query shape under RLS than a bare INSERT. Knowing the id
-    // upfront means we never need that shape at all.
-    const tid = crypto.randomUUID()
-    const { error: insErr } = await supabase.from('project_tasks').insert({ id: tid, ...payload, attachments: [] })
-    if (insErr) { setError(insErr.message); setSaving(false); return }
+    if (task) {
+      // Update existing
+      const uploads = await uploadAttachments(task.id)
+      const { error: updErr } = await supabase.from('project_tasks')
+        .update({ ...payload, attachments: uploads }).eq('id', task.id)
+      if (updErr) { setError(updErr.message); setSaving(false); return }
 
-    const uploads = await uploadAttachments(tid)
-    if (uploads.length > 0) {
-      const { error: attachErr } = await supabase.from('project_tasks').update({ attachments: uploads }).eq('id', tid)
-      if (attachErr) { setError(`Task created, but attachments failed to save: ${attachErr.message}`); setSaving(false); return }
-    }
+      // Sync assignees: delete all then re-insert
+      const { error: delErr } = await supabase.from('project_task_assignees').delete().eq('project_task_id', task.id)
+      if (delErr) { setError(`Task saved, but assignees failed to update: ${delErr.message}`); setSaving(false); return }
+      if (selectedIds.length > 0) {
+        const { error: assignErr } = await supabase.from('project_task_assignees').insert(
+          selectedIds.map(uid => ({ project_task_id: task.id, user_id: uid }))
+        )
+        if (assignErr) { setError(`Task saved, but assignees failed to update: ${assignErr.message}`); setSaving(false); return }
+      }
+    } else {
+      // Create new. The id is generated client-side and the insert never
+      // requests a representation back (no .select()) — Supabase implements
+      // "return the inserted row" as an INSERT wrapped in a CTE with
+      // RETURNING, read by an outer SELECT, which is a meaningfully
+      // different query shape under RLS than a bare INSERT. Knowing the id
+      // upfront means we never need that shape at all.
+      const tid = crypto.randomUUID()
+      const { error: insErr } = await supabase.from('project_tasks').insert({ id: tid, ...payload, project_id: projectId, attachments: [] })
+      if (insErr) { setError(insErr.message); setSaving(false); return }
 
-    // Insert assignees junction rows
-    if (selectedIds.length > 0) {
-      const { error: assignErr } = await supabase.from('project_task_assignees').insert(
-        selectedIds.map(uid => ({ project_task_id: tid, user_id: uid }))
-      )
-      if (assignErr) { setError(`Task created, but assignees failed to save: ${assignErr.message}`); setSaving(false); return }
-    }
+      const uploads = await uploadAttachments(tid)
+      if (uploads.length > 0) {
+        const { error: attachErr } = await supabase.from('project_tasks').update({ attachments: uploads }).eq('id', tid)
+        if (attachErr) { setError(`Task created, but attachments failed to save: ${attachErr.message}`); setSaving(false); return }
+      }
 
-    // Notify assignees
-    for (const uid of selectedIds) {
-      if (uid !== user.id) {
-        await sendNotification(uid, 'task_assigned', `${user.name} assigned you a task: "${title.trim()}"`)
+      // Insert assignees junction rows
+      if (selectedIds.length > 0) {
+        const { error: assignErr } = await supabase.from('project_task_assignees').insert(
+          selectedIds.map(uid => ({ project_task_id: tid, user_id: uid }))
+        )
+        if (assignErr) { setError(`Task created, but assignees failed to save: ${assignErr.message}`); setSaving(false); return }
+      }
+
+      // Notify assignees
+      for (const uid of selectedIds) {
+        if (uid !== user.id) {
+          await sendNotification(uid, 'task_assigned', `${user.name} assigned you a task: "${title.trim()}"`)
+        }
       }
     }
 
@@ -120,7 +139,7 @@ export function CreateProjectTaskModal({ projectId, members, onClose, onCreated 
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-gray-900">New Task</h2>
+          <h2 className="text-lg font-semibold text-gray-900">{task ? 'Edit Task' : 'New Task'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
 
@@ -205,8 +224,14 @@ export function CreateProjectTaskModal({ projectId, members, onClose, onCreated 
             </button>
             <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
               className="hidden" onChange={e => addFiles(e.target.files)} />
-            {attachments.length > 0 && (
+            {(attachments.length > 0 || (task?.attachments ?? []).length > 0) && (
               <div className="mt-2 flex flex-wrap gap-2">
+                {task?.attachments?.map((a, i) => (
+                  <a key={i} href={a.url} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-200">
+                    📄 {a.name}
+                  </a>
+                ))}
                 {attachments.map((a, i) => (
                   <div key={i} className="flex items-center gap-1.5 bg-violet-50 rounded-lg px-2.5 py-1 text-xs text-violet-700">
                     {a.preview ? <img src={a.preview} className="w-5 h-5 rounded object-cover" alt="" /> : '📄'}
@@ -228,7 +253,7 @@ export function CreateProjectTaskModal({ projectId, members, onClose, onCreated 
             </button>
             <button type="submit" disabled={saving || !title.trim()}
               className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
-              {saving ? 'Saving…' : 'Create Task'}
+              {saving ? 'Saving…' : task ? 'Save Changes' : 'Create Task'}
             </button>
           </div>
         </form>

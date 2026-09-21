@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { ProjectTask, ProjectTaskComment, User } from '@/types'
 import { STATUS_COLOR, STATUS_LABEL, getAlertLevel, fmtDue } from '../tasks/taskUtils'
+import { CreateProjectTaskModal } from './CreateProjectTaskModal'
 
 interface Props {
   projectId: string
@@ -31,7 +32,7 @@ const NEXT_STATUS: Partial<Record<ProjectTask['status'], ProjectTask['status']>>
   in_progress: 'completed',
 }
 
-export function ProjectTaskDetailModal({ projectId: _projectId, task: initialTask, members, onClose, onUpdated }: Props) {
+export function ProjectTaskDetailModal({ projectId, task: initialTask, members, onClose, onUpdated }: Props) {
   const { user } = useAuth()
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -42,6 +43,7 @@ export function ProjectTaskDetailModal({ projectId: _projectId, task: initialTas
   const [commentFiles, setCommentFiles] = useState<File[]>([])
   const [posting, setPosting] = useState(false)
   const [statusUpdating, setStatusUpdating] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -139,6 +141,12 @@ export function ProjectTaskDetailModal({ projectId: _projectId, task: initialTas
     onClose()
   }
 
+  if (showEdit) {
+    return <CreateProjectTaskModal projectId={projectId} task={task} assigneeIds={assigneeIds} members={members}
+      onClose={() => setShowEdit(false)}
+      onCreated={() => { setShowEdit(false); onUpdated(); onClose() }} />
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4"
       onClick={onClose}>
@@ -162,10 +170,14 @@ export function ProjectTaskDetailModal({ projectId: _projectId, task: initialTas
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {canManage && (
-              <button onClick={deleteTask} disabled={deleting}
-                className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded-lg px-2.5 py-1">
-                {deleting ? '…' : 'Delete'}
-              </button>
+              <>
+                <button onClick={() => setShowEdit(true)}
+                  className="text-xs text-violet-600 hover:text-violet-800 border border-violet-200 rounded-lg px-2.5 py-1">Edit</button>
+                <button onClick={deleteTask} disabled={deleting}
+                  className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded-lg px-2.5 py-1">
+                  {deleting ? '…' : 'Delete'}
+                </button>
+              </>
             )}
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl ml-1">&times;</button>
           </div>
