@@ -12,6 +12,7 @@ import { GHLInstallPage } from '@/features/ghl/GHLInstallPage'
 import { GHLConnectedPage } from '@/features/ghl/GHLConnectedPage'
 import { PrivacyPolicyPage } from '@/features/legal/PrivacyPolicyPage'
 import { TermsOfServicePage } from '@/features/legal/TermsOfServicePage'
+import { ProjectGuard } from '@/features/projects/ProjectGuard'
 import { useAuth } from '@/hooks/useAuth'
 import { useReportsAccess } from '@/hooks/useReportsAccess'
 
@@ -32,6 +33,9 @@ const ScreenshotsPage = lazy(() =>
 )
 const TasksPage = lazy(() =>
   import('@/features/tasks/TasksPage').then(m => ({ default: m.TasksPage }))
+)
+const ProjectPage = lazy(() =>
+  import('@/features/projects/ProjectPage').then(m => ({ default: m.ProjectPage }))
 )
 const HRDocumentsPage = lazy(() =>
   import('@/features/documents/HRDocumentsPage').then(m => ({ default: m.HRDocumentsPage }))
@@ -136,6 +140,16 @@ export function AppRouter() {
               <Suspense fallback={<Spinner />}>
                 <TasksPage />
               </Suspense>
+            }
+          />
+          <Route
+            path="projects/:projectId"
+            element={
+              <ProjectGuard>
+                <Suspense fallback={<Spinner />}>
+                  <ProjectPage />
+                </Suspense>
+              </ProjectGuard>
             }
           />
           <Route
