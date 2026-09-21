@@ -2,27 +2,15 @@
 // mouse/keyboard/scroll input before it's surfaced as "Idle" to Admin/Manager.
 // Matches ClockContext's STALE_MS (abandoned-session detection) so there's a
 // single consistent definition of "20 minutes" across the app.
+//
+// Note: this only drives the cosmetic "Idle" badge. There is deliberately no
+// corresponding auto clock-out — DigiTracker's own screen-capture tab sits in
+// the background while staff work in other applications, so in-page
+// mousemove/keydown/scroll listeners cannot observe genuine activity and
+// would falsely disconnect people who are actively working elsewhere.
 export const IDLE_THRESHOLD_MS = 20 * 60 * 1000
-
-// Hard cap: a session idle for longer than this while status is "working"
-// (never while on lunch) is auto clocked-out by ClockContext. Distinct from
-// IDLE_THRESHOLD_MS above, which only controls the cosmetic "Idle" badge —
-// this one actually disconnects the session.
-export const IDLE_DISCONNECT_MS = 40 * 60 * 1000
 
 export function isIdle(lastActivityAt: string | null | undefined): boolean {
   if (!lastActivityAt) return false
   return Date.now() - new Date(lastActivityAt).getTime() > IDLE_THRESHOLD_MS
-}
-
-// Pure decision behind ClockContext's idle-disconnect check, extracted so
-// the actual policy — never while on lunch, 40 min of no real input while
-// working — is directly unit-testable without mocking timers/Supabase.
-export function shouldIdleDisconnect(
-  status: 'working' | 'lunch' | 'clocked_out',
-  lastActivityMs: number,
-  now: number = Date.now(),
-): boolean {
-  if (status !== 'working') return false
-  return now - lastActivityMs > IDLE_DISCONNECT_MS
 }
