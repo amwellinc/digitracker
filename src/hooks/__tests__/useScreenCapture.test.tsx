@@ -87,10 +87,37 @@ describe('useScreenCapture', () => {
     expect(result.current.isCapturing).toBe(true)
   })
 
-  it('start() returns true when window or tab selected (any surface accepted)', async () => {
+  it('start() rejects a shared window, stops the stream, and shows an error', async () => {
     const windowTrack = { getSettings: vi.fn().mockReturnValue({ displaySurface: 'window' }), stop: vi.fn(), onended: null }
     const windowStream = { getVideoTracks: vi.fn().mockReturnValue([windowTrack]), getTracks: vi.fn().mockReturnValue([windowTrack]) }
     vi.mocked(navigator.mediaDevices.getDisplayMedia).mockResolvedValueOnce(windowStream as never)
+
+    const { result } = renderHook(() => useScreenCapture(vi.fn()), { wrapper })
+    let ok = true
+    await act(async () => { ok = await result.current.start() })
+    expect(ok).toBe(false)
+    expect(result.current.isCapturing).toBe(false)
+    expect(result.current.error).toMatch(/entire screen/i)
+    expect(windowTrack.stop).toHaveBeenCalled()
+  })
+
+  it('start() rejects a shared browser tab the same way', async () => {
+    const tabTrack = { getSettings: vi.fn().mockReturnValue({ displaySurface: 'browser' }), stop: vi.fn(), onended: null }
+    const tabStream = { getVideoTracks: vi.fn().mockReturnValue([tabTrack]), getTracks: vi.fn().mockReturnValue([tabTrack]) }
+    vi.mocked(navigator.mediaDevices.getDisplayMedia).mockResolvedValueOnce(tabStream as never)
+
+    const { result } = renderHook(() => useScreenCapture(vi.fn()), { wrapper })
+    let ok = true
+    await act(async () => { ok = await result.current.start() })
+    expect(ok).toBe(false)
+    expect(result.current.isCapturing).toBe(false)
+    expect(tabTrack.stop).toHaveBeenCalled()
+  })
+
+  it('start() accepts the stream when the browser does not report displaySurface at all', async () => {
+    const unknownTrack = { getSettings: vi.fn().mockReturnValue({}), stop: vi.fn(), onended: null }
+    const unknownStream = { getVideoTracks: vi.fn().mockReturnValue([unknownTrack]), getTracks: vi.fn().mockReturnValue([unknownTrack]) }
+    vi.mocked(navigator.mediaDevices.getDisplayMedia).mockResolvedValueOnce(unknownStream as never)
 
     const { result } = renderHook(() => useScreenCapture(vi.fn()), { wrapper })
     let ok = false

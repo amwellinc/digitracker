@@ -137,6 +137,24 @@ export function useScreenCapture(onForcedClockOut: () => void) {
         video: { displaySurface: 'monitor' } as MediaTrackConstraints,
       })
 
+      // `displaySurface: 'monitor'` above is only a hint for which tab the
+      // browser's native picker defaults to — the user can still pick a
+      // specific window or browser tab instead. Enforce the actual choice:
+      // only "Entire Screen" is accepted, so a shared window/tab can't be
+      // used to satisfy the clock-in prompt while real work happens
+      // elsewhere, unmonitored. If the browser doesn't report displaySurface
+      // at all (very old implementations), fail open rather than block a
+      // legitimate clock-in we can't actually verify either way.
+      const surface = stream.getVideoTracks()[0]?.getSettings?.().displaySurface
+      if (surface && surface !== 'monitor') {
+        stream.getTracks().forEach(t => t.stop())
+        setState({
+          isCapturing: false,
+          error: 'Please share your Entire Screen, not a specific window or tab. Click "Clock In" again and choose "Entire Screen" in the sharing dialog.',
+        })
+        return false
+      }
+
       streamRef.current = stream
 
       if (!videoRef.current) {
