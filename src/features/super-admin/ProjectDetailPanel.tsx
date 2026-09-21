@@ -21,10 +21,14 @@ export function ProjectDetailPanel({ project, onClose }: Props) {
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const loadMembers = useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('project_members')
       .select('user_id, users(name, email, sub_account)')
       .eq('project_id', project.id)
+    if (error) {
+      setMsg({ type: 'error', text: `Could not load members: ${error.message}` })
+      return
+    }
     type Row = { user_id: string; users: { name: string; email: string; sub_account: string } | null }
     const rows = (data ?? []) as unknown as Row[]
     setMembers(
@@ -42,7 +46,13 @@ export function ProjectDetailPanel({ project, onClose }: Props) {
       .from('users')
       .select('id, name, email, sub_account')
       .ilike('email', `%${search.trim()}%`)
-      .then(({ data }) => setCandidates((data ?? []) as Pick<User, 'id' | 'name' | 'email' | 'sub_account'>[]))
+      .then(({ data, error }) => {
+        if (error) {
+          setMsg({ type: 'error', text: `Search failed: ${error.message}` })
+          return
+        }
+        setCandidates((data ?? []) as Pick<User, 'id' | 'name' | 'email' | 'sub_account'>[])
+      })
   }, [search])
 
   async function handleAdd(userId: string) {
