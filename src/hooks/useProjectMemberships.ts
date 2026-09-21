@@ -36,5 +36,21 @@ export function useProjectMemberships() {
 
   useEffect(() => { void load() }, [load])
 
+  // Mirrors the layout-task-count channel pattern in src/app/Layout.tsx:
+  // a lightweight realtime subscription that just triggers a re-fetch.
+  // project_members has no mutable columns besides its PK pair, so UPDATE
+  // isn't meaningful here — only INSERT/DELETE matter. Without this, a
+  // user newly added to a project by Super-Admin sees no sidebar entry
+  // (and ProjectGuard would even redirect them away) until a full reload.
+  useEffect(() => {
+    if (!user) return
+    const ch = supabase
+      .channel('project-memberships')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'project_members', filter: `user_id=eq.${user.id}` }, () => void load())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'project_members', filter: `user_id=eq.${user.id}` }, () => void load())
+      .subscribe()
+    return () => { void supabase.removeChannel(ch) }
+  }, [user, load])
+
   return { memberships, loading }
 }

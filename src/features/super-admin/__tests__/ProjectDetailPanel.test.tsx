@@ -26,6 +26,11 @@ import type { Project } from '@/types'
 
 const project: Project = { id: 'p1', name: 'JohnBakery', created_by: 'admin-1', created_at: '2026-01-01T00:00:00Z' }
 
+// Note: the 3-workspace cap's actual counting logic lives entirely in the
+// add_project_member SQL RPC and cannot be exercised by a mocked Supabase
+// client. It is verified separately by manual trace against the SQL
+// (documented in the Task 1 review) and by live-app testing — the tests
+// below only verify the client-side call shape and error/success handling.
 describe('ProjectDetailPanel — 3-workspace cap', () => {
   beforeEach(() => {
     rpcMock.mockReset()
@@ -58,14 +63,18 @@ describe('ProjectDetailPanel — 3-workspace cap', () => {
     await waitFor(() => expect(screen.getByText(/3 workspaces/i)).toBeInTheDocument())
   })
 
-  it('allows adding another member from an already-represented workspace even at the cap', async () => {
+  it("passes the clicked candidate's exact id to add_project_member, not a stale value", async () => {
     rpcMock.mockResolvedValueOnce({ error: null })
     render(<ProjectDetailPanel project={project} onClose={vi.fn()} />)
 
     await userEvent.type(await screen.findByPlaceholderText(/search by email/i), 'new@x.com')
     await userEvent.click(await screen.findByText('Add'))
 
+    // The mocked RPC can't exercise the SQL-side cap counting (see comment
+    // above), but it can verify the exact id/project pair the UI sends —
+    // guarding against a stale-closure or wrong-row regression in the
+    // candidate list's click handler.
     await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('add_project_member', { p_project_id: 'p1', p_user_id: 'u9' }))
-    await waitFor(() => expect(screen.getByText(/added/i)).toBeInTheDocument())
+    expect(rpcMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -13,6 +13,8 @@ vi.mock('@/lib/supabase', () => ({
     from: vi.fn(() => ({
       select: (...args: unknown[]) => { selectMock(...args); return { eq: (...eqArgs: unknown[]) => eqMock(...eqArgs) } },
     })),
+    channel: vi.fn().mockReturnValue({ on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis() }),
+    removeChannel: vi.fn(),
   },
 }))
 
