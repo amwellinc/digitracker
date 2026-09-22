@@ -277,13 +277,15 @@ export function ProjectPage() {
           <h2 className="text-xl font-semibold text-gray-900">Tasks</h2>
           <p className="text-sm text-gray-500 mt-0.5">Manage your tasks and team assignments</p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="bg-violet-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-violet-700 transition-colors flex items-center gap-1.5 self-start sm:self-auto"
-          style={{ minHeight: '44px' }}
-        >
-          + New Task
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="bg-violet-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-violet-700 transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+            style={{ minHeight: '44px' }}
+          >
+            + New Task
+          </button>
+        )}
       </div>
 
       {/* Presence header */}
@@ -362,11 +364,14 @@ export function ProjectPage() {
           <p className="text-base font-medium">No tasks found</p>
           <p className="text-sm mt-1">
             {filter === 'overdue' ? 'Great — nothing overdue!' :
-             filter === 'mine' ? 'You have no tasks assigned or created.' :
+             filter === 'mine' && canManage ? 'You have no tasks assigned or created.' :
+             filter === 'mine' ? 'You have no tasks assigned yet — check back once your Admin or Manager assigns one.' :
              'Nothing in this category yet.'}
           </p>
-          <button onClick={() => setShowCreate(true)}
-            className="mt-4 text-sm text-violet-600 hover:underline">Create your first task →</button>
+          {canManage && (
+            <button onClick={() => setShowCreate(true)}
+              className="mt-4 text-sm text-violet-600 hover:underline">Create your first task →</button>
+          )}
         </div>
       ) : (
         <div className="space-y-2">

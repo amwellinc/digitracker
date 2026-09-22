@@ -36,7 +36,7 @@ describe('ProjectDetailPanel — 3-workspace cap', () => {
     rpcMock.mockReset()
     membersSelectMock.mockReset().mockResolvedValue({ data: [] })
     usersSelectMock.mockReset().mockResolvedValue({
-      data: [{ id: 'u9', name: 'New Person', email: 'new@x.com', sub_account: 'AM999' }],
+      data: [{ id: 'u9', name: 'New Person', email: 'new@x.com', sub_account: 'AM999', role: 'Staff' }],
     })
   })
 
@@ -76,5 +76,26 @@ describe('ProjectDetailPanel — 3-workspace cap', () => {
     // candidate list's click handler.
     await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('add_project_member', { p_project_id: 'p1', p_user_id: 'u9' }))
     expect(rpcMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ProjectDetailPanel — role visibility', () => {
+  beforeEach(() => {
+    rpcMock.mockReset()
+    membersSelectMock.mockReset().mockResolvedValue({
+      data: [
+        { user_id: 'm1', users: { name: 'Existing Admin', email: 'admin@x.com', sub_account: 'AM333', role: 'Admin' } },
+        { user_id: 'm2', users: { name: 'Existing Staff', email: 'staff@x.com', sub_account: 'AM333', role: 'Staff' } },
+      ],
+    })
+    usersSelectMock.mockReset().mockResolvedValue({ data: [] })
+  })
+
+  it("shows each member's role so Super-Admin can see who can create tasks", async () => {
+    render(<ProjectDetailPanel project={project} onClose={vi.fn()} />)
+
+    await screen.findByText('Existing Admin', { exact: false })
+    expect(screen.getByText('Admin')).toBeInTheDocument()
+    expect(screen.getByText('Staff')).toBeInTheDocument()
   })
 })

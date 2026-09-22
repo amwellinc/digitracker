@@ -7,6 +7,22 @@ interface Member {
   name: string
   email: string
   sub_account: string
+  role: string
+}
+
+// Task creation within a project follows the member's existing company
+// role (see migration 057) — Admin/Manager/Super-Admin only. This badge is
+// what lets a Super-Admin see, while assigning members, who will actually
+// be able to create tasks once added.
+function RoleBadge({ role }: { role: string }) {
+  const canCreate = role === 'Admin' || role === 'Manager' || role === 'Super-Admin'
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+      canCreate ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-500'
+    }`}>
+      {role}
+    </span>
+  )
 }
 
 interface Props {
@@ -17,24 +33,24 @@ interface Props {
 export function ProjectDetailPanel({ project, onClose }: Props) {
   const [members, setMembers] = useState<Member[]>([])
   const [search, setSearch] = useState('')
-  const [candidates, setCandidates] = useState<Pick<User, 'id' | 'name' | 'email' | 'sub_account'>[]>([])
+  const [candidates, setCandidates] = useState<Pick<User, 'id' | 'name' | 'email' | 'sub_account' | 'role'>[]>([])
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const loadMembers = useCallback(async () => {
     const { data, error } = await supabase
       .from('project_members')
-      .select('user_id, users(name, email, sub_account)')
+      .select('user_id, users(name, email, sub_account, role)')
       .eq('project_id', project.id)
     if (error) {
       setMsg({ type: 'error', text: `Could not load members: ${error.message}` })
       return
     }
-    type Row = { user_id: string; users: { name: string; email: string; sub_account: string } | null }
+    type Row = { user_id: string; users: { name: string; email: string; sub_account: string; role: string } | null }
     const rows = (data ?? []) as unknown as Row[]
     setMembers(
       rows
         .filter(r => r.users)
-        .map(r => ({ user_id: r.user_id, name: r.users!.name, email: r.users!.email, sub_account: r.users!.sub_account }))
+        .map(r => ({ user_id: r.user_id, name: r.users!.name, email: r.users!.email, sub_account: r.users!.sub_account, role: r.users!.role }))
     )
   }, [project.id])
 
@@ -44,14 +60,14 @@ export function ProjectDetailPanel({ project, onClose }: Props) {
     if (!search.trim()) { setCandidates([]); return }
     void supabase
       .from('users')
-      .select('id, name, email, sub_account')
+      .select('id, name, email, sub_account, role')
       .ilike('email', `%${search.trim()}%`)
       .then(({ data, error }) => {
         if (error) {
           setMsg({ type: 'error', text: `Search failed: ${error.message}` })
           return
         }
-        setCandidates((data ?? []) as Pick<User, 'id' | 'name' | 'email' | 'sub_account'>[])
+        setCandidates((data ?? []) as Pick<User, 'id' | 'name' | 'email' | 'sub_account' | 'role'>[])
       })
   }, [search])
 
@@ -92,7 +108,10 @@ export function ProjectDetailPanel({ project, onClose }: Props) {
             <div className="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100">
               {candidates.map(c => (
                 <div key={c.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                  <span>{c.name} — {c.email} <span className="text-gray-400">({c.sub_account})</span></span>
+                  <span className="flex items-center gap-2">
+                    {c.name} — {c.email} <span className="text-gray-400">({c.sub_account})</span>
+                    <RoleBadge role={c.role} />
+                  </span>
                   <button
                     onClick={() => handleAdd(c.id)}
                     className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-md px-3 py-1"
@@ -108,7 +127,10 @@ export function ProjectDetailPanel({ project, onClose }: Props) {
         <div className="space-y-2">
           {members.map(m => (
             <div key={m.user_id} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg text-sm">
-              <span>{m.name} — {m.email} <span className="text-gray-400">({m.sub_account})</span></span>
+              <span className="flex items-center gap-2">
+                {m.name} — {m.email} <span className="text-gray-400">({m.sub_account})</span>
+                <RoleBadge role={m.role} />
+              </span>
               <button
                 onClick={() => handleRemove(m.user_id)}
                 className="text-xs font-semibold text-red-600 hover:text-red-700"
