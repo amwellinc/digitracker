@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from './useAuth'
 
@@ -14,6 +14,7 @@ interface MembershipRow {
 
 export function useProjectMemberships() {
   const { user } = useAuth()
+  const instanceId = useId()
   const [memberships, setMemberships] = useState<ProjectMembership[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -42,15 +43,26 @@ export function useProjectMemberships() {
   // isn't meaningful here — only INSERT/DELETE matter. Without this, a
   // user newly added to a project by Super-Admin sees no sidebar entry
   // (and ProjectGuard would even redirect them away) until a full reload.
+  //
+  // This hook runs in two places at once whenever a project page is open —
+  // Layout.tsx's sidebar (always mounted) and ProjectGuard (mounted on
+  // /projects/:id) — so the channel name MUST be unique per hook instance
+  // (via useId), not just per user. A shared/hardcoded name here means the
+  // second instance's .on() call collides with the first instance's
+  // already-subscribed channel and throws an uncaught "cannot add
+  // postgres_changes callbacks after subscribe()" error — which, with no
+  // error boundary anywhere in this app, unmounts the entire React tree
+  // (a fully blank page, not just this component) the moment you open any
+  // project.
   useEffect(() => {
     if (!user) return
     const ch = supabase
-      .channel('project-memberships')
+      .channel(`project-memberships:${instanceId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'project_members', filter: `user_id=eq.${user.id}` }, () => void load())
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'project_members', filter: `user_id=eq.${user.id}` }, () => void load())
       .subscribe()
     return () => { void supabase.removeChannel(ch) }
-  }, [user, load])
+  }, [user, load, instanceId])
 
   return { memberships, loading }
 }
