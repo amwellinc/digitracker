@@ -392,7 +392,7 @@ export function ProjectPage() {
           projectId={projectId!}
           members={members}
           onClose={() => setShowCreate(false)}
-          onCreated={() => setTick(t => t + 1)}
+          onCreated={() => { setTick(t => t + 1); void loadMemberStatus() }}
         />
       )}
       {detailRow && (
@@ -401,7 +401,7 @@ export function ProjectPage() {
           task={detailRow.task}
           members={members}
           onClose={() => setDetailRow(null)}
-          onUpdated={() => setTick(t => t + 1)}
+          onUpdated={() => { setTick(t => t + 1); void loadMemberStatus() }}
         />
       )}
     </div>

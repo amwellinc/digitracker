@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { ProjectTask, User } from '@/types'
@@ -28,8 +28,55 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
   const [error, setError] = useState<string | null>(null)
   const [showUserDrop, setShowUserDrop] = useState(false)
 
+  // Admin/Manager can assign someone who isn't a project member yet — as
+  // long as they're in the assigner's own workspace, adding them can never
+  // push the project past its 3-workspace cap (that workspace is already
+  // represented, since the assigner themselves is a member). `search`/
+  // `candidates` find that person; `addedCandidates` holds anyone picked
+  // this way so their name/avatar render even though they're not in the
+  // `members` prop yet. add_project_member is called for each of them on
+  // submit, before the task/assignee rows are written.
+  const [search, setSearch] = useState('')
+  const [candidates, setCandidates] = useState<Pick<User, 'id' | 'name' | 'role'>[]>([])
+  const [addedCandidates, setAddedCandidates] = useState<User[]>([])
+  const canAddFromWorkspace = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
+  const pickable = [...members, ...addedCandidates]
+
+  useEffect(() => {
+    if (!canAddFromWorkspace || !user?.sub_account || !search.trim()) { setCandidates([]); return }
+    let cancelled = false
+    void supabase
+      .from('users')
+      .select('id, name, role')
+      .eq('sub_account', user.sub_account)
+      .eq('status', 'active')
+      .ilike('name', `%${search.trim()}%`)
+      .then(({ data }) => {
+        if (cancelled) return
+        const known = new Set(pickable.map(m => m.id))
+        setCandidates(((data ?? []) as Pick<User, 'id' | 'name' | 'role'>[]).filter(c => !known.has(c.id)))
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, canAddFromWorkspace, user?.sub_account])
+
   function toggleUser(id: string) {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  function pickCandidate(c: Pick<User, 'id' | 'name' | 'role'>) {
+    setAddedCandidates(prev => [...prev, {
+      id: c.id, name: c.name, role: c.role, email: '', sub_account: user?.sub_account ?? '',
+      manager_id: null, annual_leave: 0, time_off: 0, profile_image: null,
+      reporting_time_in: '', reporting_time_out: '', country: 'SG', phone: null,
+      status: 'active', created_at: '', appointed_as: null, address_line1: null,
+      address_line2: null, address_city: null, address_pin_code: null,
+      last_ip_address: null, last_ip_captured_at: null, emergency_contact_name: null,
+      emergency_contact_phone: null, department_id: null,
+    }])
+    setSelectedIds(prev => [...prev, c.id])
+    setSearch('')
+    setCandidates([])
   }
 
   function addFiles(files: FileList | null) {
@@ -67,6 +114,16 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
     if (!user || !title.trim()) return
     setError(null)
     setSaving(true)
+
+    // Grant project membership to anyone picked via the workspace search
+    // before writing the task itself — an assignee who isn't a project
+    // member can't see project_tasks at all under RLS, so this has to
+    // happen first, not as an afterthought.
+    for (const c of addedCandidates) {
+      if (!selectedIds.includes(c.id)) continue
+      const { error: memberErr } = await supabase.rpc('add_project_member', { p_project_id: projectId, p_user_id: c.id })
+      if (memberErr) { setError(`Could not add ${c.name} to the project: ${memberErr.message}`); setSaving(false); return }
+    }
 
     const primaryAssignee = selectedIds[0] ?? null
     const payload = {
@@ -132,7 +189,7 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
     onClose()
   }
 
-  const selectedMembers = members.filter(m => selectedIds.includes(m.id))
+  const selectedMembers = pickable.filter(m => selectedIds.includes(m.id))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -178,8 +235,8 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
               <span className="ml-auto text-gray-400 text-xs">▼</span>
             </button>
             {showUserDrop && (
-              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-                {members.map(m => (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                {pickable.map(m => (
                   <label key={m.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer">
                     <input type="checkbox" checked={selectedIds.includes(m.id)}
                       onChange={() => toggleUser(m.id)}
@@ -193,6 +250,26 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
                     </div>
                   </label>
                 ))}
+                {canAddFromWorkspace && (
+                  <div className="border-t border-gray-100 p-2">
+                    <input
+                      value={search} onChange={e => setSearch(e.target.value)}
+                      placeholder="Add someone else from your workspace…"
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    />
+                    {candidates.length > 0 && (
+                      <div className="mt-1.5 space-y-0.5">
+                        {candidates.map(c => (
+                          <button key={c.id} type="button" onClick={() => pickCandidate(c)}
+                            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-violet-50 text-left">
+                            <span className="text-xs text-gray-700">{c.name} <span className="text-gray-400">({c.role})</span></span>
+                            <span className="text-[10px] font-semibold text-violet-600">+ Add</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
