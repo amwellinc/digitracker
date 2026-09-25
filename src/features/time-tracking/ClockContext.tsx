@@ -329,8 +329,21 @@ export function ClockProvider({ children }: { children: React.ReactNode }) {
       last_activity_at:  now,
     }
     setClockError(null)
-    const { error } = await supabase.from('time_logs').insert(newLog)
-    if (error) { setClockError(`Could not clock in: ${error.message}`); return }
+    let { error } = await supabase.from('time_logs').insert(newLog)
+    if (error) {
+      // Most common cause: a stale auth token — e.g. the session was issued
+      // before an email change (see UsersTab's admin-change-email flow) and
+      // still carries the old email claim, so it no longer resolves via
+      // auth_user_app_id() server-side even though the cached client-side
+      // session still renders fine. Same self-healing refresh the heartbeat
+      // below already relies on for this exact class of failure.
+      await supabase.auth.refreshSession()
+      ;({ error } = await supabase.from('time_logs').insert(newLog))
+    }
+    if (error) {
+      setClockError(`Could not clock in: ${error.message}. If this keeps happening, sign out and sign back in.`)
+      return
+    }
     setActiveLog(newLog)
   }, [startCapture, timezone])
 
