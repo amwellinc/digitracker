@@ -27,6 +27,15 @@ export interface UserReportRow {
   eodrEligibleDays: number // workdays elapsed so far in range that the person worked or should have
   eodrCompliancePct: number
   attendancePct: number
+  latestFirstClockIn: string | null  // most recent worked day in range — ISO timestamp
+  latestLastClockOut: string | null  // most recent worked day in range — ISO timestamp
+}
+
+export interface DailyAttendanceRow {
+  date: string
+  firstClockIn: string | null // ISO timestamp
+  lastClockOut: string | null // ISO timestamp
+  totalHours: number
 }
 
 function pad2(n: number): string { return String(n).padStart(2, '0') }
@@ -85,6 +94,39 @@ function eachDate(from: string, to: string): Date[] {
   return out
 }
 
+// Groups a user's completed time logs by calendar date, since a day with a
+// lunch break produces two clocked-out rows for the same date that must be
+// collapsed into one first-in/last-out pair rather than shown separately.
+export function buildDailyAttendance(userId: string, timeLogs: TimeLog[]): DailyAttendanceRow[] {
+  const byDate = new Map<string, TimeLog[]>()
+  for (const log of timeLogs) {
+    if (log.user_id !== userId || log.status !== 'clocked_out' || !log.clock_out) continue
+    const existing = byDate.get(log.date)
+    if (existing) existing.push(log)
+    else byDate.set(log.date, [log])
+  }
+  return [...byDate.entries()]
+    .map(([date, logs]) => {
+      const firstClockIn = logs.reduce<string | null>((min, l) => (min === null || l.clock_in < min) ? l.clock_in : min, null)
+      const lastClockOut = logs.reduce<string | null>((max, l) => (l.clock_out && (max === null || l.clock_out > max)) ? l.clock_out : max, null)
+      const totalHours = Math.round((logs.reduce((s, l) => s + (l.total_minutes ?? 0), 0) / 60) * 10) / 10
+      return { date, firstClockIn, lastClockOut, totalHours }
+    })
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+// Formats a UTC ISO timestamp as a local time-of-day string in the given
+// IANA timezone (e.g. "9:02 AM"), mirroring isoDate's local-vs-UTC concern
+// above but for time-of-day instead of the calendar date.
+export function formatTimeInTz(iso: string | null, tz: string): string {
+  if (!iso) return '—'
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(new Date(iso))
+  } catch {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  }
+}
+
 export function buildUserReport(
   user: User,
   range: DateRange,
@@ -126,6 +168,9 @@ export function buildUserReport(
   const eodrCompliancePct = eodrEligibleDays > 0 ? Math.round((eodrSubmittedDays / eodrEligibleDays) * 100) : 0
   const attendancePct = elapsedWorkdays > 0 ? Math.round((daysWorked / elapsedWorkdays) * 100) : 0
 
+  const dailyAttendance = buildDailyAttendance(user.id, userLogs)
+  const latestDay = dailyAttendance.length > 0 ? dailyAttendance[dailyAttendance.length - 1] : null
+
   return {
     user,
     daysWorked,
@@ -139,14 +184,17 @@ export function buildUserReport(
     eodrEligibleDays,
     eodrCompliancePct,
     attendancePct,
+    latestFirstClockIn: latestDay?.firstClockIn ?? null,
+    latestLastClockOut: latestDay?.lastClockOut ?? null,
   }
 }
 
-export function toCsv(rows: UserReportRow[]): string {
-  const header = 'Name,Role,Days Worked,Total Hours,Avg Hours/Day,On Leave,Time Off,Absent,EODR Submitted,EODR Compliance %,Attendance %'
+export function toCsv(rows: UserReportRow[], timezone = 'UTC'): string {
+  const header = 'Name,Role,Days Worked,Total Hours,Avg Hours/Day,On Leave,Time Off,Absent,EODR Submitted,EODR Compliance %,Attendance %,Latest First Clock-In,Latest Last Clock-Out'
   const lines = rows.map(r => [
     `"${r.user.name}"`, r.user.role, r.daysWorked, r.totalHours, r.avgHoursPerDay,
     r.daysOnLeave, r.daysTimeOff, r.daysAbsent, r.eodrSubmittedDays, r.eodrCompliancePct, r.attendancePct,
+    formatTimeInTz(r.latestFirstClockIn, timezone), formatTimeInTz(r.latestLastClockOut, timezone),
   ].join(','))
   return [header, ...lines].join('\n')
 }

@@ -1,5 +1,5 @@
 import type { DateRange, UserReportRow } from '@/lib/reportData'
-import { toCsv, downloadCsv } from '@/lib/reportData'
+import { toCsv, downloadCsv, buildDailyAttendance, formatTimeInTz } from '@/lib/reportData'
 import type { User, TimeLog } from '@/types'
 import { HoursBarChart } from './HoursBarChart'
 
@@ -11,12 +11,14 @@ interface IndividualReportViewProps {
   onSelectUser: (id: string) => void
   range: DateRange
   canPickAnyone: boolean
+  timezone: string
 }
 
 export function IndividualReportView({
-  reports, members, timeLogs, selectedUserId, onSelectUser, range, canPickAnyone,
+  reports, members, timeLogs, selectedUserId, onSelectUser, range, canPickAnyone, timezone,
 }: IndividualReportViewProps) {
   const report = reports.find(r => r.user.id === selectedUserId)
+  const dailyAttendance = buildDailyAttendance(selectedUserId, timeLogs)
 
   const dailyHours = new Map<string, number>()
   for (const log of timeLogs) {
@@ -32,7 +34,7 @@ export function IndividualReportView({
 
   function exportCsv() {
     if (!report) return
-    downloadCsv(`${report.user.name.replace(/\s+/g, '-')}-report-${range.from}-to-${range.to}.csv`, toCsv([report]))
+    downloadCsv(`${report.user.name.replace(/\s+/g, '-')}-report-${range.from}-to-${range.to}.csv`, toCsv([report], timezone))
   }
 
   return (
@@ -89,6 +91,39 @@ export function IndividualReportView({
               <HoursBarChart data={trendData} color="#7C3AED" />
             ) : (
               <p className="text-sm text-gray-400 py-8 text-center">No clocked hours recorded in this range.</p>
+            )}
+          </div>
+
+          {/* Daily attendance detail */}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-200">
+              <p className="text-sm font-semibold text-gray-800">Daily Attendance — {range.label}</p>
+            </div>
+            {dailyAttendance.length === 0 ? (
+              <p className="text-sm text-gray-400 py-8 text-center">No clocked hours recorded in this range.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">First Clock-In</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Clock-Out</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {dailyAttendance.map(d => (
+                      <tr key={d.date} className="hover:bg-gray-50/50">
+                        <td className="px-4 py-3 text-gray-900">{new Date(`${d.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</td>
+                        <td className="px-3 py-3 text-center text-gray-600">{formatTimeInTz(d.firstClockIn, timezone)}</td>
+                        <td className="px-3 py-3 text-center text-gray-600">{formatTimeInTz(d.lastClockOut, timezone)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-gray-700">{d.totalHours}h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </>

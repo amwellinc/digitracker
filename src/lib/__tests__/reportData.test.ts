@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getDateRange, buildUserReport, toCsv, type KpiDailyLogRow } from '../reportData'
+import { getDateRange, buildUserReport, buildDailyAttendance, formatTimeInTz, toCsv, type KpiDailyLogRow } from '../reportData'
 import type { User, TimeLog, LeaveRequest } from '@/types'
 
 describe('getDateRange', () => {
@@ -95,12 +95,68 @@ describe('buildUserReport', () => {
     expect(report.attendancePct).toBe(40) // 2 of 5 elapsed weekdays
   })
 
+  it('reports the first clock-in and last clock-out of the most recent worked day', () => {
+    const report = buildUserReport(user, range, timeLogs, leaveRequests, kpiDailyLogs, todayStr)
+    // Most recent worked day in the fixture is Jan 6.
+    expect(report.latestFirstClockIn).toBe('2026-01-06T02:00:00Z')
+    expect(report.latestLastClockOut).toBe('2026-01-06T10:00:00Z')
+  })
+
+  it('reports null clock-in/out when the person never worked in range', () => {
+    const noWorkUser: User = { ...user, id: 'u9' }
+    const report = buildUserReport(noWorkUser, range, timeLogs, leaveRequests, kpiDailyLogs, todayStr)
+    expect(report.latestFirstClockIn).toBeNull()
+    expect(report.latestLastClockOut).toBeNull()
+  })
+
   it('does not count weekend days toward elapsed workdays or absence', () => {
     const fullMonthRange = { from: '2026-01-01', to: '2026-01-11', label: 'test' }
     const report = buildUserReport(user, fullMonthRange, timeLogs, leaveRequests, kpiDailyLogs, todayStr)
     // Jan 1-4 2026 is Thu/Fri/Sat/Sun -> 2 extra weekdays (Jan1 Thu, Jan2 Fri) with no data => absent
     // Total elapsed weekdays: Jan1,2,5,6,7,8,9 = 7. Worked 2, leave 1, timeoff 1 => absent 3.
     expect(report.daysAbsent).toBe(3)
+  })
+})
+
+describe('buildDailyAttendance', () => {
+  const timeLogs: TimeLog[] = [
+    { id: 't1', user_id: 'u1', date: '2026-01-05', clock_in: '2026-01-05T02:00:00Z', clock_out: '2026-01-05T10:00:00Z', status: 'clocked_out', total_minutes: 480, last_seen_at: null, last_activity_at: null },
+    // Second stint the same day (e.g. clocked out for lunch and back in) — should collapse into one row.
+    { id: 't2', user_id: 'u1', date: '2026-01-05', clock_in: '2026-01-05T11:00:00Z', clock_out: '2026-01-05T13:00:00Z', status: 'clocked_out', total_minutes: 120, last_seen_at: null, last_activity_at: null },
+    { id: 't3', user_id: 'u1', date: '2026-01-06', clock_in: '2026-01-06T03:00:00Z', clock_out: '2026-01-06T09:00:00Z', status: 'clocked_out', total_minutes: 360, last_seen_at: null, last_activity_at: null },
+    // Different user — must be excluded.
+    { id: 't4', user_id: 'u2', date: '2026-01-05', clock_in: '2026-01-05T01:00:00Z', clock_out: '2026-01-05T05:00:00Z', status: 'clocked_out', total_minutes: 240, last_seen_at: null, last_activity_at: null },
+    // Still clocked in — no clock_out yet, must be excluded.
+    { id: 't5', user_id: 'u1', date: '2026-01-07', clock_in: '2026-01-07T02:00:00Z', clock_out: null, status: 'working', total_minutes: 0, last_seen_at: null, last_activity_at: null },
+  ]
+
+  it('collapses multiple stints in a day into the earliest clock-in and latest clock-out', () => {
+    const daily = buildDailyAttendance('u1', timeLogs)
+    const jan5 = daily.find(d => d.date === '2026-01-05')
+    expect(jan5?.firstClockIn).toBe('2026-01-05T02:00:00Z')
+    expect(jan5?.lastClockOut).toBe('2026-01-05T13:00:00Z')
+    expect(jan5?.totalHours).toBe(10)
+  })
+
+  it('excludes other users and days still clocked in', () => {
+    const daily = buildDailyAttendance('u1', timeLogs)
+    expect(daily.some(d => d.date === '2026-01-07')).toBe(false)
+    expect(daily).toHaveLength(2)
+  })
+
+  it('sorts rows by date ascending', () => {
+    const daily = buildDailyAttendance('u1', timeLogs)
+    expect(daily.map(d => d.date)).toEqual(['2026-01-05', '2026-01-06'])
+  })
+})
+
+describe('formatTimeInTz', () => {
+  it('formats a UTC timestamp as a local time in the given timezone', () => {
+    expect(formatTimeInTz('2026-01-05T02:00:00Z', 'UTC')).toBe('2:00 AM')
+  })
+
+  it('returns an em dash for a null timestamp', () => {
+    expect(formatTimeInTz(null, 'UTC')).toBe('—')
   })
 })
 
@@ -119,7 +175,8 @@ describe('toCsv', () => {
       user, daysWorked: 5, totalMinutes: 2400, totalHours: 40, avgHoursPerDay: '8.0',
       daysOnLeave: 0, daysTimeOff: 0, daysAbsent: 0, eodrSubmittedDays: 5, eodrEligibleDays: 5,
       eodrCompliancePct: 100, attendancePct: 100,
-    }])
+      latestFirstClockIn: '2026-01-09T02:00:00Z', latestLastClockOut: '2026-01-09T10:00:00Z',
+    }], 'UTC')
     const lines = csv.split('\n')
     expect(lines[0]).toContain('Name,Role,Days Worked')
     expect(lines[1]).toContain('"A Name"')

@@ -1,9 +1,9 @@
 import type { DateRange, UserReportRow } from '@/lib/reportData'
-import { toCsv, downloadCsv } from '@/lib/reportData'
+import { toCsv, downloadCsv, formatTimeInTz } from '@/lib/reportData'
 import { HoursBarChart } from './HoursBarChart'
 import { DayStatusStackedBar, type DayStatusDatum } from './DayStatusStackedBar'
 
-export function TeamReportView({ reports, range }: { reports: UserReportRow[]; range: DateRange }) {
+export function TeamReportView({ reports, range, timezone }: { reports: UserReportRow[]; range: DateRange; timezone: string }) {
   // Each r.totalHours is already rounded to 1 decimal, but summing floats
   // re-introduces binary floating-point drift (e.g. 182.7999999999999) —
   // round the sum too before it's ever displayed.
@@ -24,7 +24,7 @@ export function TeamReportView({ reports, range }: { reports: UserReportRow[]; r
   }))
 
   function exportCsv() {
-    downloadCsv(`team-report-${range.from}-to-${range.to}.csv`, toCsv(reports))
+    downloadCsv(`team-report-${range.from}-to-${range.to}.csv`, toCsv(reports, timezone))
   }
 
   return (
@@ -68,6 +68,8 @@ export function TeamReportView({ reports, range }: { reports: UserReportRow[]; r
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Days Worked</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Hours</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg/Day</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Most recent day worked in this range">First In</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide" title="Most recent day worked in this range">Last Out</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">On Leave</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Time Off</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Absent</th>
@@ -85,6 +87,8 @@ export function TeamReportView({ reports, range }: { reports: UserReportRow[]; r
                   <td className="px-3 py-3 text-center font-semibold text-emerald-700">{r.daysWorked}</td>
                   <td className="px-3 py-3 text-center font-semibold text-gray-700">{r.totalHours}h</td>
                   <td className="px-3 py-3 text-center text-gray-600">{r.avgHoursPerDay}h</td>
+                  <td className="px-3 py-3 text-center text-gray-600">{formatTimeInTz(r.latestFirstClockIn, timezone)}</td>
+                  <td className="px-3 py-3 text-center text-gray-600">{formatTimeInTz(r.latestLastClockOut, timezone)}</td>
                   <td className="px-3 py-3 text-center">{r.daysOnLeave > 0 ? <span className="text-blue-600 font-semibold">{r.daysOnLeave}</span> : <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-3 text-center">{r.daysTimeOff > 0 ? <span className="text-cyan-600 font-semibold">{r.daysTimeOff}</span> : <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-3 text-center">{r.daysAbsent > 0 ? <span className="text-red-500 font-semibold">{r.daysAbsent}</span> : <span className="text-emerald-500 font-semibold">0</span>}</td>

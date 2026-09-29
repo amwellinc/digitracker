@@ -116,7 +116,7 @@ export function ReportsPage() {
       {loading ? (
         <div className="py-16 text-center text-sm text-gray-400">Loading report…</div>
       ) : view === 'team' ? (
-        <TeamReportView reports={reports} range={range} />
+        <TeamReportView reports={reports} range={range} timezone={timezone} />
       ) : (
         <IndividualReportView
           reports={reports}
@@ -126,6 +126,7 @@ export function ReportsPage() {
           onSelectUser={setSelectedUserId}
           range={range}
           canPickAnyone={user?.role !== 'Staff'}
+          timezone={timezone}
         />
       )}
     </div>
