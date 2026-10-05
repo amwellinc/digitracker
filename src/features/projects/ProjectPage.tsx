@@ -35,6 +35,7 @@ interface ProjectMemberStatusRow {
   user_id: string
   name: string
   profile_image: string | null
+  role: User['role']
   status: 'working' | 'lunch' | null
   last_activity_at: string | null
 }
@@ -133,9 +134,10 @@ export function ProjectPage() {
     const memberRows = (data ?? []) as ProjectMemberStatusRow[]
     setMemberStatus(memberRows)
 
-    // get_project_member_status only returns {user_id, name, profile_image,
-    // status, last_activity_at} — project members are shown by name/avatar
-    // only (presence-only cross-tenant exposure), so the remaining User
+    // get_project_member_status returns {user_id, name, profile_image, role,
+    // status, last_activity_at}. role is returned so the UI can mark associates
+    // and skip client-side notifications for them. Project members are shown
+    // by name/avatar only (presence-only cross-tenant exposure), so the remaining User
     // fields are filled with inert placeholders rather than real data the
     // RPC doesn't (and shouldn't) expose.
     const m: User[] = memberRows.map(r => ({
@@ -143,7 +145,7 @@ export function ProjectPage() {
       name: r.name,
       profile_image: r.profile_image,
       email: '',
-      role: 'Staff',
+      role: r.role,
       sub_account: '',
       manager_id: null,
       annual_leave: 0,
