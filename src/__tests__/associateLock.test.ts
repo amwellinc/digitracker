@@ -87,3 +87,11 @@ describe('notification email dispatch resilience', () => {
     expect(sql).toContain('raise warning')
   })
 })
+
+describe('notification email dispatch timeout', () => {
+  it('gives the email function longer than pg_net\'s 5s default (SMTP send exceeds it)', () => {
+    const sql = read('20261006000500_notification_email_dispatch_timeout.sql')
+    expect(sql).toMatch(/timeout_milliseconds\s*:=\s*30000/)
+    expect(sql).toContain('exception when others')
+  })
+})
