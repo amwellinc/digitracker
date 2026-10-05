@@ -143,12 +143,18 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
         .update({ ...payload, attachments: uploads }).eq('id', task.id)
       if (updErr) { setError(updErr.message); setSaving(false); return }
 
-      // Sync assignees: delete all then re-insert
-      const { error: delErr } = await supabase.from('project_task_assignees').delete().eq('project_task_id', task.id)
-      if (delErr) { setError(`Task saved, but assignees failed to update: ${delErr.message}`); setSaving(false); return }
-      if (selectedIds.length > 0) {
+      // Sync assignees by diff — re-inserting unchanged rows would re-fire
+      // trg_project_task_assigned (a fresh notification + email) every edit.
+      const removedIds = initAssignees.filter(id => !selectedIds.includes(id))
+      const addedIds = selectedIds.filter(id => !initAssignees.includes(id))
+      if (removedIds.length > 0) {
+        const { error: delErr } = await supabase.from('project_task_assignees').delete()
+          .eq('project_task_id', task.id).in('user_id', removedIds)
+        if (delErr) { setError(`Task saved, but assignees failed to update: ${delErr.message}`); setSaving(false); return }
+      }
+      if (addedIds.length > 0) {
         const { error: assignErr } = await supabase.from('project_task_assignees').insert(
-          selectedIds.map(uid => ({ project_task_id: task.id, user_id: uid }))
+          addedIds.map(uid => ({ project_task_id: task.id, user_id: uid }))
         )
         if (assignErr) { setError(`Task saved, but assignees failed to update: ${assignErr.message}`); setSaving(false); return }
       }
