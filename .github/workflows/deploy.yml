@@ -74,14 +74,30 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         run: supabase db push
 
-      - name: Set GHL edge function secrets
+      # Only pushes a secret when its GitHub value is non-empty. An unset
+      # GitHub secret expands to "", and setting that blanked the live value
+      # (this happened to the GHL_* secrets on 2026-10-05). A secret managed
+      # directly in Supabase (e.g. NOTIFICATION_EMAIL_SECRET, which must match
+      # the Vault secret "notification_email_secret") is left untouched.
+      - name: Set edge function secrets
         if: steps.check.outputs.configured == 'true'
+        env:
+          GHL_CLIENT_ID: ${{ secrets.GHL_CLIENT_ID }}
+          GHL_CLIENT_SECRET: ${{ secrets.GHL_CLIENT_SECRET }}
+          GHL_WEBHOOK_SECRET: ${{ secrets.GHL_WEBHOOK_SECRET }}
+          NOTIFICATION_EMAIL_SECRET: ${{ secrets.NOTIFICATION_EMAIL_SECRET }}
         run: |
-          supabase secrets set \
-            GHL_CLIENT_ID="${{ secrets.GHL_CLIENT_ID }}" \
-            GHL_CLIENT_SECRET="${{ secrets.GHL_CLIENT_SECRET }}" \
-            GHL_WEBHOOK_SECRET="${{ secrets.GHL_WEBHOOK_SECRET }}" \
-            NOTIFICATION_EMAIL_SECRET="${{ secrets.NOTIFICATION_EMAIL_SECRET }}"
+          args=()
+          for name in GHL_CLIENT_ID GHL_CLIENT_SECRET GHL_WEBHOOK_SECRET NOTIFICATION_EMAIL_SECRET; do
+            if [ -n "${!name}" ]; then
+              args+=("$name=${!name}")
+            else
+              echo "::notice::$name is not set in GitHub — leaving the Supabase value unchanged."
+            fi
+          done
+          if [ ${#args[@]} -gt 0 ]; then
+            supabase secrets set "${args[@]}"
+          fi
 
       # Deploys every function under supabase/functions/ automatically — a
       # named step per function (the old approach) silently deploys nothing
