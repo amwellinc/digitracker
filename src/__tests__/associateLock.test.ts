@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest'
 const MIGRATIONS_DIR = join(__dirname, '../../supabase/migrations')
 const LOCK_MIGRATION = '20261006000100_associates_lock.sql'
 // Tables associates legitimately touch — scoped by their own rules instead.
-const PROJECT_TABLES = ['projects', 'project_members', 'project_tasks', 'project_task_assignees', 'project_task_comments', 'notifications', 'users']
+const PROJECT_TABLES = ['projects', 'project_members', 'project_tasks', 'project_task_assignees', 'project_task_comments', 'notifications', 'users', 'project_folders', 'project_files']
 
 const files = readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith('.sql')).sort()
 const read = (f: string) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8')
@@ -32,11 +32,12 @@ describe('associate lock', () => {
   })
 
   it('pre-request guard only allows project tables and safe RPCs', () => {
-    const sql = read(LOCK_MIGRATION)
+    const definers = files.filter(f => /function public\.associate_request_guard\(\)/.test(read(f)))
+    const sql = read(definers[definers.length - 1])
     const tables = sql.match(/v_path ~ '\^\/\(([^)]+)\)\$'/)?.[1].split('|') ?? []
     const rpcs = sql.match(/v_path ~ '\^\/rpc\/\(([^)]+)\)\$'/)?.[1].split('|') ?? []
     expect(tables.sort()).toEqual([...PROJECT_TABLES].sort())
-    expect(rpcs.sort()).toEqual(['check_account_status', 'get_project_member_status', 'is_associate', 'is_project_member'])
+    expect(rpcs.sort()).toEqual(['check_account_status', 'ensure_task_root_folder', 'get_project_member_status', 'is_associate', 'is_project_member'])
   })
 })
 
@@ -93,5 +94,21 @@ describe('notification email dispatch timeout', () => {
     const sql = read('20261006000500_notification_email_dispatch_timeout.sql')
     expect(sql).toMatch(/timeout_milliseconds\s*:=\s*30000/)
     expect(sql).toContain('exception when others')
+  })
+})
+
+describe('project files security', () => {
+  const sql = () => read('20261006000600_project_files.sql')
+  it('casts storage path segments with try_uuid, never a bare ::uuid', () => {
+    expect(sql()).toMatch(/function public\.try_uuid\(/)
+    expect(sql()).not.toMatch(/\(storage\.foldername\(name\)\)\[1\]\)?::uuid/)
+  })
+  it('creates member-only policies on both tables and the bucket', () => {
+    for (const p of ['project_folders_select', 'project_folders_insert', 'project_folders_update', 'project_folders_delete',
+      'project_files_select', 'project_files_insert', 'project_files_update', 'project_files_delete',
+      'project_files_obj_select', 'project_files_obj_insert', 'project_files_obj_delete']) expect(sql()).toContain(p)
+  })
+  it('lets associates reach project-files objects of their projects', () => {
+    expect(sql()).toMatch(/storage_associate_scope[\s\S]*bucket_id = 'project-files'/)
   })
 })
