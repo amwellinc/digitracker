@@ -17,6 +17,7 @@ import { StatCards } from './StatCards'
 import { TeamAvatarRow } from './TeamAvatarRow'
 import { AdminDashboard } from '@/features/dashboard/AdminDashboard'
 import { MessageBoard } from '@/features/message-board/MessageBoard'
+import { notifIcon } from '@/features/notifications/notifIcon'
 
 interface DayLog {
   date: string
@@ -216,22 +217,6 @@ export function TimeTrackingPage() {
 
   const { label: monthLabel } = monthRange(showPrevMonth ? -1 : 0)
   const totalMonthMins = dayLogs.reduce((acc, d) => acc + d.total_minutes, 0)
-
-  function notifIcon(type: string) {
-    switch (type) {
-      case 'task_assigned':  return '✅'
-      case 'task_reply':     return '💬'
-      case 'task_completed': return '🏁'
-      case 'task_closed':    return '🔒'
-      case 'leave_request':  return '📋'
-      case 'leave_approved': return '✅'
-      case 'leave_rejected': return '❌'
-      case 'holiday_added':  return '🗓'
-      case 'new_subscription': return '💳'
-      case 'project_added':  return '🗂'
-      default:               return '🔔'
-    }
-  }
 
   return (
     <div className="space-y-6">
