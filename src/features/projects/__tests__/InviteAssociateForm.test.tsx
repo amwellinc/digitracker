@@ -46,4 +46,20 @@ describe('InviteAssociateForm', () => {
     await screen.findByText(/belongs to a workspace user/i)
     expect(onInvited).not.toHaveBeenCalled()
   })
+
+  it('labels its inputs and announces success as a status', async () => {
+    invokeMock.mockResolvedValueOnce({ data: { status: 'added' }, error: null })
+    render(<InviteAssociateForm projectId="p1" onInvited={vi.fn()} />)
+    expect(screen.getByLabelText('Associate email')).toBeInTheDocument()
+    expect(screen.getByLabelText('Associate full name')).toBeInTheDocument()
+    await submit()
+    expect(await screen.findByRole('status')).toHaveTextContent(/added to this project/i)
+  })
+
+  it('announces errors as an alert', async () => {
+    invokeMock.mockResolvedValueOnce({ data: null, error: { message: 'boom' } })
+    render(<InviteAssociateForm projectId="p1" onInvited={vi.fn()} />)
+    await submit()
+    expect(await screen.findByRole('alert')).toHaveTextContent('boom')
+  })
 })

@@ -50,15 +50,15 @@ export function InviteAssociateForm({ projectId, onInvited }: Props) {
       <p className="text-xs font-semibold text-amber-800">Invite associate (outside collaborator — project access only)</p>
       <div className="flex flex-col sm:flex-row gap-2">
         <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-          placeholder="Associate email" className="input flex-1" />
+          placeholder="Associate email" aria-label="Associate email" className="input flex-1" />
         <input required value={name} onChange={e => setName(e.target.value)}
-          placeholder="Full name" className="input flex-1" />
+          placeholder="Full name" aria-label="Associate full name" className="input flex-1" />
         <button type="submit" disabled={busy}
           className="text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-md px-3 py-2">
           {busy ? 'Inviting…' : 'Invite associate'}
         </button>
       </div>
-      {msg && <p className={`text-sm ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
+      {msg && <p role={msg.type === 'error' ? 'alert' : 'status'} className={`text-sm ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
     </form>
   )
 }
