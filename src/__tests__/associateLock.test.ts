@@ -120,6 +120,16 @@ describe('project files security', () => {
       'grant update (name, folder_id, task_id) on public.project_files',
       "split_part(storage_path, '/', 1) = project_id::text"]) expect(sql()).toContain(frag)
   })
+  it('only lets folders be created inside a task, under a parent of the same task', () => {
+    const m = sql().match(/create policy project_folders_insert[\s\S]*?;\n/)?.[0] ?? ''
+    expect(m).toContain('task_id is not null')
+    expect(m).toContain('p.task_id = project_folders.task_id')
+  })
+  it('only lets a file move into a folder of its own task', () => {
+    const m = sql().match(/create policy project_files_update[\s\S]*?;\n/)?.[0] ?? ''
+    const check = m.split(/with check/)[1] ?? ''
+    expect(check).toContain('f.task_id = project_files.task_id')
+  })
 })
 
 describe('project files import', () => {
