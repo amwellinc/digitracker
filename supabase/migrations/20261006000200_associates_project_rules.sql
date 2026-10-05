@@ -16,25 +16,25 @@ $$;
 drop policy if exists project_tasks_associate_update on public.project_tasks;
 create policy project_tasks_associate_update on public.project_tasks
   as restrictive for update to authenticated
-  using (not public.is_associate() or public.is_project_task_assignee(id));
+  using (not (select public.is_associate()) or public.is_project_task_assignee(id));
 
 drop policy if exists project_tasks_associate_no_insert on public.project_tasks;
 create policy project_tasks_associate_no_insert on public.project_tasks
-  as restrictive for insert to authenticated with check (not public.is_associate());
+  as restrictive for insert to authenticated with check (not (select public.is_associate()));
 
 drop policy if exists project_tasks_associate_no_delete on public.project_tasks;
 create policy project_tasks_associate_no_delete on public.project_tasks
-  as restrictive for delete to authenticated using (not public.is_associate());
+  as restrictive for delete to authenticated using (not (select public.is_associate()));
 
 drop policy if exists project_task_assignees_associate_no_insert on public.project_task_assignees;
 create policy project_task_assignees_associate_no_insert on public.project_task_assignees
-  as restrictive for insert to authenticated with check (not public.is_associate());
+  as restrictive for insert to authenticated with check (not (select public.is_associate()));
 drop policy if exists project_task_assignees_associate_no_update on public.project_task_assignees;
 create policy project_task_assignees_associate_no_update on public.project_task_assignees
-  as restrictive for update to authenticated using (not public.is_associate());
+  as restrictive for update to authenticated using (not (select public.is_associate()));
 drop policy if exists project_task_assignees_associate_no_delete on public.project_task_assignees;
 create policy project_task_assignees_associate_no_delete on public.project_task_assignees
-  as restrictive for delete to authenticated using (not public.is_associate());
+  as restrictive for delete to authenticated using (not (select public.is_associate()));
 
 -- RLS can't restrict columns, so a trigger enforces "status only".
 create or replace function public.project_tasks_associate_status_only()

@@ -26,6 +26,9 @@ as $$
 $$;
 grant execute on function public.is_associate() to authenticated;
 
+-- is_associate() (and the RLS policies that call it) look users up by lower(email).
+create index if not exists users_lower_email_idx on public.users (lower(email));
+
 -- Lets the email function link straight to the project.
 alter table public.notifications
   add column if not exists project_id uuid references public.projects(id) on delete cascade;

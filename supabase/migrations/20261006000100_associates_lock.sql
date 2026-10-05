@@ -20,7 +20,7 @@ begin
     execute format('drop policy if exists %I on public.%I', t || '_deny_associates', t);
     execute format(
       'create policy %I on public.%I as restrictive for all to authenticated '
-      'using (not public.is_associate()) with check (not public.is_associate())',
+      'using (not (select public.is_associate())) with check (not (select public.is_associate()))',
       t || '_deny_associates', t);
   end loop;
 end $$;
@@ -41,22 +41,22 @@ $$;
 drop policy if exists users_associate_select on public.users;
 create policy users_associate_select on public.users
   as restrictive for select to authenticated
-  using (not public.is_associate() or lower(email) = lower(auth.email()) or public.shares_project_with(id));
+  using (not (select public.is_associate()) or lower(email) = lower(auth.email()) or public.shares_project_with(id));
 
 drop policy if exists users_associate_no_insert on public.users;
 create policy users_associate_no_insert on public.users
-  as restrictive for insert to authenticated with check (not public.is_associate());
+  as restrictive for insert to authenticated with check (not (select public.is_associate()));
 drop policy if exists users_associate_no_update on public.users;
 create policy users_associate_no_update on public.users
-  as restrictive for update to authenticated using (not public.is_associate());
+  as restrictive for update to authenticated using (not (select public.is_associate()));
 drop policy if exists users_associate_no_delete on public.users;
 create policy users_associate_no_delete on public.users
-  as restrictive for delete to authenticated using (not public.is_associate());
+  as restrictive for delete to authenticated using (not (select public.is_associate()));
 
 -- ── Layer 1c: notifications — associates never insert (triggers do) ────────
 drop policy if exists notifications_associate_no_insert on public.notifications;
 create policy notifications_associate_no_insert on public.notifications
-  as restrictive for insert to authenticated with check (not public.is_associate());
+  as restrictive for insert to authenticated with check (not (select public.is_associate()));
 
 -- ── Layer 1d: storage — only task-attachments of tasks in their projects ───
 -- Paths are "<project_task_id>/<file>" (ProjectTaskDetailModal/CreateProjectTaskModal).
@@ -64,14 +64,14 @@ drop policy if exists storage_associate_scope on storage.objects;
 create policy storage_associate_scope on storage.objects
   as restrictive for all to authenticated
   using (
-    not public.is_associate()
+    not (select public.is_associate())
     or (bucket_id = 'task-attachments' and exists (
       select 1 from public.project_tasks pt
       where pt.id::text = (storage.foldername(name))[1]
         and public.is_project_member(pt.project_id)))
   )
   with check (
-    not public.is_associate()
+    not (select public.is_associate())
     or (bucket_id = 'task-attachments' and exists (
       select 1 from public.project_tasks pt
       where pt.id::text = (storage.foldername(name))[1]

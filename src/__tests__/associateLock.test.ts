@@ -40,6 +40,17 @@ describe('associate lock', () => {
   })
 })
 
+describe('associate policy performance', () => {
+  it('wraps every is_associate() call in a policy as (select ...) so it runs once per statement', () => {
+    for (const f of [LOCK_MIGRATION, '20261006000200_associates_project_rules.sql']) {
+      const policies = read(f).match(/create policy[\s\S]*?;/gi) ?? []
+      expect(policies.length).toBeGreaterThan(0)
+      const bare = policies.filter(p => /(?<!\(select )public\.is_associate\(\)/.test(p))
+      expect(bare).toEqual([])
+    }
+  })
+})
+
 describe('associate project rules', () => {
   it('limits associates to status-only updates on assigned tasks and blocks create/delete/assign', () => {
     const sql = read('20261006000200_associates_project_rules.sql')
