@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { useRealtime } from '@/hooks/useRealtime'
@@ -12,6 +12,7 @@ import { CreateProjectTaskModal } from './CreateProjectTaskModal'
 import { InviteAssociateForm } from './InviteAssociateForm'
 import { ProjectTaskDetailModal } from './ProjectTaskDetailModal'
 import { presenceFromStatus } from './projectPresence'
+import { ProjectFilesTab } from './files/ProjectFilesTab'
 
 const FILTERS: { id: TaskFilter; label: string }[] = [
   { id: 'all',      label: 'All Tasks' },
@@ -118,6 +119,17 @@ export function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const { user } = useAuth()
   const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin'
+  const [params, setParams] = useSearchParams()
+  const tab: 'tasks' | 'files' = params.get('tab') === 'files' ? 'files' : 'tasks'
+
+  function switchTab(next: 'tasks' | 'files') {
+    setParams(prev => {
+      const p = new URLSearchParams(prev)
+      if (next === 'files') { p.set('tab', 'files'); p.set('folder', 'common') }
+      else { p.delete('tab'); p.delete('folder') }
+      return p
+    })
+  }
 
   const [members, setMembers] = useState<User[]>([])
   const [memberStatus, setMemberStatus] = useState<ProjectMemberStatusRow[]>([])
@@ -274,13 +286,26 @@ export function ProjectPage() {
 
   return (
     <div className="space-y-5">
+      {/* Tasks | Files tabs */}
+      <div role="tablist" aria-label="Project sections" className="inline-flex gap-1 p-1 bg-gray-100 rounded-xl">
+        {(['tasks', 'files'] as const).map(t => (
+          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => tab !== t && switchTab(t)}
+            className={`min-h-[44px] px-5 rounded-lg text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-violet-500 ${
+              tab === t ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
+            {t === 'tasks' ? 'Tasks' : 'Files'}
+          </button>
+        ))}
+      </div>
+
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900">Tasks</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Manage your tasks and team assignments</p>
+          <h2 className="text-xl font-semibold text-gray-900">{tab === 'files' ? 'Files' : 'Tasks'}</h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {tab === 'files' ? 'Shared project documents, organised by task' : 'Manage your tasks and team assignments'}
+          </p>
         </div>
-        {canManage && (
+        {canManage && tab === 'tasks' && (
           <button
             onClick={() => setShowCreate(true)}
             className="bg-violet-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-violet-700 transition-colors flex items-center gap-1.5 self-start sm:self-auto"
@@ -311,6 +336,9 @@ export function ProjectPage() {
         ))}
       </div>
 
+      {tab === 'files' ? (
+        <ProjectFilesTab projectId={projectId!} tasks={rows.map(r => ({ id: r.task.id, title: r.task.title }))} members={members} />
+      ) : (<>
       {/* Filter strip + user selector */}
       <div className="space-y-2">
         <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
@@ -394,6 +422,7 @@ export function ProjectPage() {
           ))}
         </div>
       )}
+      </>)}
 
       {/* Modals */}
       {showCreate && (
