@@ -41,11 +41,15 @@ Deno.serve(async (req) => {
 
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
-  const { data: n } = await admin
+  const { data: n, error: selectErr } = await admin
     .from('notifications')
     .select('type, message, project_id, users(name, email), projects(name)')
     .eq('id', notificationId)
     .maybeSingle()
+  if (selectErr) {
+    console.error('send-notification-email: notification lookup failed', notificationId, selectErr)
+    return json({ error: selectErr.message }, 500)
+  }
   const row = n as { type: string; message: string; project_id: string | null;
     users: { name: string; email: string } | null; projects: { name: string } | null } | null
   if (!row?.users || !row.project_id || !row.projects) return json({ error: 'Notification not found or not project-scoped' }, 404)
