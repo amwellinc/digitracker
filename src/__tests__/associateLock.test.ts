@@ -68,6 +68,16 @@ describe('project activity notification security', () => {
     expect(sql).toContain('revoke execute on function public.notify_project_associates(uuid, text, text, uuid) from public, anon, authenticated;')
     expect(sql).toContain('revoke execute on function public.project_actor_name() from public, anon, authenticated;')
   })
+
+  it('notifies internal task participants only when the actor is an associate (no double-notify)', () => {
+    const sql = read('20261006000300_project_activity_notifications.sql')
+    expect(sql).toContain('revoke execute on function public.notify_task_internal_members(uuid, text, text, boolean) from public, anon, authenticated;')
+    const calls = [...sql.matchAll(/if public\.is_associate\(\) then\s+--[^\n]*\n\s+perform public\.notify_task_internal_members\(/g)]
+    expect(calls).toHaveLength(2)
+    expect(sql.match(/perform public\.notify_task_internal_members\(/g)).toHaveLength(2)
+    expect(sql).toContain(`'task_reply'`)
+    expect(sql).toMatch(/'task_completed'[\s\S]*'task_closed'[\s\S]*'task_assigned'/)
+  })
 })
 
 describe('notification email dispatch resilience', () => {
