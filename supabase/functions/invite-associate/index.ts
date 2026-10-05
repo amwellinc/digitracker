@@ -11,6 +11,11 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+// Escape LIKE wildcards so ilike() behaves as a case-insensitive equality.
+function escapeLike(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } })
 }
@@ -56,12 +61,15 @@ Deno.serve(async (req) => {
     if (!m) return json({ error: 'You must be a member of this project to invite associates' }, 403)
   }
 
-  const { data: existing } = await admin.from('users').select('id, role, status').ilike('email', email).maybeSingle()
+  const { data: existing, error: lookupErr } = await admin.from('users').select('id, role, status')
+    .ilike('email', escapeLike(email)).maybeSingle()
+  if (lookupErr) return json({ error: `Could not look up user: ${lookupErr.message}` }, 500)
   if (existing && existing.role !== 'Associate') {
     return json({ error: 'This email belongs to a workspace user — add them as a normal member instead.' }, 409)
   }
 
   let userId: string
+  let createdHere = false
   let status: 'invited' | 'added' | 'already_member' = 'added'
   if (!existing) {
     const { data: created, error: insErr } = await admin.from('users')
@@ -70,6 +78,7 @@ Deno.serve(async (req) => {
     if (insErr || !created) return json({ error: `Could not create associate: ${insErr?.message}` }, 500)
     userId = created.id as string
     status = 'invited'
+    createdHere = true
   } else {
     userId = existing.id as string
     if (existing.status !== 'active') {
@@ -83,15 +92,21 @@ Deno.serve(async (req) => {
     status = status === 'invited' ? 'invited' : 'already_member'
   } else {
     const { error: memErr } = await admin.from('project_members').insert({ project_id: projectId, user_id: userId })
-    if (memErr) return json({ error: `Could not add to project: ${memErr.message}` }, 500)
+    if (memErr) {
+      // Don't strand a brand-new associate who could never be re-invited properly.
+      if (createdHere) await admin.from('users').delete().eq('id', userId)
+      return json({ error: `Could not add to project: ${memErr.message}` }, 500)
+    }
     // Same text as add_project_member; the dispatch trigger emails it.
-    await admin.from('notifications').insert({
+    const { error: notifErr } = await admin.from('notifications').insert({
       user_id: userId, type: 'project_added', read: false, project_id: projectId,
       message: `${caller.name} added you to the project "${project.name}" — find it in your sidebar as PROJECTS-${project.name}.`,
     })
+    if (notifErr) console.error('invite-associate: notification insert failed', notifErr.message)
   }
 
-  if (status === 'invited') {
+  // 'already_member' re-invite doubles as a resend of the sign-in link.
+  if (status === 'invited' || status === 'already_member') {
     // Same sign-in mechanism as Settings → Users → Add User.
     const anon = createClient(supabaseUrl, anonKey)
     const { error: otpErr } = await anon.auth.signInWithOtp({ email, options: { emailRedirectTo: APP_URL } })
