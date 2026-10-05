@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { ProjectTask, User } from '@/types'
+import { isAssociateMember } from './projectRoles'
 
 interface Props {
   projectId: string
@@ -178,7 +179,7 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
 
       // Notify assignees
       for (const uid of selectedIds) {
-        if (uid !== user.id) {
+        if (uid !== user.id && !isAssociateMember(pickable, uid)) {
           await sendNotification(uid, 'task_assigned', `${user.name} assigned you a task: "${title.trim()}"`)
         }
       }

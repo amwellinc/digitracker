@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth'
 import type { ProjectTask, ProjectTaskComment, User } from '@/types'
 import { STATUS_COLOR, STATUS_LABEL, getAlertLevel, fmtDue } from '../tasks/taskUtils'
 import { CreateProjectTaskModal } from './CreateProjectTaskModal'
+import { isAssociateMember } from './projectRoles'
 
 interface Props {
   projectId: string
@@ -51,7 +52,10 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
   const creator = members.find(m => m.id === task.creator_id)
   const alert = getAlertLevel(task)
   const canManage = user?.role === 'Admin' || user?.role === 'Manager' || user?.role === 'Super-Admin' || task.creator_id === user?.id
-  const canComment = canManage || assigneeIds.includes(user?.id ?? '')
+  const isAssociate = user?.role === 'Associate'
+  const isAssigned = assigneeIds.includes(user?.id ?? '')
+  const canChangeStatus = !isAssociate || isAssigned
+  const canComment = canManage || isAssigned || isAssociate
 
   useEffect(() => {
     void supabase.from('project_task_assignees').select('user_id').eq('project_task_id', task.id)
@@ -81,11 +85,12 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
     setTask(t => ({ ...t, status }))
     onUpdated()
 
-    // Notifications
+    // Notifications (associates are notified by DB triggers and can't insert)
+    if (isAssociate) return
     const notifTargets = [...new Set([
       ...assigneeIds.filter(id => id !== user?.id),
       ...(status === 'completed' || status === 'closed' ? [task.creator_id].filter(id => id !== user?.id) : []),
-    ])]
+    ])].filter(id => !isAssociateMember(members, id))
     const type = status === 'completed' ? 'task_completed' : status === 'closed' ? 'task_closed' : 'task_assigned'
     for (const uid of notifTargets) {
       await supabase.from('notifications').insert({
@@ -116,8 +121,9 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
       body: commentBody.trim(), attachments,
     })
 
-    // Notify task participants (except commenter)
-    const notifTargets = [...new Set([task.creator_id, ...assigneeIds])].filter(id => id !== user.id)
+    // Notify task participants (except commenter); associates are handled by DB triggers
+    const notifTargets = user.role === 'Associate' ? [] : [...new Set([task.creator_id, ...assigneeIds])]
+      .filter(id => id !== user.id && !isAssociateMember(members, id))
     for (const uid of notifTargets) {
       await supabase.from('notifications').insert({
         user_id: uid, type: 'task_reply', read: false,
@@ -210,6 +216,7 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
             )}
             {/* Status progression buttons */}
             <div className="ml-auto flex items-center gap-1.5">
+              {canChangeStatus && (<>
               {NEXT_STATUS[task.status] && (
                 <button onClick={() => void updateStatus(NEXT_STATUS[task.status]!)}
                   disabled={statusUpdating}
@@ -238,6 +245,7 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
                   Archive
                 </button>
               )}
+              </>)}
             </div>
           </div>
 
