@@ -254,7 +254,7 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
             <div className="px-5 py-3 border-b border-gray-100">
               <p className="text-xs font-medium text-gray-500 mb-2">Attachments</p>
               <div className="flex flex-wrap gap-2">
-                {task.attachments.map((a, i) => <FileChip key={i} url={a.url} name={a.name} />)}
+                {task.attachments.map((a, i) => <FileChip key={i} url={a.url ?? ''} name={a.name} />)}
               </div>
             </div>
           )}

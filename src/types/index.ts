@@ -107,7 +107,7 @@ export interface ProjectTask {
   status: 'pending' | 'in_progress' | 'completed' | 'closed' | 'archived'
   due_date: string | null
   recurring: 'Daily' | 'Weekly' | 'Monthly' | null
-  attachments: Array<{ url: string; name: string; size: number; type: string }>
+  attachments: StoredAttachment[]
   created_at: string
 }
 
@@ -288,4 +288,41 @@ export interface ArchivedEmployeeFile {
   archived_by_name: string
   archived_by_email: string
   archived_at: string
+}
+
+export interface ProjectFolder {
+  id: string
+  project_id: string
+  task_id: string | null
+  parent_id: string | null
+  name: string
+  is_task_root: boolean
+  created_by: string | null
+  created_at: string
+}
+
+export interface ProjectFile {
+  id: string
+  project_id: string
+  folder_id: string | null
+  task_id: string | null
+  bucket: 'project-files' | 'task-attachments'
+  storage_path: string
+  name: string
+  size_bytes: number | null
+  mime_type: string | null
+  uploaded_by: string | null
+  source: 'folder' | 'task' | 'comment' | 'import'
+  created_at: string
+}
+
+// Attachments on project tasks/comments. New entries carry bucket+path and
+// are signed on demand; legacy entries only have a (possibly expired) url.
+export interface StoredAttachment {
+  bucket?: 'project-files' | 'task-attachments'
+  path?: string
+  url?: string
+  name: string
+  size: number
+  type: string
 }
