@@ -8,6 +8,7 @@ const assigneesInsert = vi.fn()
 const assigneesDelete = vi.fn()
 const assigneesDeleteFilters: Array<[string, unknown]> = []
 const tasksUpdate = vi.fn()
+const storageUpload = vi.fn()
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: currentUser }) }))
 vi.mock('@/lib/supabase', () => {
@@ -31,11 +32,12 @@ vi.mock('@/lib/supabase', () => {
           },
         }
         if (table === 'project_tasks') return { update: (v: unknown) => { tasksUpdate(v); return { eq: () => Promise.resolve({ error: null }) } } }
+        if (table === 'project_files') return { insert: vi.fn().mockResolvedValue({ error: null }) }
         if (table === 'notifications') return { insert: vi.fn().mockResolvedValue({ error: null }) }
         return chain({ data: [] })
       },
       rpc: vi.fn().mockResolvedValue({ error: null }),
-      storage: { from: () => ({ upload: vi.fn(), createSignedUrl: vi.fn() }) },
+      storage: { from: () => ({ upload: (...a: unknown[]) => storageUpload(...a), createSignedUrl: vi.fn(), remove: vi.fn() }) },
     },
   }
 })
@@ -92,5 +94,38 @@ describe('CreateProjectTaskModal — editing assignees', () => {
     await waitFor(() => expect(assigneesDelete).toHaveBeenCalledTimes(1))
     expect(assigneesDeleteFilters).toEqual([['eq:project_task_id', 't1'], ['in:user_id', ['s1']]])
     expect(assigneesInsert).not.toHaveBeenCalled()
+  })
+})
+
+describe('CreateProjectTaskModal — attachment upload failures', () => {
+  beforeEach(() => { storageUpload.mockReset(); tasksUpdate.mockClear() })
+
+  it('keeps the modal open and lists every failed upload until the user closes it', async () => {
+    storageUpload.mockImplementation((path: string) => Promise.resolve(
+      path.endsWith('ok.pdf') ? { error: null } : { error: { message: `rejected ${path.split('/').pop()}` } }))
+    const onClose = vi.fn()
+    const onCreated = vi.fn()
+    const { container } = render(<CreateProjectTaskModal projectId="p1" members={members} task={task} assigneeIds={['a1']}
+      onClose={onClose} onCreated={onCreated} />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, [
+      new File(['1'], 'ok.pdf', { type: 'application/pdf' }),
+      new File(['2'], 'bad1.pdf', { type: 'application/pdf' }),
+      new File(['3'], 'bad2.pdf', { type: 'application/pdf' }),
+    ])
+    await userEvent.click(screen.getByText('Save Changes'))
+    const msg = await screen.findByText(/Task saved, but some files failed to upload/)
+    expect(msg.textContent).toMatch(/rejected bad1\.pdf/)
+    expect(msg.textContent).toMatch(/rejected bad2\.pdf/)
+    expect(tasksUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [expect.objectContaining({ name: 'ok.pdf', bucket: 'project-files' })],
+    }))
+    expect(onCreated).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onCreated).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
