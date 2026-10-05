@@ -111,4 +111,9 @@ describe('project files security', () => {
   it('lets associates reach project-files objects of their projects', () => {
     expect(sql()).toMatch(/storage_associate_scope[\s\S]*bucket_id = 'project-files'/)
   })
+  it('releases files before a task is deleted, limits update columns, and checks insert integrity', () => {
+    for (const frag of ['project_tasks_release_files', 'grant update (name) on public.project_folders',
+      'grant update (name, folder_id, task_id) on public.project_files',
+      "split_part(storage_path, '/', 1) = project_id::text"]) expect(sql()).toContain(frag)
+  })
 })

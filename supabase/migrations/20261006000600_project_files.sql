@@ -63,7 +63,8 @@ create policy project_folders_insert on public.project_folders
     and coalesce(public.auth_user_role(), '') in ('Admin', 'Manager', 'Super-Admin')
     and not is_task_root
     and (parent_id is null or exists (
-      select 1 from public.project_folders p where p.id = parent_id and p.project_id = project_folders.project_id)));
+      select 1 from public.project_folders p where p.id = parent_id and p.project_id = project_folders.project_id))
+    and (task_id is null or exists (select 1 from public.project_tasks t where t.id = task_id and t.project_id = project_folders.project_id)));
 create policy project_folders_update on public.project_folders
   for update using (
     public.is_project_member(project_id)
@@ -83,7 +84,9 @@ create policy project_files_insert on public.project_files
     public.is_project_member(project_id)
     and uploaded_by = public.auth_user_app_id()
     and (folder_id is null or exists (
-      select 1 from public.project_folders f where f.id = folder_id and f.project_id = project_files.project_id)));
+      select 1 from public.project_folders f where f.id = folder_id and f.project_id = project_files.project_id))
+    and (task_id is null or exists (select 1 from public.project_tasks t where t.id = task_id and t.project_id = project_files.project_id))
+    and (bucket <> 'project-files' or split_part(storage_path, '/', 1) = project_id::text));
 create policy project_files_update on public.project_files
   for update using (
     public.is_project_member(project_id)
@@ -92,12 +95,36 @@ create policy project_files_update on public.project_files
   with check (
     public.is_project_member(project_id)
     and (folder_id is null or exists (
-      select 1 from public.project_folders f where f.id = folder_id and f.project_id = project_files.project_id)));
+      select 1 from public.project_folders f where f.id = folder_id and f.project_id = project_files.project_id))
+    and (task_id is null or exists (select 1 from public.project_tasks t where t.id = task_id and t.project_id = project_files.project_id)));
 create policy project_files_delete on public.project_files
   for delete using (
     public.is_project_member(project_id)
     and (uploaded_by = public.auth_user_app_id()
          or coalesce(public.auth_user_role(), '') in ('Admin', 'Manager', 'Super-Admin')));
+
+-- ── Column-level update limits ────────────────────────────────────────────
+revoke update on public.project_folders from authenticated, anon;
+grant update (name) on public.project_folders to authenticated;
+revoke update on public.project_files from authenticated, anon;
+grant update (name, folder_id, task_id) on public.project_files to authenticated;
+
+-- ── Release files from a task's folders before the task (and folders) go ───
+create or replace function public.project_tasks_release_files()
+  returns trigger
+  language plpgsql security definer
+  set search_path = public
+as $$
+begin
+  update public.project_files set folder_id = null
+  where folder_id in (select id from public.project_folders where task_id = old.id);
+  return old;
+end;
+$$;
+revoke execute on function public.project_tasks_release_files() from public, anon, authenticated;
+create trigger project_tasks_release_files
+  before delete on public.project_tasks
+  for each row execute function public.project_tasks_release_files();
 
 -- ── Task root folder (parent of a task's sub-folders) ─────────────────────
 create or replace function public.ensure_task_root_folder(p_task_id uuid)
