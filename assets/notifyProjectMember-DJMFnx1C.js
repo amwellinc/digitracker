@@ -1,0 +1,1 @@
+import{s as a}from"./index-BEjs2Qvk.js";async function i(o,t){try{const{data:n,error:e}=await a.functions.invoke("notify-project-member",{body:{projectId:o,userId:t}});if(e)return e.message;const r=n;return r!=null&&r.sent?null:(r==null?void 0:r.error)??"Unknown error"}catch(n){return n instanceof Error?n.message:String(n)}}export{i as n};
