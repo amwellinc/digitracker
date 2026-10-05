@@ -37,8 +37,8 @@ $$;
 insert into public.project_files
   (project_id, folder_id, task_id, bucket, storage_path, name, size_bytes, mime_type, uploaded_by, source, created_at)
 select t.project_id, null, t.id, 'task-attachments', p.path,
-       coalesce(nullif(trim(a->>'name'), ''), p.path),
-       case when a->>'size' ~ '^\d+$' then (a->>'size')::bigint end,
+       left(coalesce(nullif(trim(a->>'name'), ''), p.path), 255),
+       case when a->>'size' ~ '^\d{1,15}$' then (a->>'size')::bigint end,
        nullif(a->>'type', ''),
        t.creator_id, 'import', t.created_at
 from public.project_tasks t
@@ -55,8 +55,8 @@ on conflict (bucket, storage_path) do nothing;
 insert into public.project_files
   (project_id, folder_id, task_id, bucket, storage_path, name, size_bytes, mime_type, uploaded_by, source, created_at)
 select t.project_id, null, t.id, 'task-attachments', p.path,
-       coalesce(nullif(trim(a->>'name'), ''), p.path),
-       case when a->>'size' ~ '^\d+$' then (a->>'size')::bigint end,
+       left(coalesce(nullif(trim(a->>'name'), ''), p.path), 255),
+       case when a->>'size' ~ '^\d{1,15}$' then (a->>'size')::bigint end,
        nullif(a->>'type', ''),
        c.user_id, 'import', c.created_at
 from public.project_task_comments c

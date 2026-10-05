@@ -129,4 +129,8 @@ describe('project files import', () => {
     expect(sql()).toMatch(/function public\.url_decode\(/)
     expect(sql()).toMatch(/exception when others then\s+return null/)
   })
+  it('truncates names to 255 chars and validates size_bytes regex', () => {
+    expect(sql().match(/left\(coalesce\(nullif\(trim\(a->>'name'\), ''\), p\.path\), 255\)/g)).toHaveLength(2)
+    expect(sql().match(/a->>'size'.*~.*1,15/g)).toHaveLength(2)
+  })
 })
