@@ -30,6 +30,7 @@ export const ROLE_COLORS: Record<UserRole, string> = {
   'Admin':       'bg-violet-100 text-violet-700',
   'Manager':     'bg-blue-100 text-blue-700',
   'Staff':       'bg-gray-100 text-gray-600',
+  'Associate':   'bg-gray-100 text-gray-600',
 }
 
 export const PLAN_LABELS: Record<string, string> = {
