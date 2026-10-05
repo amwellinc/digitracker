@@ -43,7 +43,7 @@ function renderLayout() {
   return render(
     <MemoryRouter>
       <AuthContext.Provider value={{
-        user: staffUser, loading: false, accountBlockedMessage: null, isSuperAdmin: false,
+        user: staffUser, loading: false, accountBlockedMessage: null, isSuperAdmin: false, isAssociate: false,
         visitingAccount: null, visitSubAccount: vi.fn(), exitVisit: vi.fn(),
         viewAsUser: null, startViewAs: vi.fn(), exitViewAs: vi.fn(),
         signIn: vi.fn(), signInWithPassword: vi.fn(), sendPasswordReset: vi.fn(),

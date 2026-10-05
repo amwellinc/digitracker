@@ -98,6 +98,7 @@ function makeCtx(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
     user: currentUser, loading: false,
     accountBlockedMessage: null,
     isSuperAdmin: false,
+    isAssociate: false,
     visitingAccount: null,
     visitSubAccount: vi.fn(),
     exitVisit: vi.fn(),

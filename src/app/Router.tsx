@@ -7,6 +7,7 @@ import { ThankYouPage } from '@/features/subscribe/ThankYouPage'
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { AuthGuard } from '@/features/auth/AuthGuard'
 import { Layout } from './Layout'
+import { AssociateLayout } from './AssociateLayout'
 import { LandingPage } from '@/features/landing/LandingPage'
 import { GHLInstallPage } from '@/features/ghl/GHLInstallPage'
 import { GHLConnectedPage } from '@/features/ghl/GHLConnectedPage'
@@ -70,14 +71,14 @@ function Spinner() {
 // Root route renders the landing page for unauthenticated visitors,
 // and the authenticated app shell (with Outlet for nested routes) for signed-in users.
 function SmartRoot() {
-  const { user, loading } = useAuth()
+  const { user, loading, isAssociate } = useAuth()
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-[#0a0d14]">
       <div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin" />
     </div>
   )
   if (!user) return <LandingPage />
-  return <AuthGuard><Layout /></AuthGuard>
+  return <AuthGuard>{isAssociate ? <AssociateLayout /> : <Layout />}</AuthGuard>
 }
 
 // Reports is nav-gated (Admin default, Manager opt-in) — this guard blocks

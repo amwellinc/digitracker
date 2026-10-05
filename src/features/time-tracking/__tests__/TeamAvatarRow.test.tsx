@@ -56,6 +56,7 @@ function wrap(children: React.ReactNode) {
       user: adminUser, loading: false,
       accountBlockedMessage: null,
       isSuperAdmin: false,
+      isAssociate: false,
       visitingAccount: null,
       visitSubAccount: vi.fn(),
       exitVisit: vi.fn(),

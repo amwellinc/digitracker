@@ -32,6 +32,7 @@ export interface AuthContextValue {
   loading: boolean
   accountBlockedMessage: string | null
   isSuperAdmin: boolean
+  isAssociate: boolean
   visitingAccount: SubAccount | null
   visitSubAccount: (account: SubAccount) => void
   exitVisit: () => void
@@ -235,6 +236,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } else if (visitingAccount && state.user) {
     effectiveUser = { ...state.user, sub_account: visitingAccount.code, role: 'Admin' }
   }
+  const isAssociate = effectiveUser?.role === 'Associate'
 
   return (
     <AuthContext.Provider value={{
@@ -242,6 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading: state.loading,
       accountBlockedMessage: state.accountBlockedMessage,
       isSuperAdmin,
+      isAssociate,
       visitingAccount,
       visitSubAccount,
       exitVisit,

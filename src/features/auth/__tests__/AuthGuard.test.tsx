@@ -36,6 +36,7 @@ const ctx = (user: User | null, loading = false) => ({
   user, loading,
   accountBlockedMessage: null,
   isSuperAdmin: user?.role === 'Super-Admin',
+  isAssociate: false,
   visitingAccount: null,
   visitSubAccount: vi.fn(),
   exitVisit: vi.fn(),
