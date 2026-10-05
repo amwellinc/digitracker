@@ -14,15 +14,20 @@ export function AttachmentLink({ attachment }: { attachment: StoredAttachment })
 
   async function open() {
     if (!target) return
+    // Open synchronously, inside the click gesture, so popup blockers allow
+    // it; navigate it once the signed URL is ready.
+    const win = window.open('', '_blank')
+    if (win) win.opener = null
     setBusy(true)
     setFailed(false)
     const url = await signedUrl(target.bucket, target.path)
     setBusy(false)
-    if (!url) { setFailed(true); return }
-    window.open(url, '_blank', 'noopener')
+    if (!url) { win?.close(); setFailed(true); return }
+    if (win) win.location.href = url
+    else window.open(url, '_blank', 'noopener')
   }
 
-  const icon = IMAGE_RE.test(attachment.name) || attachment.type.startsWith('image/') ? '🖼' : '📄'
+  const icon = IMAGE_RE.test(attachment.name) || (attachment.type ?? '').startsWith('image/') ? '🖼' : '📄'
   return (
     <span className="inline-flex flex-col">
       <button type="button" onClick={() => void open()} disabled={busy || !target}

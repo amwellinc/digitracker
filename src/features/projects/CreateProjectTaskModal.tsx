@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { ProjectTask, User } from '@/types'
 import { isAssociateMember } from './projectRoles'
+import { AttachmentLink } from './files/AttachmentLink'
 import { uploadProjectFile } from './files/projectFiles'
 
 interface Props {
@@ -306,10 +307,7 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
             {(attachments.length > 0 || (task?.attachments ?? []).length > 0) && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {task?.attachments?.map((a, i) => (
-                  <a key={i} href={a.url} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-200">
-                    📄 {a.name}
-                  </a>
+                  <AttachmentLink key={i} attachment={a} />
                 ))}
                 {attachments.map((a, i) => (
                   <div key={i} className="flex items-center gap-1.5 bg-violet-50 rounded-lg px-2.5 py-1 text-xs text-violet-700">
