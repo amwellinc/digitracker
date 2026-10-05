@@ -1,6 +1,6 @@
 // App shell for associates (spec §2.3): project-only sidebar, no clock or
 // time-tracking side effects, and every non-project route redirected.
-import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useProjectMemberships } from '@/hooks/useProjectMemberships'
 import { NotificationsBell } from '@/features/notifications/NotificationsBell'
@@ -9,7 +9,8 @@ import { NoProjectsPage } from '@/features/projects/NoProjectsPage'
 const PROJECT_PATH = /^\/projects\/[^/]+$/
 
 export function AssociateLayout() {
-  const { user, signOut } = useAuth()
+  const { user, signOut, isSuperAdmin, viewAsUser, exitViewAs } = useAuth()
+  const navigate = useNavigate()
   const { memberships, loading } = useProjectMemberships()
   const location = useLocation()
 
@@ -50,6 +51,19 @@ export function AssociateLayout() {
         </div>
       </aside>
       <div className="flex-1 flex flex-col min-w-0">
+        {isSuperAdmin && viewAsUser && (
+          <div className="bg-indigo-50 border-b border-indigo-200 px-4 py-2 flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs text-indigo-700 min-w-0 truncate">
+              <span aria-hidden="true">👁 </span>Viewing as: <span className="font-semibold">{viewAsUser.name}</span>
+              <span className="ml-2 text-indigo-400">Associate</span>
+            </p>
+            <button onClick={() => { exitViewAs(); navigate('/') }}
+              className="text-xs font-medium text-indigo-600 hover:bg-indigo-100 rounded-lg px-3 flex-shrink-0"
+              style={{ minHeight: '44px' }}>
+              Exit View As
+            </button>
+          </div>
+        )}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-end px-4 sm:px-6">
           <NotificationsBell />
         </header>
