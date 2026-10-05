@@ -123,6 +123,14 @@ describe('upload, sign and delete', () => {
     expect(removeMock).toHaveBeenCalledWith([uploadMock.mock.calls[0][0]])
   })
 
+  it('mentions failed cleanup when insert and remove both fail', async () => {
+    uploadMock.mockResolvedValue({ error: null })
+    insertMock.mockResolvedValue({ error: { message: 'row-level security' } })
+    removeMock.mockResolvedValue({ error: { message: 'denied' } })
+    const res = await uploadProjectFile({ projectId: 'p1', taskId: null, folderId: null, source: 'folder', file: f, userId: 'u1' })
+    expect(res.error).toMatch(/could not be cleaned up: denied/)
+  })
+
   it('reports an upload error without inserting', async () => {
     uploadMock.mockResolvedValue({ error: { message: 'too large' } })
     const res = await uploadProjectFile({ projectId: 'p1', taskId: null, folderId: null, source: 'folder', file: f, userId: 'u1' })

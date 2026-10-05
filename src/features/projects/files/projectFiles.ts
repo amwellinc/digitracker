@@ -110,8 +110,9 @@ export async function uploadProjectFile(opts: {
   const { created_at: _createdAt, ...insertRow } = row
   const { error: rowErr } = await supabase.from('project_files').insert(insertRow)
   if (rowErr) {
-    await supabase.storage.from(PROJECT_FILES_BUCKET).remove([path])
-    return { file: null, error: `Could not save ${opts.file.name}: ${rowErr.message}` }
+    const { error: cleanupErr } = await supabase.storage.from(PROJECT_FILES_BUCKET).remove([path])
+    const suffix = cleanupErr ? ` (the uploaded file could not be cleaned up: ${cleanupErr.message})` : ''
+    return { file: null, error: `Could not save ${opts.file.name}: ${rowErr.message}${suffix}` }
   }
   return { file: row, error: null }
 }

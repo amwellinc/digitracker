@@ -108,6 +108,10 @@ describe('project files security', () => {
       'project_files_select', 'project_files_insert', 'project_files_update', 'project_files_delete',
       'project_files_obj_select', 'project_files_obj_insert', 'project_files_obj_delete']) expect(sql()).toContain(p)
   })
+  it('lets the uploader remove an orphaned object whose row insert failed', () => {
+    const m = sql().match(/create policy project_files_obj_delete[\s\S]*?;\n/)
+    expect(m?.[0]).toContain('owner = auth.uid()')
+  })
   it('lets associates reach project-files objects of their projects', () => {
     expect(sql()).toMatch(/storage_associate_scope[\s\S]*bucket_id = 'project-files'/)
   })

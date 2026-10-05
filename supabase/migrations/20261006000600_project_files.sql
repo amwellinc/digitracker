@@ -186,11 +186,16 @@ create policy project_files_obj_delete on storage.objects
   for delete to authenticated
   using (bucket_id = 'project-files'
          and public.is_project_member(public.try_uuid((storage.foldername(name))[1]))
-         and exists (
-           select 1 from public.project_files f
-           where f.bucket = 'project-files' and f.storage_path = storage.objects.name
-             and (f.uploaded_by = public.auth_user_app_id()
-                  or coalesce(public.auth_user_role(), '') in ('Admin', 'Manager', 'Super-Admin'))));
+         and (exists (
+                select 1 from public.project_files f
+                where f.bucket = 'project-files' and f.storage_path = storage.objects.name
+                  and (f.uploaded_by = public.auth_user_app_id()
+                       or coalesce(public.auth_user_role(), '') in ('Admin', 'Manager', 'Super-Admin')))
+              -- uploader may remove their own orphan (row insert failed)
+              or (owner = auth.uid()
+                  and not exists (
+                    select 1 from public.project_files f2
+                    where f2.bucket = 'project-files' and f2.storage_path = storage.objects.name))));
 
 -- Associates: extend the restrictive storage scope (20261006000100) to
 -- project-files objects of their own projects.
