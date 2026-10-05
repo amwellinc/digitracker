@@ -15,7 +15,7 @@ vi.mock('@/lib/supabase', () => ({
 
 import {
   buildFolderTree, findPath, filesForView, legacyPathFromUrl, resolveAttachment,
-  viewFromParam, paramFromView, uploadProjectFile, deleteProjectFile, signedUrl,
+  viewFromParam, paramFromView, uploadProjectFile, deleteProjectFile, signedUrl, storageKeyName,
 } from '../projectFiles'
 
 const folder = (o: Partial<ProjectFolder>): ProjectFolder => ({
@@ -95,6 +95,39 @@ describe('legacy attachment links', () => {
   })
 })
 
+describe('storageKeyName', () => {
+  it('turns the macOS narrow no-break space into a plain space', () => {
+    expect(storageKeyName('Screenshot 2026-10-05 at 10.15.32\u202fAM.png')).toBe('Screenshot 2026-10-05 at 10.15.32 AM.png')
+  })
+  it('strips accents', () => {
+    expect(storageKeyName('Résumé Café.pdf')).toBe('Resume Cafe.pdf')
+  })
+  it('replaces emoji and CJK with a single underscore per run', () => {
+    expect(storageKeyName('report 🎉🎉 報告書.docx')).toBe('report.docx')
+    expect(storageKeyName('報告書 final.pdf')).toBe('final.pdf')
+  })
+  it('replaces characters Storage rejects', () => {
+    expect(storageKeyName('a#b[c]%d.txt')).toBe('a_b_c_d.txt')
+    expect(storageKeyName('‘quoted’ name.txt')).toBe('quoted_ name.txt')
+  })
+  it('falls back to "file" (keeping the extension) when nothing usable is left', () => {
+    expect(storageKeyName('🎉🎉.png')).toBe('file.png')
+    expect(storageKeyName('###')).toBe('file')
+    expect(storageKeyName('')).toBe('file')
+  })
+  it('caps the length at 150 and keeps the extension', () => {
+    const out = storageKeyName(`${'a'.repeat(300)}.pdf`)
+    expect(out).toHaveLength(150)
+    expect(out.endsWith('.pdf')).toBe(true)
+    expect(out.startsWith('aaaa')).toBe(true)
+  })
+  it('only ever emits Storage-safe characters', () => {
+    for (const n of ['Ünïcødé “x” 😀.jpg', '\u202f.\u202f', 'a/b\\c.png', '. leading.dots._']) {
+      expect(storageKeyName(n)).toMatch(/^[A-Za-z0-9._() -]+$/)
+    }
+  })
+})
+
 describe('upload, sign and delete', () => {
   beforeEach(() => {
     uploadMock.mockReset(); removeMock.mockReset(); signMock.mockReset(); insertMock.mockReset(); deleteEqMock.mockReset()
@@ -112,6 +145,17 @@ describe('upload, sign and delete', () => {
       project_id: 'p1', task_id: 't1', folder_id: null, bucket: 'project-files', storage_path: path,
       name: 'My Report.pdf', size_bytes: 5, mime_type: 'application/pdf', uploaded_by: 'u1', source: 'comment',
     }))
+  })
+
+  it('uses a Storage-safe key but keeps the original name on the row', async () => {
+    uploadMock.mockResolvedValue({ error: null })
+    insertMock.mockResolvedValue({ error: null })
+    const shot = new File(['x'], 'Screenshot at 10.15\u202fAM é#.png', { type: 'image/png' })
+    const res = await uploadProjectFile({ projectId: 'p1', taskId: null, folderId: null, source: 'folder', file: shot, userId: 'u1' })
+    const path = uploadMock.mock.calls[0][0] as string
+    expect(path).toMatch(/^p1\/[0-9a-f-]{36}\/Screenshot at 10\.15 AM e\.png$/)
+    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({ storage_path: path, name: 'Screenshot at 10.15\u202fAM é#.png' }))
+    expect(res.file?.name).toBe('Screenshot at 10.15\u202fAM é#.png')
   })
 
   it('removes the uploaded object when the row insert fails', async () => {
@@ -144,8 +188,14 @@ describe('upload, sign and delete', () => {
     expect(signMock).toHaveBeenCalledWith('p1/x/a.pdf', 300)
   })
 
+  it('asks Storage to send the file as a download when a download name is given', async () => {
+    signMock.mockResolvedValue({ data: { signedUrl: 'https://signed?download=a.pdf' }, error: null })
+    expect(await signedUrl('project-files', 'p1/x/a.pdf', 'My Report é.pdf')).toBe('https://signed?download=a.pdf')
+    expect(signMock).toHaveBeenCalledWith('p1/x/a.pdf', 300, { download: 'My Report é.pdf' })
+  })
+
   it('deletes the object before the row; imported files delete only the row', async () => {
-    removeMock.mockResolvedValue({ error: null })
+    removeMock.mockResolvedValue({ data: [{ name: 'p1/x/a.pdf' }], error: null })
     deleteEqMock.mockResolvedValue({ error: null })
     expect(await deleteProjectFile(file({ id: 'a' }))).toBeNull()
     expect(removeMock).toHaveBeenCalledWith(['p1/x/a.pdf'])
@@ -153,5 +203,17 @@ describe('upload, sign and delete', () => {
     expect(await deleteProjectFile(file({ id: 'b', bucket: 'task-attachments', source: 'import' }))).toBeNull()
     expect(removeMock).not.toHaveBeenCalled()
     expect(deleteEqMock).toHaveBeenLastCalledWith('id', 'b')
+  })
+
+  it('keeps the row when Storage silently removed nothing (RLS filtered the object)', async () => {
+    removeMock.mockResolvedValue({ data: [], error: null })
+    expect(await deleteProjectFile(file({ id: 'a', name: 'a.pdf' }))).toBe("You don't have permission to delete a.pdf")
+    expect(deleteEqMock).not.toHaveBeenCalled()
+  })
+
+  it('reports a Storage remove error without deleting the row', async () => {
+    removeMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
+    expect(await deleteProjectFile(file({ id: 'a' }))).toMatch(/boom/)
+    expect(deleteEqMock).not.toHaveBeenCalled()
   })
 })

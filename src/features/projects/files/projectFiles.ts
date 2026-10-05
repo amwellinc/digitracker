@@ -6,6 +6,9 @@ import type { ProjectFile, ProjectFolder, StoredAttachment } from '@/types'
 export const PROJECT_FILES_BUCKET = 'project-files'
 const SIGNED_URL_SECONDS = 300
 const LEGACY_PATH_RE = /\/storage\/v1\/object\/sign\/task-attachments\/([^?#]+)/
+const KEY_NAME_MAX = 150
+const KEY_EXT_MAX = 20
+const KEY_FALLBACK = 'file'
 
 export type FileView = { kind: 'common' } | { kind: 'task'; taskId: string } | { kind: 'folder'; folderId: string }
 
@@ -85,8 +88,32 @@ export function resolveAttachment(a: StoredAttachment): { bucket: ProjectFile['b
   return a.url ? legacyPathFromUrl(a.url) : null
 }
 
-export async function signedUrl(bucket: ProjectFile['bucket'], path: string): Promise<string | null> {
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, SIGNED_URL_SECONDS)
+// Supabase Storage rejects keys with non-ASCII and some punctuation
+// ("Invalid key"), e.g. the U+202F in every macOS screenshot name. The
+// original name is kept on the row; only the object key is sanitised.
+function sanitizeKeyPart(s: string): string {
+  return s.normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^A-Za-z0-9._() -]/gu, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[ ._]+|[ ._]+$/g, '')
+}
+
+export function storageKeyName(name: string): string {
+  const m = name.match(/^(.*)\.([^.]*)$/)
+  const ext = m ? sanitizeKeyPart(m[2]) : ''
+  const hasExt = ext.length > 0 && ext.length <= KEY_EXT_MAX
+  const suffix = hasExt ? `.${ext}` : ''
+  const base = sanitizeKeyPart(hasExt && m ? m[1] : name)
+  const capped = sanitizeKeyPart(base.slice(0, KEY_NAME_MAX - suffix.length))
+  return `${capped || KEY_FALLBACK}${suffix}`
+}
+
+export async function signedUrl(bucket: ProjectFile['bucket'], path: string, downloadName?: string): Promise<string | null> {
+  const storage = supabase.storage.from(bucket)
+  const { data, error } = downloadName
+    ? await storage.createSignedUrl(path, SIGNED_URL_SECONDS, { download: downloadName })
+    : await storage.createSignedUrl(path, SIGNED_URL_SECONDS)
   return error || !data?.signedUrl ? null : data.signedUrl
 }
 
@@ -95,7 +122,7 @@ export async function uploadProjectFile(opts: {
   source: 'folder' | 'task' | 'comment'; file: File; userId: string
 }): Promise<{ file: ProjectFile; error: null } | { file: null; error: string }> {
   const id = crypto.randomUUID()
-  const path = `${opts.projectId}/${id}/${opts.file.name}`
+  const path = `${opts.projectId}/${id}/${storageKeyName(opts.file.name)}`
   // No upsert: the bucket has no storage UPDATE policy.
   const { error: upErr } = await supabase.storage.from(PROJECT_FILES_BUCKET)
     .upload(path, opts.file, { contentType: opts.file.type || undefined })
@@ -119,8 +146,10 @@ export async function uploadProjectFile(opts: {
 
 export async function deleteProjectFile(f: ProjectFile): Promise<string | null> {
   if (f.bucket === PROJECT_FILES_BUCKET) {
-    const { error } = await supabase.storage.from(PROJECT_FILES_BUCKET).remove([f.storage_path])
+    const { data, error } = await supabase.storage.from(PROJECT_FILES_BUCKET).remove([f.storage_path])
     if (error) return `Could not delete ${f.name}: ${error.message}`
+    // Storage reports success with an empty list when RLS hides the object.
+    if (!data || data.length === 0) return `You don't have permission to delete ${f.name}`
   }
   const { error } = await supabase.from('project_files').delete().eq('id', f.id)
   return error ? `Could not delete ${f.name}: ${error.message}` : null
