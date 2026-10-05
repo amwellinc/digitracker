@@ -39,3 +39,14 @@ describe('associate lock', () => {
     expect(rpcs.sort()).toEqual(['check_account_status', 'get_project_member_status', 'is_associate', 'is_project_member'])
   })
 })
+
+describe('associate project rules', () => {
+  it('limits associates to status-only updates on assigned tasks and blocks create/delete/assign', () => {
+    const sql = read('20261006000200_associates_project_rules.sql')
+    for (const name of [
+      'project_tasks_associate_update', 'project_tasks_associate_no_insert', 'project_tasks_associate_no_delete',
+      'project_task_assignees_associate_no_insert', 'project_task_assignees_associate_no_update', 'project_task_assignees_associate_no_delete',
+    ]) expect(sql).toContain(name)
+    expect(sql).toMatch(/new\.title.*is distinct from.*old\.title/s)
+  })
+})
