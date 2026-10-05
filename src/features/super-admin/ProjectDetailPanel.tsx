@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Project, User } from '@/types'
+import { InviteAssociateForm } from '@/features/projects/InviteAssociateForm'
 
 interface Member {
   user_id: string
@@ -16,10 +17,10 @@ interface Member {
 // be able to create tasks once added.
 function RoleBadge({ role }: { role: string }) {
   const canCreate = role === 'Admin' || role === 'Manager' || role === 'Super-Admin'
+  const style = role === 'Associate' ? 'bg-amber-100 text-amber-800'
+    : canCreate ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-500'
   return (
-    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-      canCreate ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-500'
-    }`}>
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${style}`}>
       {role}
     </span>
   )
@@ -122,6 +123,10 @@ export function ProjectDetailPanel({ project, onClose }: Props) {
               ))}
             </div>
           )}
+        </div>
+
+        <div className="mb-4">
+          <InviteAssociateForm projectId={project.id} onInvited={() => void loadMembers()} />
         </div>
 
         <div className="space-y-2">

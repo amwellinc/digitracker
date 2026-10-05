@@ -110,6 +110,7 @@ describe('ProjectDetailPanel — role visibility', () => {
       data: [
         { user_id: 'm1', users: { name: 'Existing Admin', email: 'admin@x.com', sub_account: 'AM333', role: 'Admin' } },
         { user_id: 'm2', users: { name: 'Existing Staff', email: 'staff@x.com', sub_account: 'AM333', role: 'Staff' } },
+        { user_id: 'm3', users: { name: 'Outside Guest', email: 'guest@y.com', sub_account: 'EXT', role: 'Associate' } },
       ],
     })
     usersSelectMock.mockReset().mockResolvedValue({ data: [] })
@@ -121,5 +122,6 @@ describe('ProjectDetailPanel — role visibility', () => {
     await screen.findByText('Existing Admin', { exact: false })
     expect(screen.getByText('Admin')).toBeInTheDocument()
     expect(screen.getByText('Staff')).toBeInTheDocument()
+    expect(screen.getByText('Associate')).toBeInTheDocument()
   })
 })

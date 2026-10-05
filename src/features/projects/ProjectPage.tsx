@@ -9,6 +9,7 @@ import {
   type TaskFilter,
 } from '../tasks/taskUtils'
 import { CreateProjectTaskModal } from './CreateProjectTaskModal'
+import { InviteAssociateForm } from './InviteAssociateForm'
 import { ProjectTaskDetailModal } from './ProjectTaskDetailModal'
 import { presenceFromStatus } from './projectPresence'
 
@@ -289,6 +290,12 @@ export function ProjectPage() {
           </button>
         )}
       </div>
+
+      {user?.role === 'Admin' && (
+        <div className="mb-4">
+          <InviteAssociateForm projectId={projectId!} onInvited={() => void loadMemberStatus()} />
+        </div>
+      )}
 
       {/* Presence header */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-center gap-4 flex-wrap">
