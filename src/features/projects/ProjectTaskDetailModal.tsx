@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
-import type { ProjectTask, ProjectTaskComment, User } from '@/types'
+import type { ProjectTask, ProjectTaskComment, StoredAttachment, User } from '@/types'
+import { AttachmentLink } from './files/AttachmentLink'
+import { uploadProjectFile } from './files/projectFiles'
 import { STATUS_COLOR, STATUS_LABEL, getAlertLevel, fmtDue } from '../tasks/taskUtils'
 import { CreateProjectTaskModal } from './CreateProjectTaskModal'
 import { isAssociateMember } from './projectRoles'
@@ -16,16 +18,6 @@ interface Props {
 
 function fmtTs(ts: string) {
   return new Date(ts).toLocaleString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })
-}
-
-function FileChip({ url, name }: { url: string; name: string }) {
-  const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(name) || url.includes('image')
-  return (
-    <a href={url} target="_blank" rel="noreferrer"
-      className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-200 max-w-[180px] truncate">
-      {isImage ? '🖼' : '📄'} <span className="truncate">{name}</span>
-    </a>
-  )
 }
 
 const NEXT_STATUS: Partial<Record<ProjectTask['status'], ProjectTask['status']>> = {
@@ -105,15 +97,11 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
     if (!user) return
     setPosting(true)
 
-    type AttachObj = { url: string; name: string; size: number; type: string }
-    const attachments: AttachObj[] = []
+    const attachments: StoredAttachment[] = []
     for (const f of commentFiles) {
-      const path = `${task.id}/${Date.now()}-${f.name}`
-      const { error } = await supabase.storage.from('task-attachments').upload(path, f, { contentType: f.type })
-      if (!error) {
-        const { data } = await supabase.storage.from('task-attachments').createSignedUrl(path, 60 * 60 * 24 * 30)
-        if (data?.signedUrl) attachments.push({ url: data.signedUrl, name: f.name, size: f.size, type: f.type })
-      }
+      const res = await uploadProjectFile({ projectId: task.project_id, taskId: task.id, folderId: null, source: 'comment', file: f, userId: user.id })
+      if (!res.file) { setActionError(res.error); continue }
+      attachments.push({ bucket: res.file.bucket, path: res.file.storage_path, name: f.name, size: f.size, type: f.type })
     }
 
     await supabase.from('project_task_comments').insert({
@@ -254,7 +242,7 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
             <div className="px-5 py-3 border-b border-gray-100">
               <p className="text-xs font-medium text-gray-500 mb-2">Attachments</p>
               <div className="flex flex-wrap gap-2">
-                {task.attachments.map((a, i) => <FileChip key={i} url={a.url ?? ''} name={a.name} />)}
+                {task.attachments.map((a, i) => <AttachmentLink key={i} attachment={a} />)}
               </div>
             </div>
           )}
@@ -269,7 +257,7 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
             )}
             {comments.map(c => {
               const author = members.find(m => m.id === c.user_id)
-              const atts = Array.isArray(c.attachments) ? (c.attachments as Array<{ url: string; name: string }>) : []
+              const atts = Array.isArray(c.attachments) ? (c.attachments as StoredAttachment[]) : []
               return (
                 <div key={c.id} className="flex gap-3">
                   <div className="w-8 h-8 rounded-full bg-violet-100 text-violet-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
@@ -283,7 +271,7 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
                     {c.body && <p className="text-sm text-gray-700 leading-relaxed">{c.body}</p>}
                     {atts.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-2">
-                        {atts.map((a, i) => <FileChip key={i} url={a.url} name={a.name} />)}
+                        {atts.map((a, i) => <AttachmentLink key={i} attachment={a} />)}
                       </div>
                     )}
                   </div>

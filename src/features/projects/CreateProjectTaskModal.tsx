@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { ProjectTask, User } from '@/types'
 import { isAssociateMember } from './projectRoles'
+import { uploadProjectFile } from './files/projectFiles'
 
 interface Props {
   projectId: string
@@ -93,15 +94,9 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
   async function uploadAttachments(taskId: string) {
     const uploaded: ProjectTask['attachments'] = [...(task?.attachments ?? [])]
     for (const a of attachments) {
-      const path = `${taskId}/${Date.now()}-${a.file.name}`
-      const { error: upErr } = await supabase.storage.from('task-attachments')
-        .upload(path, a.file, { contentType: a.file.type })
-      if (upErr) continue
-      const { data: signed } = await supabase.storage.from('task-attachments')
-        .createSignedUrl(path, 60 * 60 * 24 * 30)
-      if (signed?.signedUrl) {
-        uploaded.push({ url: signed.signedUrl, name: a.file.name, size: a.file.size, type: a.file.type })
-      }
+      const res = await uploadProjectFile({ projectId, taskId, folderId: null, source: 'task', file: a.file, userId: user!.id })
+      if (!res.file) { setError(res.error); continue }
+      uploaded.push({ bucket: res.file.bucket, path: res.file.storage_path, name: a.file.name, size: a.file.size, type: a.file.type })
     }
     return uploaded
   }
