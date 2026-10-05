@@ -117,3 +117,16 @@ describe('project files security', () => {
       "split_part(storage_path, '/', 1) = project_id::text"]) expect(sql()).toContain(frag)
   })
 })
+
+describe('project files import', () => {
+  const sql = () => read('20261006000700_project_files_import.sql')
+  it('is idempotent and only imports objects that still exist', () => {
+    expect(sql().match(/on conflict \(bucket, storage_path\) do nothing/g)).toHaveLength(2)
+    expect(sql().match(/from storage\.objects o\s+where o\.bucket_id = 'task-attachments'/g)).toHaveLength(2)
+    expect(sql()).toContain("'import'")
+  })
+  it('decodes URL paths with a null-on-error url_decode', () => {
+    expect(sql()).toMatch(/function public\.url_decode\(/)
+    expect(sql()).toMatch(/exception when others then\s+return null/)
+  })
+})
