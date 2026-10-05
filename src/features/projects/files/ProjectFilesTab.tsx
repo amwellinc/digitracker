@@ -10,6 +10,7 @@ import { FileRow, FOCUS, moveOptions } from './FileRow'
 import { FolderTree } from './FolderTree'
 
 const MANAGER_ROLES = ['Admin', 'Manager', 'Super-Admin']
+const FOLDER_NAME_MAX = 100 // matches the project_folders.name check constraint
 const DUPLICATE_MSG = 'A folder with that name already exists here.'
 const NOT_EMPTY_MSG = 'Folder must be empty before it can be deleted.'
 const BTN = `min-h-[44px] px-4 rounded-xl text-sm font-semibold transition-colors ${FOCUS}`
@@ -62,6 +63,14 @@ export function ProjectFilesTab({ projectId, tasks, members }: {
 
   useEffect(() => { void load() }, [load])
 
+  // Any view change (tree, breadcrumb, browser back/forward) drops a
+  // half-filled folder form so it can never act on the wrong folder.
+  useEffect(() => {
+    setFolderForm(null)
+    setFolderName('')
+    setFolderMsg(null)
+  }, [activeKey])
+
   const tree = useMemo(() => buildFolderTree(tasks, folders), [tasks, folders])
   const path = findPath(tree, activeKey)
   const node = path[path.length - 1]
@@ -77,8 +86,6 @@ export function ProjectFilesTab({ projectId, tasks, members }: {
       next.set('folder', paramFromView(n.view))
       return next
     })
-    setFolderForm(null)
-    setFolderMsg(null)
   }
 
   async function upload(list: FileList | File[]) {
@@ -106,6 +113,8 @@ export function ProjectFilesTab({ projectId, tasks, members }: {
       if (error) { setFolderMsg(folderError(error)); return }
       setFolders(prev => prev.map(f => (f.id === view.folderId ? { ...f, name } : f)))
     } else {
+      // Folders only exist inside a task; Common is a flat view.
+      if (view.kind === 'common') return
       let parentId = node.folderId
       if (view.kind === 'task') {
         const { data, error } = await supabase.rpc('ensure_task_root_folder', { p_task_id: view.taskId })
@@ -193,7 +202,7 @@ export function ProjectFilesTab({ projectId, tasks, members }: {
           {folderForm && (
             <form onSubmit={e => { e.preventDefault(); void submitFolder() }} className="flex flex-wrap gap-2">
               <label htmlFor="folder-name" className="sr-only">Folder name</label>
-              <input id="folder-name" value={folderName} onChange={e => setFolderName(e.target.value)} autoFocus maxLength={120}
+              <input id="folder-name" value={folderName} onChange={e => setFolderName(e.target.value)} autoFocus maxLength={FOLDER_NAME_MAX}
                 placeholder={folderForm === 'new' ? 'New folder name' : 'Folder name'} className={`${INPUT} flex-1 min-w-0`} />
               <button type="submit" className={`${BTN} bg-violet-600 text-white hover:bg-violet-700`}>
                 {folderForm === 'new' ? 'Create' : 'Save'}

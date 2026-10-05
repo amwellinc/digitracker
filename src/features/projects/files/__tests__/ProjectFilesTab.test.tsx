@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { Link, MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ProjectFile, ProjectFolder, User } from '@/types'
 
@@ -54,6 +54,7 @@ const members = [{ id: 'u1', name: 'Ana', role: 'Associate' }, { id: 'u2', name:
 function renderTab(query = 'tab=files') {
   return render(
     <MemoryRouter initialEntries={[`/projects/p1?${query}`]}>
+      <Link to="/projects/p1?tab=files&folder=common">outside link to Common</Link>
       <ProjectFilesTab projectId="p1" tasks={[{ id: 't1', title: 'Setup' }]} members={members} />
     </MemoryRouter>,
   )
@@ -139,5 +140,28 @@ describe('ProjectFilesTab', () => {
     expect(confirm.mock.calls[0][0]).toMatch(/link there will stop working/)
     await userEvent.click(screen.getByRole('button', { name: 'Delete mine.pdf' }))
     expect(confirm.mock.calls[1][0]).not.toMatch(/attached/)
+  })
+
+  it('limits folder names to 100 characters', async () => {
+    authUser = { id: 'u2', role: 'Manager' }
+    renderTab('tab=files&folder=task:t1')
+    await screen.findByText('plan.pdf')
+    await userEvent.click(screen.getByRole('button', { name: /New folder/ }))
+    expect(screen.getByLabelText('Folder name')).toHaveAttribute('maxLength', '100')
+  })
+
+  it('closes the folder form and clears its message when the view changes from outside', async () => {
+    authUser = { id: 'u2', role: 'Manager' }
+    rpc.mockResolvedValue({ data: null, error: { message: 'rpc failed' } })
+    renderTab('tab=files&folder=task:t1')
+    await screen.findByText('plan.pdf')
+    await userEvent.click(screen.getByRole('button', { name: /New folder/ }))
+    await userEvent.type(screen.getByLabelText('Folder name'), 'Invoices{Enter}')
+    expect(await screen.findByText('rpc failed')).toBeInTheDocument()
+    await userEvent.click(screen.getByText('outside link to Common'))
+    await screen.findByText('brief.pdf')
+    expect(screen.queryByLabelText('Folder name')).not.toBeInTheDocument()
+    expect(screen.queryByText('rpc failed')).not.toBeInTheDocument()
+    expect(inserts).toHaveLength(0)
   })
 })
