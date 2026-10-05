@@ -58,3 +58,11 @@ describe('project activity notification security', () => {
     expect(sql).toContain('revoke execute on function public.project_actor_name() from public, anon, authenticated;')
   })
 })
+
+describe('notification email dispatch resilience', () => {
+  it('never lets a dispatch failure roll back the notification insert', () => {
+    const sql = read('20261006000400_notification_email_dispatch.sql')
+    expect(sql).toContain('exception when others')
+    expect(sql).toContain('raise warning')
+  })
+})
