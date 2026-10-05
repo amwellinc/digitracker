@@ -18,6 +18,7 @@ as $$
       select 1 from public.project_task_assignees a
       where a.project_task_id = p_only_task and a.user_id = u.id))
 $$;
+revoke execute on function public.notify_project_associates(uuid, text, text, uuid) from public, anon, authenticated;
 
 create or replace function public.project_actor_name()
   returns text
@@ -26,6 +27,7 @@ create or replace function public.project_actor_name()
 as $$
   select coalesce((select name from public.users where id = public.auth_user_app_id()), 'Someone')
 $$;
+revoke execute on function public.project_actor_name() from public, anon, authenticated;
 
 -- New task → every associate in the project.
 create or replace function public.trg_project_task_created()

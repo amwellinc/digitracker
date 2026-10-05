@@ -50,3 +50,11 @@ describe('associate project rules', () => {
     expect(sql).toMatch(/new\.title.*is distinct from.*old\.title/s)
   })
 })
+
+describe('project activity notification security', () => {
+  it('revokes execute on notify_project_associates and project_actor_name from public/anon/authenticated', () => {
+    const sql = read('20261006000300_project_activity_notifications.sql')
+    expect(sql).toContain('revoke execute on function public.notify_project_associates(uuid, text, text, uuid) from public, anon, authenticated;')
+    expect(sql).toContain('revoke execute on function public.project_actor_name() from public, anon, authenticated;')
+  })
+})
