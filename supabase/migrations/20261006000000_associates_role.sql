@@ -36,6 +36,7 @@ alter table public.notifications
 create or replace function public.sub_account_seat_count(p_sub_account text)
   returns int
   language sql security definer stable
+  set search_path = public
 as $$
   select count(*)::int from public.users
   where sub_account = p_sub_account and role <> 'Associate'
@@ -158,6 +159,7 @@ create function public.get_project_member_status(p_project_id uuid)
     last_activity_at timestamptz
   )
   language sql security definer stable
+  set search_path = public
 as $$
   select distinct on (u.id)
     u.id, u.name, u.profile_image, u.role, tl.status, tl.last_activity_at
