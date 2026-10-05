@@ -28,6 +28,12 @@ function fileIcon(f: ProjectFile): string {
   return '📄'
 }
 
+export function deleteConfirmText(f: ProjectFile): string {
+  const base = `Delete "${f.name}"? This cannot be undone.`
+  if (f.source !== 'task' && f.source !== 'comment') return base
+  return `${base}\n\nThis file is also attached to a ${f.source}; the attachment link there will stop working.`
+}
+
 export interface MoveOption { id: string | null; label: string }
 
 // Destinations inside the file's own task: the task root plus its sub-folders.
@@ -57,7 +63,7 @@ export function FileRow({ file, uploaderName, canEdit, moveTo, onChanged, onRemo
     const win = window.open('', '_blank')
     if (win) win.opener = null
     setError(null)
-    const url = await signedUrl(file.bucket, file.storage_path)
+    const url = await signedUrl(file.bucket, file.storage_path, file.name)
     if (!url) { win?.close(); setError(`Could not open ${file.name}.`); return }
     if (win) win.location.href = url
     else window.open(url, '_blank', 'noopener')
@@ -73,7 +79,7 @@ export function FileRow({ file, uploaderName, canEdit, moveTo, onChanged, onRemo
   }
 
   async function remove() {
-    if (!window.confirm(`Delete "${file.name}"? This cannot be undone.`)) return
+    if (!window.confirm(deleteConfirmText(file))) return
     setBusy(true); setError(null)
     const err = await deleteProjectFile(file)
     setBusy(false)

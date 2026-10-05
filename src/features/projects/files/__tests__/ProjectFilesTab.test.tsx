@@ -20,16 +20,18 @@ const files: ProjectFile[] = [
   file('b', 'plan.pdf', { task_id: 't1', uploaded_by: 'u2' }),
   file('c', 'mine.pdf', { task_id: 't1', uploaded_by: 'u1' }),
   file('d', 'nda.pdf', { task_id: 't1', folder_id: 'f1' }),
+  file('e', 'shot.png', { task_id: 't1', uploaded_by: 'u1', source: 'comment' }),
 ]
 
 const rpc = vi.fn()
+const signMock = vi.fn()
 const inserts: Array<{ table: string; row: unknown }> = []
 let folderDeleteResult: { error: { code: string; message: string } | null } = { error: null }
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     rpc: (...a: unknown[]) => rpc(...a),
-    storage: { from: () => ({ createSignedUrl: vi.fn(), upload: vi.fn(), remove: vi.fn() }) },
+    storage: { from: () => ({ createSignedUrl: (...a: unknown[]) => signMock(...a), upload: vi.fn(), remove: vi.fn() }) },
     from: (table: string) => ({
       select: () => ({ eq: () => Promise.resolve({ data: table === 'project_folders' ? folders : files, error: null }) }),
       insert: (row: Record<string, unknown>) => {
@@ -60,6 +62,7 @@ function renderTab(query = 'tab=files') {
 describe('ProjectFilesTab', () => {
   beforeEach(() => {
     rpc.mockReset()
+    signMock.mockReset()
     inserts.length = 0
     folderDeleteResult = { error: null }
     authUser = { id: 'u1', role: 'Associate' }
@@ -114,5 +117,27 @@ describe('ProjectFilesTab', () => {
     await screen.findByText('nda.pdf')
     await userEvent.click(screen.getByRole('button', { name: /Delete folder/ }))
     expect(await screen.findByText('Folder must be empty before it can be deleted.')).toBeInTheDocument()
+  })
+
+  it('Download asks for a signed URL that downloads under the original name', async () => {
+    signMock.mockResolvedValue({ data: { signedUrl: 'https://signed' }, error: null })
+    const win = { opener: {}, location: { href: '' }, close: vi.fn() }
+    vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+    renderTab('tab=files&folder=task:t1')
+    await screen.findByText('plan.pdf')
+    await userEvent.click(screen.getByRole('button', { name: 'Download plan.pdf' }))
+    expect(signMock).toHaveBeenCalledWith('p1/b/plan.pdf', 300, { download: 'plan.pdf' })
+    expect(win.location.href).toBe('https://signed')
+  })
+
+  it('warns that deleting a task/comment attachment breaks the link there', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderTab('tab=files&folder=task:t1')
+    await screen.findByText('shot.png')
+    await userEvent.click(screen.getByRole('button', { name: 'Delete shot.png' }))
+    expect(confirm.mock.calls[0][0]).toMatch(/also attached to a comment/)
+    expect(confirm.mock.calls[0][0]).toMatch(/link there will stop working/)
+    await userEvent.click(screen.getByRole('button', { name: 'Delete mine.pdf' }))
+    expect(confirm.mock.calls[1][0]).not.toMatch(/attached/)
   })
 })
