@@ -228,6 +228,7 @@ export function TimeTrackingPage() {
       case 'leave_rejected': return '❌'
       case 'holiday_added':  return '🗓'
       case 'new_subscription': return '💳'
+      case 'project_added':  return '🗂'
       default:               return '🔔'
     }
   }

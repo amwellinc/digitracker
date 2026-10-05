@@ -5,10 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const rpcMock = vi.fn()
 const membersSelectMock = vi.fn()
 const usersSelectMock = vi.fn()
+const invokeMock = vi.fn()
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     rpc: (...args: unknown[]) => rpcMock(...args),
+    functions: { invoke: (...args: unknown[]) => invokeMock(...args) },
     from: vi.fn((table: string) => {
       if (table === 'project_members') {
         return { select: vi.fn().mockReturnThis(), eq: (...args: unknown[]) => membersSelectMock(...args) }
@@ -76,6 +78,52 @@ describe('ProjectDetailPanel — 3-workspace cap', () => {
     // candidate list's click handler.
     await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('add_project_member', { p_project_id: 'p1', p_user_id: 'u9' }))
     expect(rpcMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ProjectDetailPanel — notifying the added member', () => {
+  beforeEach(() => {
+    rpcMock.mockReset()
+    invokeMock.mockReset()
+    membersSelectMock.mockReset().mockResolvedValue({ data: [] })
+    usersSelectMock.mockReset().mockResolvedValue({
+      data: [{ id: 'u9', name: 'New Person', email: 'new@x.com', sub_account: 'AM999', role: 'Staff' }],
+    })
+  })
+
+  it('emails the added member after a successful add', async () => {
+    rpcMock.mockResolvedValueOnce({ error: null })
+    invokeMock.mockResolvedValueOnce({ data: { sent: true }, error: null })
+    render(<ProjectDetailPanel project={project} onClose={vi.fn()} />)
+
+    await userEvent.type(await screen.findByPlaceholderText(/search by email/i), 'new@x.com')
+    await userEvent.click(await screen.findByText('Add'))
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('notify-project-member', {
+      body: { projectId: 'p1', userId: 'u9' },
+    }))
+  })
+
+  it('does not email anyone when the add fails', async () => {
+    rpcMock.mockResolvedValueOnce({ error: { message: 'Only Super-Admin can manage project membership' } })
+    render(<ProjectDetailPanel project={project} onClose={vi.fn()} />)
+
+    await userEvent.type(await screen.findByPlaceholderText(/search by email/i), 'new@x.com')
+    await userEvent.click(await screen.findByText('Add'))
+
+    await screen.findByText(/only super-admin/i)
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the member added but warns when the email could not be sent', async () => {
+    rpcMock.mockResolvedValueOnce({ error: null })
+    invokeMock.mockResolvedValueOnce({ data: { sent: false, error: 'SMTP is not configured in platform_settings.' }, error: null })
+    render(<ProjectDetailPanel project={project} onClose={vi.fn()} />)
+
+    await userEvent.type(await screen.findByPlaceholderText(/search by email/i), 'new@x.com')
+    await userEvent.click(await screen.findByText('Add'))
+
+    await waitFor(() => expect(screen.getByText(/added.*email could not be sent.*smtp is not configured/i)).toBeInTheDocument())
   })
 })
 

@@ -259,7 +259,7 @@ export interface SubAccount {
 export interface Notification {
   id: string
   user_id: string
-  type: 'task_assigned' | 'task_reply' | 'task_completed' | 'task_closed' | 'leave_request' | 'leave_approved' | 'leave_rejected' | 'holiday_added' | 'new_subscription'
+  type: 'task_assigned' | 'task_reply' | 'task_completed' | 'task_closed' | 'leave_request' | 'leave_approved' | 'leave_rejected' | 'holiday_added' | 'new_subscription' | 'project_added'
   message: string
   read: boolean
   created_at: string
