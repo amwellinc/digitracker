@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { ProjectTask, User } from '@/types'
-import { notifyProjectMember } from './notifyProjectMember'
 
 interface Props {
   projectId: string
@@ -124,9 +123,6 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
       if (!selectedIds.includes(c.id)) continue
       const { error: memberErr } = await supabase.rpc('add_project_member', { p_project_id: projectId, p_user_id: c.id })
       if (memberErr) { setError(`Could not add ${c.name} to the project: ${memberErr.message}`); setSaving(false); return }
-      // Fire-and-forget: the in-app notification is already written by the
-      // RPC, and a failed email must not block the task being created.
-      void notifyProjectMember(projectId, c.id)
     }
 
     const primaryAssignee = selectedIds[0] ?? null

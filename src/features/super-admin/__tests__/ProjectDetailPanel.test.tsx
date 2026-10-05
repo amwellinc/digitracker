@@ -81,7 +81,7 @@ describe('ProjectDetailPanel — 3-workspace cap', () => {
   })
 })
 
-describe('ProjectDetailPanel — notifying the added member', () => {
+describe('ProjectDetailPanel — added-member feedback', () => {
   beforeEach(() => {
     rpcMock.mockReset()
     invokeMock.mockReset()
@@ -91,39 +91,15 @@ describe('ProjectDetailPanel — notifying the added member', () => {
     })
   })
 
-  it('emails the added member after a successful add', async () => {
+  it('tells the admin the member will be notified, without calling any edge function', async () => {
     rpcMock.mockResolvedValueOnce({ error: null })
-    invokeMock.mockResolvedValueOnce({ data: { sent: true }, error: null })
     render(<ProjectDetailPanel project={project} onClose={vi.fn()} />)
 
     await userEvent.type(await screen.findByPlaceholderText(/search by email/i), 'new@x.com')
     await userEvent.click(await screen.findByText('Add'))
 
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('notify-project-member', {
-      body: { projectId: 'p1', userId: 'u9' },
-    }))
-  })
-
-  it('does not email anyone when the add fails', async () => {
-    rpcMock.mockResolvedValueOnce({ error: { message: 'Only Super-Admin can manage project membership' } })
-    render(<ProjectDetailPanel project={project} onClose={vi.fn()} />)
-
-    await userEvent.type(await screen.findByPlaceholderText(/search by email/i), 'new@x.com')
-    await userEvent.click(await screen.findByText('Add'))
-
-    await screen.findByText(/only super-admin/i)
+    await screen.findByText('Member added — they will be notified in the app and by email.')
     expect(invokeMock).not.toHaveBeenCalled()
-  })
-
-  it('keeps the member added but warns when the email could not be sent', async () => {
-    rpcMock.mockResolvedValueOnce({ error: null })
-    invokeMock.mockResolvedValueOnce({ data: { sent: false, error: 'SMTP is not configured in platform_settings.' }, error: null })
-    render(<ProjectDetailPanel project={project} onClose={vi.fn()} />)
-
-    await userEvent.type(await screen.findByPlaceholderText(/search by email/i), 'new@x.com')
-    await userEvent.click(await screen.findByText('Add'))
-
-    await waitFor(() => expect(screen.getByText(/added.*email could not be sent.*smtp is not configured/i)).toBeInTheDocument())
   })
 })
 

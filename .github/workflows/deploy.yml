@@ -80,7 +80,8 @@ jobs:
           supabase secrets set \
             GHL_CLIENT_ID="${{ secrets.GHL_CLIENT_ID }}" \
             GHL_CLIENT_SECRET="${{ secrets.GHL_CLIENT_SECRET }}" \
-            GHL_WEBHOOK_SECRET="${{ secrets.GHL_WEBHOOK_SECRET }}"
+            GHL_WEBHOOK_SECRET="${{ secrets.GHL_WEBHOOK_SECRET }}" \
+            NOTIFICATION_EMAIL_SECRET="${{ secrets.NOTIFICATION_EMAIL_SECRET }}"
 
       # Deploys every function under supabase/functions/ automatically — a
       # named step per function (the old approach) silently deploys nothing
@@ -98,7 +99,7 @@ jobs:
       - name: Deploy Edge Functions
         if: steps.check.outputs.configured == 'true'
         run: |
-          NO_VERIFY_JWT="oauth-callback crm-webhook stripe-webhook"
+          NO_VERIFY_JWT="oauth-callback crm-webhook stripe-webhook send-notification-email"
 
           # Retries each function up to 3 times before giving up on it — the
           # Supabase deploy API occasionally hiccups on a single function in

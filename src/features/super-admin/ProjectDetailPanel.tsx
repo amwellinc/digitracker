@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Project, User } from '@/types'
-import { notifyProjectMember } from '@/features/projects/notifyProjectMember'
 
 interface Member {
   user_id: string
@@ -76,10 +75,7 @@ export function ProjectDetailPanel({ project, onClose }: Props) {
     setMsg(null)
     const { error } = await supabase.rpc('add_project_member', { p_project_id: project.id, p_user_id: userId })
     if (error) { setMsg({ type: 'error', text: error.message }); return }
-    const emailError = await notifyProjectMember(project.id, userId)
-    setMsg(emailError
-      ? { type: 'error', text: `Member added, but the email could not be sent: ${emailError}` }
-      : { type: 'success', text: 'Member added and notified by email.' })
+    setMsg({ type: 'success', text: 'Member added — they will be notified in the app and by email.' })
     setSearch('')
     setCandidates([])
     void loadMembers()
