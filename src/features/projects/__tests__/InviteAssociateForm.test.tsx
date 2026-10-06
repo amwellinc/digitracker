@@ -62,4 +62,21 @@ describe('InviteAssociateForm', () => {
     await submit()
     expect(await screen.findByRole('alert')).toHaveTextContent('boom')
   })
+
+  // Regression test: the function can return 200 with BOTH a status (the
+  // associate row was created/added) AND an error (the password-setup email
+  // itself failed to send, e.g. a transient SMTP hiccup). The old message
+  // concatenated the optimistic "invited — email sent" sentence with the
+  // error text, reading as self-contradictory. It must show only the error.
+  it('shows a clear, non-contradictory message when the invite email fails despite the associate being added', async () => {
+    invokeMock.mockResolvedValueOnce({
+      data: { status: 'invited', error: 'Database error saving new user' }, error: null,
+    })
+    render(<InviteAssociateForm projectId="p1" onInvited={vi.fn()} />)
+    await submit('pater@partner.com', 'Pater Kar')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Pater Kar was added, but the invite email could not be sent: Database error saving new user/i)
+    expect(alert).not.toHaveTextContent(/email was sent to pater@partner.com to set up their password/i)
+  })
 })

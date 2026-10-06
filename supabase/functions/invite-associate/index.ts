@@ -121,36 +121,74 @@ Deno.serve(async (req) => {
   }
 
   // 'already_member' re-invite doubles as a resend of the password-setup link.
-  if (status === 'invited') {
-    // Brand-new associate: inviteUserByEmail both creates the Supabase Auth
-    // user and sends Supabase's own invite email, landing them on
-    // /auth/reset (already bridged) to set a password.
-    const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${APP_URL}/auth/reset`,
-    })
-    if (inviteErr) return json({ status, error: `Added, but the invite email failed: ${inviteErr.message}` })
-  } else if (status === 'already_member') {
-    // Auth user already exists from their first invite — inviteUserByEmail/
-    // generateLink(type:'invite') both fail for an existing user, so get a
-    // fresh recovery link instead (same fallback resend-invite uses) and
-    // deliver it ourselves with a plain, plan-free email.
-    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
-      type: 'recovery',
+  if (status === 'invited' || status === 'already_member') {
+    const result = await sendAssociateSetupLink(admin, {
       email,
-      options: { redirectTo: `${APP_URL}/auth/reset` },
-    })
-    if (linkErr || !linkData?.properties?.action_link) {
-      return json({ status, error: `Added, but could not generate a sign-in link: ${linkErr?.message ?? 'unknown'}` })
-    }
-    const sent = await sendAssociateInviteEmail(admin, {
-      associateName: name,
-      associateEmail: email,
+      name,
       inviterName: caller.name,
       projectName: project.name,
-      inviteLink: linkData.properties.action_link,
+      redirectTo: `${APP_URL}/auth/reset`,
     })
-    if (!sent.sent) return json({ status, error: `Added, but the sign-in email failed: ${sent.error}` })
+    if (!result.sent) return json({ status, error: `Added, but the invite email failed: ${result.error}` })
   }
 
   return json({ status })
 })
+
+// Finds the Supabase Auth account for an email, if one exists, by paging
+// through listUsers (the admin API has no direct lookup-by-email).
+async function findAuthUserIdByEmail(
+  admin: ReturnType<typeof createClient>,
+  email: string,
+): Promise<string | null> {
+  for (let page = 1; ; page++) {
+    const { data: pageData, error: listErr } = await admin.auth.admin.listUsers({ page, perPage: 200 })
+    if (listErr || !pageData) return null
+    const match = pageData.users.find(u => u.email?.toLowerCase() === email)
+    if (match) return match.id
+    if (pageData.users.length < 200) return null
+  }
+}
+
+// Sends a password-setup link, whether this is the associate's first invite
+// or a resend. inviteUserByEmail is tried first either way -- the correct
+// action whenever no Auth account exists yet, including after an earlier
+// attempt failed before ever creating one (observed in production: a
+// transient hiccup with the project's SMTP relay can make inviteUserByEmail
+// return a generic "Database error saving new user" with no account
+// actually created -- retrying the same call is the right recovery, not a
+// permanent failure). One retry absorbs a one-off blip automatically; if an
+// Auth account already exists (from a genuinely earlier successful invite),
+// inviteUserByEmail/generateLink(type:'invite') both reject it, so that
+// case falls back to a fresh recovery link delivered through a plain email.
+async function sendAssociateSetupLink(
+  admin: ReturnType<typeof createClient>,
+  info: { email: string; name: string; inviterName: string; projectName: string; redirectTo: string },
+): Promise<{ sent: boolean; error: string | null }> {
+  let { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(info.email, { redirectTo: info.redirectTo })
+  if (inviteErr) {
+    await new Promise(r => setTimeout(r, 1000))
+    ;({ error: inviteErr } = await admin.auth.admin.inviteUserByEmail(info.email, { redirectTo: info.redirectTo }))
+  }
+  if (!inviteErr) return { sent: true, error: null }
+
+  const authUserId = await findAuthUserIdByEmail(admin, info.email)
+  if (!authUserId) return { sent: false, error: inviteErr.message }
+
+  const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+    type: 'recovery',
+    email: info.email,
+    options: { redirectTo: info.redirectTo },
+  })
+  if (linkErr || !linkData?.properties?.action_link) {
+    return { sent: false, error: linkErr?.message ?? inviteErr.message }
+  }
+
+  return sendAssociateInviteEmail(admin, {
+    associateName: info.name,
+    associateEmail: info.email,
+    inviterName: info.inviterName,
+    projectName: info.projectName,
+    inviteLink: linkData.properties.action_link,
+  })
+}

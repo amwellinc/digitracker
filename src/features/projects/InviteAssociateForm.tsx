@@ -35,11 +35,20 @@ export function InviteAssociateForm({ projectId, onInvited }: Props) {
     if (error) { setMsg({ type: 'error', text: await readFunctionError(error) }); return }
 
     const result = (data ?? {}) as InviteResult
-    const text =
-      result.status === 'invited' ? `${name} invited — an email was sent to ${email} to set up their password.`
-      : result.status === 'already_member' ? `${email} is already in this project.`
-      : `${name} added to this project and notified.`
-    setMsg({ type: result.error ? 'error' : 'success', text: result.error ? `${text} ${result.error}` : text })
+    // Keep the error message distinct from the optimistic success sentence —
+    // concatenating "invited — email sent... but failed: ..." reads as
+    // self-contradictory even once the failure is real, let alone in cases
+    // where the person is added and a notification email still goes out
+    // despite the password-setup link failing to send.
+    if (result.error) {
+      setMsg({ type: 'error', text: `${name} was added, but the invite email could not be sent: ${result.error}. Try inviting them again from this project.` })
+    } else {
+      const text =
+        result.status === 'invited' ? `${name} invited — an email was sent to ${email} to set up their password.`
+        : result.status === 'already_member' ? `${email} is already in this project.`
+        : `${name} added to this project and notified.`
+      setMsg({ type: 'success', text })
+    }
     setEmail('')
     setName('')
     onInvited()
