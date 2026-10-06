@@ -252,7 +252,14 @@ export function UsersTab() {
     setSaving(true); setMsg(null)
 
     const newEmail = form.email.trim().toLowerCase()
-    const emailChanged = newEmail !== editUser.email.toLowerCase()
+    // Compare with the same trim+lowercase normalization on both sides —
+    // editUser.email can carry stray whitespace from older rows (handleAdd's
+    // own .trim() only applies going forward), and comparing it untrimmed
+    // against a trimmed newEmail made Save falsely detect an email change
+    // whenever the admin edited any OTHER field and never touched email at
+    // all, sending every such save through admin-change-email instead of a
+    // plain profile update.
+    const emailChanged = newEmail !== editUser.email.trim().toLowerCase()
 
     // Changing the sign-in email touches Supabase Auth, which needs the
     // service-role key — that has to go through admin-change-email, not a

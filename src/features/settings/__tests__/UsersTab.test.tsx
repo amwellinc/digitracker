@@ -317,6 +317,31 @@ describe('UsersTab — Edit User email change', () => {
     expect(signInWithOtpMock).not.toHaveBeenCalled()
   })
 
+  // Regression test: a stored email with stray whitespace (older row,
+  // CSV import, manual entry — handleAdd's own .trim() only ever applied
+  // going forward) used to make Save falsely detect an email change on
+  // every edit, even when the admin never touched the Email field, sending
+  // the save through admin-change-email instead of a plain profile update
+  // and surfacing a confusing "Could not change email" error.
+  it('does not treat stray whitespace in the stored email as a change', async () => {
+    const cecilliaWithWhitespace: User = { ...cecillia, email: ' cecillia@amwelltechnologies.com ' }
+    orderMock.mockClear().mockResolvedValue({ data: [cecilliaWithWhitespace] })
+
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(functionsInvokeMock).not.toHaveBeenCalledWith('admin-change-email', expect.anything())
+    expect(signInWithOtpMock).not.toHaveBeenCalled()
+  })
+
   it('surfaces the error and does not send an invite when the email change fails', async () => {
     functionsInvokeMock.mockResolvedValueOnce({
       data: { error: 'That email is already used by another account.' }, error: null,
