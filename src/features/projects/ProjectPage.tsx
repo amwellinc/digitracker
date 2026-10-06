@@ -13,6 +13,7 @@ import { InviteAssociateForm } from './InviteAssociateForm'
 import { ProjectTaskDetailModal } from './ProjectTaskDetailModal'
 import { presenceFromStatus } from './projectPresence'
 import { ProjectFilesTab } from './files/ProjectFilesTab'
+import { RecentFilesCard } from './files/RecentFilesCard'
 
 const FILTERS: { id: TaskFilter; label: string }[] = [
   { id: 'all',      label: 'All Tasks' },
@@ -338,7 +339,9 @@ export function ProjectPage() {
 
       {tab === 'files' ? (
         <ProjectFilesTab projectId={projectId!} tasks={rows.map(r => ({ id: r.task.id, title: r.task.title }))} members={members} />
-      ) : (<>
+      ) : (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="lg:col-span-2 space-y-5">
       {/* Filter strip + user selector */}
       <div className="space-y-2">
         <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
@@ -422,7 +425,13 @@ export function ProjectPage() {
           ))}
         </div>
       )}
-      </>)}
+      </div>
+
+      <div className="lg:col-span-1">
+        <RecentFilesCard projectId={projectId!} onViewAll={() => switchTab('files')} />
+      </div>
+      </div>
+      )}
 
       {/* Modals */}
       {showCreate && (

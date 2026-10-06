@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { ProjectFile } from '@/types'
-import { deleteProjectFile, signedUrl, type FolderNode } from './projectFiles'
+import { deleteProjectFile, openProjectFile, type FolderNode } from './projectFiles'
 
 export const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-violet-500'
 const ACTION = `min-h-[44px] px-3 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors ${FOCUS}`
@@ -19,7 +19,7 @@ export function fmtSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function fileIcon(f: ProjectFile): string {
+export function fileIcon(f: ProjectFile): string {
   const t = f.mime_type ?? ''
   if (t.startsWith('image/')) return '🖼'
   if (t.startsWith('video/')) return '🎞'
@@ -59,14 +59,9 @@ export function FileRow({ file, uploaderName, canEdit, moveTo, onChanged, onRemo
   const badge = SOURCE_BADGE[file.source]
 
   async function download() {
-    // Open inside the click gesture so popup blockers allow it.
-    const win = window.open('', '_blank')
-    if (win) win.opener = null
     setError(null)
-    const url = await signedUrl(file.bucket, file.storage_path, file.name)
-    if (!url) { win?.close(); setError(`Could not open ${file.name}.`); return }
-    if (win) win.location.href = url
-    else window.open(url, '_blank', 'noopener')
+    const err = await openProjectFile(file)
+    if (err) setError(err)
   }
 
   async function save(patch: Partial<Pick<ProjectFile, 'name' | 'folder_id'>>) {

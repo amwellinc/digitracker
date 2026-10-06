@@ -16,6 +16,7 @@ vi.mock('@/lib/supabase', () => ({
 import {
   buildFolderTree, findPath, filesForView, legacyPathFromUrl, resolveAttachment,
   viewFromParam, paramFromView, uploadProjectFile, deleteProjectFile, signedUrl, storageKeyName,
+  openProjectFile,
 } from '../projectFiles'
 
 const folder = (o: Partial<ProjectFolder>): ProjectFolder => ({
@@ -215,5 +216,36 @@ describe('upload, sign and delete', () => {
     removeMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
     expect(await deleteProjectFile(file({ id: 'a' }))).toMatch(/boom/)
     expect(deleteEqMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('openProjectFile', () => {
+  beforeEach(() => { signMock.mockReset() })
+
+  it('opens a blank tab before resolving the signed URL, then navigates it there', async () => {
+    const fakeWin = { opener: {}, location: { href: '' } } as unknown as Window
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWin)
+    signMock.mockResolvedValue({ data: { signedUrl: 'https://signed' }, error: null })
+
+    const err = await openProjectFile(file({ bucket: 'project-files', storage_path: 'p1/x/a.pdf', name: 'a.pdf' }))
+
+    expect(err).toBeNull()
+    expect(openSpy).toHaveBeenNthCalledWith(1, '', '_blank')
+    expect(fakeWin.opener).toBeNull()
+    expect(fakeWin.location.href).toBe('https://signed')
+    openSpy.mockRestore()
+  })
+
+  it('closes the blank tab and reports an error when signing fails', async () => {
+    const closeMock = vi.fn()
+    const fakeWin = { opener: {}, location: { href: '' }, close: closeMock } as unknown as Window
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWin)
+    signMock.mockResolvedValue({ data: null, error: { message: 'denied' } })
+
+    const err = await openProjectFile(file({ name: 'a.pdf' }))
+
+    expect(err).toBe('Could not open a.pdf.')
+    expect(closeMock).toHaveBeenCalled()
+    openSpy.mockRestore()
   })
 })

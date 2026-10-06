@@ -117,6 +117,21 @@ export async function signedUrl(bucket: ProjectFile['bucket'], path: string, dow
   return error || !data?.signedUrl ? null : data.signedUrl
 }
 
+// Opens a file's signed URL in a new tab. The tab is opened synchronously,
+// inside the caller's click handler, before the async signedUrl lookup
+// resolves — popup blockers allow a same-gesture window.open() but reject
+// one from an async callback. Shared by FileRow's Download button and
+// RecentFilesCard so both open files the same way.
+export async function openProjectFile(file: Pick<ProjectFile, 'bucket' | 'storage_path' | 'name'>): Promise<string | null> {
+  const win = window.open('', '_blank')
+  if (win) win.opener = null
+  const url = await signedUrl(file.bucket, file.storage_path, file.name)
+  if (!url) { win?.close(); return `Could not open ${file.name}.` }
+  if (win) win.location.href = url
+  else window.open(url, '_blank', 'noopener')
+  return null
+}
+
 export async function uploadProjectFile(opts: {
   projectId: string; taskId: string | null; folderId: string | null
   source: 'folder' | 'task' | 'comment'; file: File; userId: string
