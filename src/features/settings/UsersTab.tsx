@@ -21,6 +21,12 @@ interface UserForm {
   phone: string
   appointed_as: string
   department_id: string
+  address_line1: string
+  address_line2: string
+  address_city: string
+  address_pin_code: string
+  emergency_contact_name: string
+  emergency_contact_phone: string
 }
 
 const emptyForm = (): UserForm => ({
@@ -28,6 +34,8 @@ const emptyForm = (): UserForm => ({
   annual_leave: '14', time_off: '40',
   reporting_time_in: '10:00', reporting_time_out: '19:00',
   country: 'SG', phone: '', appointed_as: '', department_id: '',
+  address_line1: '', address_line2: '', address_city: '', address_pin_code: '',
+  emergency_contact_name: '', emergency_contact_phone: '',
 })
 
 function avatarBg(role: UserRole) {
@@ -170,6 +178,12 @@ export function UsersTab() {
       phone: u.phone ?? '',
       appointed_as: u.appointed_as ?? '',
       department_id: u.department_id ?? '',
+      address_line1: u.address_line1 ?? '',
+      address_line2: u.address_line2 ?? '',
+      address_city: u.address_city ?? '',
+      address_pin_code: u.address_pin_code ?? '',
+      emergency_contact_name: u.emergency_contact_name ?? '',
+      emergency_contact_phone: u.emergency_contact_phone ?? '',
     })
     setMsg(null)
     setViewUser(null)
@@ -199,6 +213,12 @@ export function UsersTab() {
       phone: form.phone.trim() || null,
       appointed_as: form.appointed_as.trim() || null,
       department_id: form.department_id || null,
+      address_line1: form.address_line1.trim() || null,
+      address_line2: form.address_line2.trim() || null,
+      address_city: form.address_city.trim() || null,
+      address_pin_code: form.address_pin_code.trim() || null,
+      emergency_contact_name: form.emergency_contact_name.trim() || null,
+      emergency_contact_phone: form.emergency_contact_phone.trim() || null,
     })
     if (error) {
       setSaving(false)
@@ -262,6 +282,12 @@ export function UsersTab() {
       phone: form.phone.trim() || null,
       appointed_as: form.appointed_as.trim() || null,
       department_id: form.department_id || null,
+      address_line1: form.address_line1.trim() || null,
+      address_line2: form.address_line2.trim() || null,
+      address_city: form.address_city.trim() || null,
+      address_pin_code: form.address_pin_code.trim() || null,
+      emergency_contact_name: form.emergency_contact_name.trim() || null,
+      emergency_contact_phone: form.emergency_contact_phone.trim() || null,
     }).eq('id', editUser.id)
 
     if (emailChanged) {
@@ -820,6 +846,7 @@ export function UsersTab() {
                   onChange={e => patch('reporting_time_out', e.target.value)} className="input" />
               </FormRow>
             </div>
+            <LocationAndEmergencyFields form={form} patch={patch} />
             {msg && <p className={`text-sm ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={() => setShowAddModal(false)} className="btn-ghost">Cancel</button>
@@ -893,6 +920,7 @@ export function UsersTab() {
                   onChange={e => patch('reporting_time_out', e.target.value)} className="input" />
               </FormRow>
             </div>
+            <LocationAndEmergencyFields form={form} patch={patch} />
             {msg && <p className={`text-sm ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={() => setEditUser(null)} className="btn-ghost">Cancel</button>
@@ -1048,6 +1076,50 @@ function CountrySelect({ value, onChange }: { value: UserCountry; onChange: (v: 
         <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
       ))}
     </select>
+  )
+}
+
+// Address and emergency contact are normally self-edited by each user from
+// My Profile (migration 034), so Admin's view of these was read-only and
+// empty for anyone who hadn't filled in their own profile yet. Admin needs
+// to be able to enter this directly too — e.g. during onboarding, before
+// the new hire has ever signed in — so both the Add and Edit forms get the
+// same fields ProfileTab's Location/Emergency Contact sections use.
+function LocationAndEmergencyFields({ form, patch }: { form: UserForm; patch: (key: keyof UserForm, val: string) => void }) {
+  return (
+    <>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide pt-2">Physical Address</p>
+      <FormRow label="Address Line 1">
+        <input value={form.address_line1} onChange={e => patch('address_line1', e.target.value)}
+          placeholder="Street address" className="input" />
+      </FormRow>
+      <FormRow label="Address Line 2">
+        <input value={form.address_line2} onChange={e => patch('address_line2', e.target.value)}
+          placeholder="Apartment, unit, floor (optional)" className="input" />
+      </FormRow>
+      <div className="grid grid-cols-2 gap-3">
+        <FormRow label="City">
+          <input value={form.address_city} onChange={e => patch('address_city', e.target.value)}
+            placeholder="City" className="input" />
+        </FormRow>
+        <FormRow label="Pin Code">
+          <input value={form.address_pin_code} onChange={e => patch('address_pin_code', e.target.value)}
+            placeholder="Postal / pin code" className="input" />
+        </FormRow>
+      </div>
+
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide pt-2">Emergency Contact</p>
+      <div className="grid grid-cols-2 gap-3">
+        <FormRow label="Contact Name">
+          <input value={form.emergency_contact_name} onChange={e => patch('emergency_contact_name', e.target.value)}
+            placeholder="Full name" className="input" />
+        </FormRow>
+        <FormRow label="Contact Phone">
+          <input type="tel" value={form.emergency_contact_phone} onChange={e => patch('emergency_contact_phone', e.target.value)}
+            placeholder="91234567" className="input" />
+        </FormRow>
+      </div>
+    </>
   )
 }
 

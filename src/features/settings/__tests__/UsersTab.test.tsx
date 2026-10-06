@@ -335,3 +335,67 @@ describe('UsersTab — Edit User email change', () => {
     expect(updateMock).not.toHaveBeenCalled()
   })
 })
+
+// Regression tests: Admin's Edit form previously had no fields for address/
+// emergency contact at all (those were self-edit only, from My Profile), so
+// a user who never filled in their own profile left Admin's view showing
+// "Not provided" with no way to do anything about it. Admin can now fill
+// these in directly too.
+describe('UsersTab — Edit User location and emergency contact', () => {
+  beforeEach(() => {
+    orderMock.mockClear().mockResolvedValue({ data: [cecillia] })
+    updateMock.mockClear().mockResolvedValue({ error: null })
+  })
+
+  it("lets an Admin fill in a user's address and emergency contact, even when previously empty", async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    await userEvent.type(await screen.findByPlaceholderText('Street address'), '123 Example Rd')
+    await userEvent.type(screen.getByPlaceholderText('City'), 'Singapore')
+    await userEvent.type(screen.getByPlaceholderText('Postal / pin code'), '123456')
+    await userEvent.type(screen.getByPlaceholderText('Full name'), 'Jane Doe')
+    // "91234567" is also the main Phone field's placeholder — Emergency
+    // Contact Phone is the second match in DOM order.
+    await userEvent.type(screen.getAllByPlaceholderText('91234567')[1], '98765432')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
+      address_line1: '123 Example Rd',
+      address_city: 'Singapore',
+      address_pin_code: '123456',
+      emergency_contact_name: 'Jane Doe',
+      emergency_contact_phone: '98765432',
+    })))
+  })
+
+  it('pre-fills the edit form with existing address and emergency contact data', async () => {
+    const cecilliaWithLocation: User = {
+      ...cecillia,
+      address_line1: '1 Raffles Place', address_city: 'Singapore', address_pin_code: '048616',
+      emergency_contact_name: 'John Tan', emergency_contact_phone: '98765432',
+    }
+    orderMock.mockClear().mockResolvedValue({ data: [cecilliaWithLocation] })
+
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(await screen.findByDisplayValue('1 Raffles Place')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('048616')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('John Tan')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('98765432')).toBeInTheDocument()
+  })
+})
