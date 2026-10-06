@@ -232,15 +232,15 @@ export function UsersTab() {
     }
 
     // Creating the user record does not give them a way to sign in on its own —
-    // send the magic-link invite immediately so "Add User" actually grants access.
-    const { error: inviteError } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin },
-    })
+    // send the invite immediately so "Add User" actually grants access. This
+    // is an existing company adding a staff member, not a new signup, so it
+    // must land on a password-setup form, never the plan/pricing page.
+    const { data: inviteData, error: inviteFnError } = await supabase.functions.invoke('invite-staff-user', { body: { email } })
+    const inviteError = await extractFunctionError(inviteFnError, inviteData)
     setSaving(false)
     setMsg(inviteError
-      ? { type: 'error', text: `${form.name} added, but the invite email failed to send: ${inviteError.message}. Use the Invite button on their row to retry.` }
-      : { type: 'success', text: `${form.name} added and invited — check ${email} for a magic link.` }
+      ? { type: 'error', text: `${form.name} added, but the invite email failed to send: ${inviteError}. Use the Invite button on their row to retry.` }
+      : { type: 'success', text: `${form.name} added and invited — check ${email} to set up their password.` }
     )
     void fetchUsers()
     setTimeout(() => { setShowAddModal(false); setMsg(null) }, 2000)
@@ -299,9 +299,8 @@ export function UsersTab() {
 
     if (emailChanged) {
       // The email itself already changed regardless of how the update above
-      // goes, so send the sign-in invite to the new address either way.
-      const appUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
-      await supabase.auth.signInWithOtp({ email: newEmail, options: { emailRedirectTo: appUrl } })
+      // goes, so send the invite to the new address either way.
+      await supabase.functions.invoke('invite-staff-user', { body: { email: newEmail } })
     }
 
     setSaving(false)
@@ -309,7 +308,7 @@ export function UsersTab() {
     void fetchUsers()
 
     if (emailChanged) {
-      setMsg({ type: 'success', text: `Email changed to ${newEmail} — a sign-in link was sent there.` })
+      setMsg({ type: 'success', text: `Email changed to ${newEmail} — a link to set up their password was sent there.` })
       setTimeout(() => { setEditUser(null); setMsg(null) }, 2500)
     } else {
       setEditUser(null)
@@ -395,29 +394,23 @@ export function UsersTab() {
 
   async function sendInvite(u: User) {
     setInviting(u.id)
-    const appUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
-    const { error } = await supabase.auth.signInWithOtp({
-      email: u.email,
-      options: { emailRedirectTo: appUrl },
-    })
+    const { data, error: fnError } = await supabase.functions.invoke('invite-staff-user', { body: { email: u.email } })
+    const error = await extractFunctionError(fnError, data)
     setInviting(null)
     if (error) {
-      setMsg({ type: 'error', text: `Could not invite ${u.name}: ${error.message}` })
+      setMsg({ type: 'error', text: `Could not invite ${u.name}: ${error}` })
     } else {
-      setMsg({ type: 'success', text: `Magic link sent to ${u.email}` })
+      setMsg({ type: 'success', text: `Invite sent to ${u.email}` })
     }
     setTimeout(() => setMsg(null), 3000)
   }
 
   async function inviteAll() {
     setInviteAllBusy(true)
-    const appUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
     let sent = 0; let failed = 0
     for (const u of users) {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: u.email,
-        options: { emailRedirectTo: appUrl },
-      })
+      const { data, error: fnError } = await supabase.functions.invoke('invite-staff-user', { body: { email: u.email } })
+      const error = await extractFunctionError(fnError, data)
       if (error) failed++ ; else sent++
       // small delay to avoid hammering SMTP
       await new Promise(r => setTimeout(r, 500))

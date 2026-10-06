@@ -6,14 +6,10 @@ const insertMock = vi.fn().mockResolvedValue({ error: null })
 const orderMock = vi.fn().mockResolvedValue({ data: [] })
 const singleMock = vi.fn().mockResolvedValue({ data: { managers_can_view_reports: false } })
 const updateMock = vi.fn().mockResolvedValue({ error: null })
-const signInWithOtpMock = vi.fn().mockResolvedValue({ error: null })
 const functionsInvokeMock = vi.fn().mockResolvedValue({ data: { success: true }, error: null })
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    auth: {
-      signInWithOtp: (...args: unknown[]) => signInWithOtpMock(...args),
-    },
     functions: {
       invoke: (...args: unknown[]) => functionsInvokeMock(...args),
     },
@@ -129,10 +125,10 @@ describe('UsersTab — Add User', () => {
   beforeEach(() => {
     insertMock.mockClear().mockResolvedValue({ error: null })
     orderMock.mockClear().mockResolvedValue({ data: [] })
-    signInWithOtpMock.mockClear().mockResolvedValue({ error: null })
+    functionsInvokeMock.mockClear().mockResolvedValue({ data: { success: true }, error: null })
   })
 
-  it('sends a magic-link invite automatically after creating a new user', async () => {
+  it('sends an invite automatically after creating a new user', async () => {
     render(
       <AuthContext.Provider value={makeCtx()}>
         <UsersTab />
@@ -143,14 +139,13 @@ describe('UsersTab — Add User', () => {
     await fillAndSubmitAddUserForm('Corporate Account', 'corporate@amwelltechnologies.com')
 
     await waitFor(() => expect(insertMock).toHaveBeenCalled())
-    await waitFor(() => expect(signInWithOtpMock).toHaveBeenCalledWith({
-      email: 'corporate@amwelltechnologies.com',
-      options: { emailRedirectTo: window.location.origin },
+    await waitFor(() => expect(functionsInvokeMock).toHaveBeenCalledWith('invite-staff-user', {
+      body: { email: 'corporate@amwelltechnologies.com' },
     }))
   })
 
   it('shows a clear warning if the user is created but the invite email fails to send', async () => {
-    signInWithOtpMock.mockResolvedValueOnce({ error: { message: 'SMTP error' } })
+    functionsInvokeMock.mockResolvedValueOnce({ data: { error: 'SMTP error' }, error: null })
 
     render(
       <AuthContext.Provider value={makeCtx()}>
@@ -178,7 +173,7 @@ describe('UsersTab — Add User', () => {
     await fillAndSubmitAddUserForm('Corporate Account', 'corporate@amwelltechnologies.com')
 
     await waitFor(() => expect(screen.getAllByText(/duplicate email/i).length).toBeGreaterThan(0))
-    expect(signInWithOtpMock).not.toHaveBeenCalled()
+    expect(functionsInvokeMock).not.toHaveBeenCalledWith('invite-staff-user', expect.anything())
   })
 })
 
@@ -269,7 +264,6 @@ describe('UsersTab — Edit User email change', () => {
   beforeEach(() => {
     orderMock.mockClear().mockResolvedValue({ data: [cecillia] })
     functionsInvokeMock.mockClear().mockResolvedValue({ data: { success: true, noticeSent: true }, error: null })
-    signInWithOtpMock.mockClear().mockResolvedValue({ error: null })
     updateMock.mockClear().mockResolvedValue({ error: null })
   })
 
@@ -294,11 +288,10 @@ describe('UsersTab — Edit User email change', () => {
     await waitFor(() => expect(functionsInvokeMock).toHaveBeenCalledWith('admin-change-email', {
       body: { targetUserId: 'user-cecillia', newEmail: 'cecillia.new@amwelltechnologies.com' },
     }))
-    await waitFor(() => expect(signInWithOtpMock).toHaveBeenCalledWith({
-      email: 'cecillia.new@amwelltechnologies.com',
-      options: { emailRedirectTo: window.location.origin },
+    await waitFor(() => expect(functionsInvokeMock).toHaveBeenCalledWith('invite-staff-user', {
+      body: { email: 'cecillia.new@amwelltechnologies.com' },
     }))
-    await waitFor(() => expect(screen.getAllByText(/sign-in link was sent/i).length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText(/link to set up their password was sent/i).length).toBeGreaterThan(0))
   })
 
   it('does not call admin-change-email when the email field is left unchanged', async () => {
@@ -314,7 +307,7 @@ describe('UsersTab — Edit User email change', () => {
 
     await waitFor(() => expect(updateMock).toHaveBeenCalled())
     expect(functionsInvokeMock).not.toHaveBeenCalledWith('admin-change-email', expect.anything())
-    expect(signInWithOtpMock).not.toHaveBeenCalled()
+    expect(functionsInvokeMock).not.toHaveBeenCalledWith('invite-staff-user', expect.anything())
   })
 
   // Regression test: a stored email with stray whitespace (older row,
@@ -339,7 +332,7 @@ describe('UsersTab — Edit User email change', () => {
 
     await waitFor(() => expect(updateMock).toHaveBeenCalled())
     expect(functionsInvokeMock).not.toHaveBeenCalledWith('admin-change-email', expect.anything())
-    expect(signInWithOtpMock).not.toHaveBeenCalled()
+    expect(functionsInvokeMock).not.toHaveBeenCalledWith('invite-staff-user', expect.anything())
   })
 
   it('surfaces the error and does not send an invite when the email change fails', async () => {
@@ -356,8 +349,64 @@ describe('UsersTab — Edit User email change', () => {
     await openEditAndChangeEmail('taken@amwelltechnologies.com')
 
     await waitFor(() => expect(screen.getAllByText(/already used by another account/i).length).toBeGreaterThan(0))
-    expect(signInWithOtpMock).not.toHaveBeenCalled()
+    expect(functionsInvokeMock).not.toHaveBeenCalledWith('invite-staff-user', expect.anything())
     expect(updateMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('UsersTab — per-row and bulk invite', () => {
+  beforeEach(() => {
+    orderMock.mockClear().mockResolvedValue({ data: [cecillia] })
+    functionsInvokeMock.mockClear().mockResolvedValue({ data: { success: true }, error: null })
+  })
+
+  it('invites a single user via the per-row Invite button', async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    // Exact match — "📧 Invite All" is a distinct button with its own
+    // accessible name, not matched by this one.
+    await userEvent.click(screen.getByRole('button', { name: '📧 Invite' }))
+
+    await waitFor(() => expect(functionsInvokeMock).toHaveBeenCalledWith('invite-staff-user', {
+      body: { email: 'cecillia@amwelltechnologies.com' },
+    }))
+    await waitFor(() => expect(screen.getByText(/invite sent to/i)).toBeInTheDocument())
+  })
+
+  it('surfaces an error from the per-row Invite button', async () => {
+    functionsInvokeMock.mockResolvedValueOnce({ data: { error: 'You can only invite users in your own workspace.' }, error: null })
+
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: '📧 Invite' }))
+
+    await waitFor(() => expect(screen.getByText(/could not invite cecillia/i)).toBeInTheDocument())
+  })
+
+  it('invites every user via Invite All', async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: '📧 Invite All' }))
+
+    await waitFor(() => expect(functionsInvokeMock).toHaveBeenCalledWith('invite-staff-user', {
+      body: { email: 'cecillia@amwelltechnologies.com' },
+    }))
+    await waitFor(() => expect(screen.getByText(/sent 1 invite/i)).toBeInTheDocument())
   })
 })
 
