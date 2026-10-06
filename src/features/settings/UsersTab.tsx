@@ -378,6 +378,21 @@ export function UsersTab() {
     await purgeUserStorageFiles(deleteUser.id)
     setArchiving(false)
 
+    // Remove the Auth account too, while the public.users row this call
+    // authorizes against still exists -- archive_and_delete_user below can
+    // only ever reach public.users, and leaving the Auth account behind
+    // would permanently block this email from ever being reused (see
+    // admin-delete-user-auth's header comment).
+    const { data: authDeleteData, error: authDeleteFnError } = await supabase.functions.invoke('admin-delete-user-auth', {
+      body: { targetUserId: deleteUser.id },
+    })
+    const authDeleteError = await extractFunctionError(authDeleteFnError, authDeleteData)
+    if (authDeleteError) {
+      setDeleting(false)
+      setDeleteError(authDeleteError)
+      return
+    }
+
     const { error: purgeError } = await supabase.rpc('archive_and_delete_user', {
       p_user_id: deleteUser.id,
       p_archive_url: path,

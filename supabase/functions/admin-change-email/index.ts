@@ -115,14 +115,34 @@ Deno.serve(async (req) => {
 
   // Find the underlying Supabase Auth account under the OLD email, if one
   // already exists (e.g. the user never completed a magic-link sign-in yet,
-  // in which case there's nothing on the Auth side to update).
+  // in which case there's nothing on the Auth side to update) -- and, in the
+  // same pass, check whether the NEW email is already claimed by some other
+  // Auth account. We already confirmed above that no public.users row owns
+  // newEmail, so any Auth account that does is an orphan: most likely a
+  // previously deleted user (archive_and_delete_user only ever removed the
+  // public.users row, never the Auth account -- see admin-delete-user-auth,
+  // added to close that gap for deletions going forward). Supabase rejects
+  // the email update below as a duplicate otherwise, with no indication
+  // it's a leftover account rather than someone's real one.
   let authUserId: string | null = null
+  let orphanAuthUserId: string | null = null
   for (let page = 1; ; page++) {
     const { data: pageData, error: listErr } = await admin.auth.admin.listUsers({ page, perPage: 200 })
     if (listErr) return json({ error: listErr.message }, 500)
-    const match = pageData.users.find(u => u.email?.toLowerCase() === oldEmail.toLowerCase())
-    if (match) { authUserId = match.id; break }
+    for (const u of pageData.users) {
+      const e = u.email?.toLowerCase()
+      if (e === oldEmail.toLowerCase()) authUserId = u.id
+      if (e === newEmail) orphanAuthUserId = u.id
+    }
+    if (authUserId && orphanAuthUserId) break
     if (pageData.users.length < 200) break
+  }
+
+  if (orphanAuthUserId) {
+    const { error: purgeErr } = await admin.auth.admin.deleteUser(orphanAuthUserId)
+    if (purgeErr) {
+      return json({ error: `That email is tied to a leftover account that could not be cleared: ${purgeErr.message}` }, 500)
+    }
   }
 
   if (authUserId) {

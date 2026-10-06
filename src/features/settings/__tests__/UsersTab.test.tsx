@@ -7,6 +7,24 @@ const orderMock = vi.fn().mockResolvedValue({ data: [] })
 const singleMock = vi.fn().mockResolvedValue({ data: { managers_can_view_reports: false } })
 const updateMock = vi.fn().mockResolvedValue({ error: null })
 const functionsInvokeMock = vi.fn().mockResolvedValue({ data: { success: true }, error: null })
+const fakeArchiveSnapshot = {
+  profile: {
+    name: 'Cecillia', email: 'cecillia@amwelltechnologies.com', role: 'Staff', sub_account: 'AM333',
+    country: 'SG', phone: null, annual_leave: 14, time_off: 40,
+    reporting_time_in: '10:00', reporting_time_out: '19:00', member_since: '2026-01-01',
+  },
+  time_logs: [], leave_requests: [], tasks_created: [], tasks_assigned: [],
+  kpi_daily_logs: [], documents: [], eod_reports: [],
+}
+const rpcMock = vi.fn((...args: unknown[]) => {
+  const fnName = args[0]
+  if (fnName === 'build_user_archive_snapshot') return Promise.resolve({ data: fakeArchiveSnapshot, error: null })
+  if (fnName === 'archive_and_delete_user') return Promise.resolve({ data: 'archive-id', error: null })
+  return Promise.resolve({ data: null, error: null })
+})
+const storageUploadMock = vi.fn().mockResolvedValue({ error: null })
+const storageListMock = vi.fn().mockResolvedValue({ data: [], error: null })
+const storageRemoveMock = vi.fn().mockResolvedValue({ data: [], error: null })
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
@@ -24,7 +42,14 @@ vi.mock('@/lib/supabase', () => ({
       }
       return qb
     }),
-    rpc: vi.fn().mockResolvedValue({ data: null }),
+    storage: {
+      from: vi.fn(() => ({
+        upload: (...args: unknown[]) => storageUploadMock(...args),
+        list: (...args: unknown[]) => storageListMock(...args),
+        remove: (...args: unknown[]) => storageRemoveMock(...args),
+      })),
+    },
+    rpc: (...args: unknown[]) => rpcMock(...args),
   },
 }))
 
@@ -471,5 +496,67 @@ describe('UsersTab — Edit User location and emergency contact', () => {
     expect(screen.getByDisplayValue('048616')).toBeInTheDocument()
     expect(screen.getByDisplayValue('John Tan')).toBeInTheDocument()
     expect(screen.getByDisplayValue('98765432')).toBeInTheDocument()
+  })
+})
+
+// Regression tests: archive_and_delete_user only ever removed the
+// public.users row -- it has no way to reach Supabase Auth, which needs the
+// service-role key. That left a stranded Auth account permanently reserving
+// the deleted person's email, later colliding with admin-change-email or a
+// fresh invite/signup for the same address with a confusing "Error updating
+// user" message. admin-delete-user-auth closes that gap.
+describe('UsersTab — Delete User also removes the Auth account', () => {
+  const suspendedCecillia: User = { ...cecillia, status: 'suspended' }
+
+  beforeEach(() => {
+    orderMock.mockClear().mockResolvedValue({ data: [suspendedCecillia] })
+    functionsInvokeMock.mockClear().mockResolvedValue({ data: { success: true }, error: null })
+    rpcMock.mockClear()
+    storageUploadMock.mockClear().mockResolvedValue({ error: null })
+    storageListMock.mockClear().mockResolvedValue({ data: [], error: null })
+  })
+
+  async function openDeleteAndConfirm() {
+    await waitFor(() => expect(screen.getByText('cecillia@amwelltechnologies.com')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await userEvent.click(screen.getByRole('button', { name: /archive & delete/i }))
+  }
+
+  it('deletes the Auth account before archiving and removing the user row', async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await openDeleteAndConfirm()
+
+    await waitFor(() => expect(functionsInvokeMock).toHaveBeenCalledWith('admin-delete-user-auth', {
+      body: { targetUserId: 'user-cecillia' },
+    }))
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('archive_and_delete_user', expect.anything()))
+
+    const authDeleteCallOrder = functionsInvokeMock.mock.invocationCallOrder[0]
+    const archiveDeleteCallOrder = rpcMock.mock.invocationCallOrder.find((_, i) => rpcMock.mock.calls[i][0] === 'archive_and_delete_user')
+    expect(authDeleteCallOrder).toBeLessThan(archiveDeleteCallOrder!)
+  })
+
+  it('stops before deleting the user row if the Auth account cannot be removed', async () => {
+    functionsInvokeMock.mockImplementation((name: string) =>
+      name === 'admin-delete-user-auth'
+        ? Promise.resolve({ data: { error: 'Could not reach the authentication service.' }, error: null })
+        : Promise.resolve({ data: { success: true }, error: null })
+    )
+
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <UsersTab />
+      </AuthContext.Provider>
+    )
+
+    await openDeleteAndConfirm()
+
+    await waitFor(() => expect(screen.getByText(/could not reach the authentication service/i)).toBeInTheDocument())
+    expect(rpcMock).not.toHaveBeenCalledWith('archive_and_delete_user', expect.anything())
   })
 })
