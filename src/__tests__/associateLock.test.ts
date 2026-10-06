@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest'
 const MIGRATIONS_DIR = join(__dirname, '../../supabase/migrations')
 const LOCK_MIGRATION = '20261006000100_associates_lock.sql'
 // Tables associates legitimately touch — scoped by their own rules instead.
-const PROJECT_TABLES = ['projects', 'project_members', 'project_tasks', 'project_task_assignees', 'project_task_comments', 'notifications', 'users']
+const PROJECT_TABLES = ['projects', 'project_members', 'project_tasks', 'project_task_assignees', 'project_task_comments', 'notifications', 'users', 'project_folders', 'project_files']
 
 const files = readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith('.sql')).sort()
 const read = (f: string) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8')
@@ -32,11 +32,12 @@ describe('associate lock', () => {
   })
 
   it('pre-request guard only allows project tables and safe RPCs', () => {
-    const sql = read(LOCK_MIGRATION)
+    const definers = files.filter(f => /function public\.associate_request_guard\(\)/.test(read(f)))
+    const sql = read(definers[definers.length - 1])
     const tables = sql.match(/v_path ~ '\^\/\(([^)]+)\)\$'/)?.[1].split('|') ?? []
     const rpcs = sql.match(/v_path ~ '\^\/rpc\/\(([^)]+)\)\$'/)?.[1].split('|') ?? []
     expect(tables.sort()).toEqual([...PROJECT_TABLES].sort())
-    expect(rpcs.sort()).toEqual(['check_account_status', 'get_project_member_status', 'is_associate', 'is_project_member'])
+    expect(rpcs.sort()).toEqual(['check_account_status', 'ensure_task_root_folder', 'get_project_member_status', 'is_associate', 'is_project_member'])
   })
 })
 
@@ -93,5 +94,57 @@ describe('notification email dispatch timeout', () => {
     const sql = read('20261006000500_notification_email_dispatch_timeout.sql')
     expect(sql).toMatch(/timeout_milliseconds\s*:=\s*30000/)
     expect(sql).toContain('exception when others')
+  })
+})
+
+describe('project files security', () => {
+  const sql = () => read('20261006000600_project_files.sql')
+  it('casts storage path segments with try_uuid, never a bare ::uuid', () => {
+    expect(sql()).toMatch(/function public\.try_uuid\(/)
+    expect(sql()).not.toMatch(/\(storage\.foldername\(name\)\)\[1\]\)?::uuid/)
+  })
+  it('creates member-only policies on both tables and the bucket', () => {
+    for (const p of ['project_folders_select', 'project_folders_insert', 'project_folders_update', 'project_folders_delete',
+      'project_files_select', 'project_files_insert', 'project_files_update', 'project_files_delete',
+      'project_files_obj_select', 'project_files_obj_insert', 'project_files_obj_delete']) expect(sql()).toContain(p)
+  })
+  it('lets the uploader remove an orphaned object whose row insert failed', () => {
+    const m = sql().match(/create policy project_files_obj_delete[\s\S]*?;\n/)
+    expect(m?.[0]).toContain('owner = auth.uid()')
+  })
+  it('lets associates reach project-files objects of their projects', () => {
+    expect(sql()).toMatch(/storage_associate_scope[\s\S]*bucket_id = 'project-files'/)
+  })
+  it('releases files before a task is deleted, limits update columns, and checks insert integrity', () => {
+    for (const frag of ['project_tasks_release_files', 'grant update (name) on public.project_folders',
+      'grant update (name, folder_id, task_id) on public.project_files',
+      "split_part(storage_path, '/', 1) = project_id::text"]) expect(sql()).toContain(frag)
+  })
+  it('only lets folders be created inside a task, under a parent of the same task', () => {
+    const m = sql().match(/create policy project_folders_insert[\s\S]*?;\n/)?.[0] ?? ''
+    expect(m).toContain('task_id is not null')
+    expect(m).toContain('p.task_id = project_folders.task_id')
+  })
+  it('only lets a file move into a folder of its own task', () => {
+    const m = sql().match(/create policy project_files_update[\s\S]*?;\n/)?.[0] ?? ''
+    const check = m.split(/with check/)[1] ?? ''
+    expect(check).toContain('f.task_id = project_files.task_id')
+  })
+})
+
+describe('project files import', () => {
+  const sql = () => read('20261006000700_project_files_import.sql')
+  it('is idempotent and only imports objects that still exist', () => {
+    expect(sql().match(/on conflict \(bucket, storage_path\) do nothing/g)).toHaveLength(2)
+    expect(sql().match(/from storage\.objects o\s+where o\.bucket_id = 'task-attachments'/g)).toHaveLength(2)
+    expect(sql()).toContain("'import'")
+  })
+  it('decodes URL paths with a null-on-error url_decode', () => {
+    expect(sql()).toMatch(/function public\.url_decode\(/)
+    expect(sql()).toMatch(/exception when others then\s+return null/)
+  })
+  it('truncates names to 255 chars and validates size_bytes regex', () => {
+    expect(sql().match(/left\(coalesce\(nullif\(trim\(a->>'name'\), ''\), p\.path\), 255\)/g)).toHaveLength(2)
+    expect(sql().match(/a->>'size'.*~.*1,15/g)).toHaveLength(2)
   })
 })

@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { ProjectTask, User } from '@/types'
 import { isAssociateMember } from './projectRoles'
+import { AttachmentLink } from './files/AttachmentLink'
+import { uploadProjectFile } from './files/projectFiles'
 
 interface Props {
   projectId: string
@@ -28,6 +30,9 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showUserDrop, setShowUserDrop] = useState(false)
+  // Set once the task is saved but some attachments failed: the modal stays
+  // open to show why, and the parent is refreshed only when the user closes.
+  const [savedWithErrors, setSavedWithErrors] = useState(false)
 
   // Admin/Manager can assign someone who isn't a project member yet — as
   // long as they're in the assigner's own workspace, adding them can never
@@ -92,18 +97,18 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
 
   async function uploadAttachments(taskId: string) {
     const uploaded: ProjectTask['attachments'] = [...(task?.attachments ?? [])]
+    const errors: string[] = []
     for (const a of attachments) {
-      const path = `${taskId}/${Date.now()}-${a.file.name}`
-      const { error: upErr } = await supabase.storage.from('task-attachments')
-        .upload(path, a.file, { contentType: a.file.type })
-      if (upErr) continue
-      const { data: signed } = await supabase.storage.from('task-attachments')
-        .createSignedUrl(path, 60 * 60 * 24 * 30)
-      if (signed?.signedUrl) {
-        uploaded.push({ url: signed.signedUrl, name: a.file.name, size: a.file.size, type: a.file.type })
-      }
+      const res = await uploadProjectFile({ projectId, taskId, folderId: null, source: 'task', file: a.file, userId: user!.id })
+      if (!res.file) { errors.push(res.error); continue }
+      uploaded.push({ bucket: res.file.bucket, path: res.file.storage_path, name: a.file.name, size: a.file.size, type: a.file.type })
     }
-    return uploaded
+    return { uploaded, errors }
+  }
+
+  function close() {
+    if (savedWithErrors) onCreated()
+    onClose()
   }
 
   async function sendNotification(recipientId: string, type: string, msg: string) {
@@ -136,9 +141,11 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
       recurring: recurring ?? null,
     }
 
+    let uploadErrors: string[] = []
     if (task) {
       // Update existing
-      const uploads = await uploadAttachments(task.id)
+      const { uploaded: uploads, errors } = await uploadAttachments(task.id)
+      uploadErrors = errors
       const { error: updErr } = await supabase.from('project_tasks')
         .update({ ...payload, attachments: uploads }).eq('id', task.id)
       if (updErr) { setError(updErr.message); setSaving(false); return }
@@ -169,7 +176,8 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
       const { error: insErr } = await supabase.from('project_tasks').insert({ id: tid, ...payload, project_id: projectId, attachments: [] })
       if (insErr) { setError(insErr.message); setSaving(false); return }
 
-      const uploads = await uploadAttachments(tid)
+      const { uploaded: uploads, errors } = await uploadAttachments(tid)
+      uploadErrors = errors
       if (uploads.length > 0) {
         const { error: attachErr } = await supabase.from('project_tasks').update({ attachments: uploads }).eq('id', tid)
         if (attachErr) { setError(`Task created, but attachments failed to save: ${attachErr.message}`); setSaving(false); return }
@@ -192,6 +200,12 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
     }
 
     setSaving(false)
+    if (uploadErrors.length > 0) {
+      setAttachments([])
+      setSavedWithErrors(true)
+      setError(`Task saved, but some files failed to upload: ${uploadErrors.join('; ')}`)
+      return
+    }
     onCreated()
     onClose()
   }
@@ -199,12 +213,12 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
   const selectedMembers = pickable.filter(m => selectedIds.includes(m.id))
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={close}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold text-gray-900">{task ? 'Edit Task' : 'New Task'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+          <button onClick={close} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -311,10 +325,7 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
             {(attachments.length > 0 || (task?.attachments ?? []).length > 0) && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {task?.attachments?.map((a, i) => (
-                  <a key={i} href={a.url} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-200">
-                    📄 {a.name}
-                  </a>
+                  <AttachmentLink key={i} attachment={a} />
                 ))}
                 {attachments.map((a, i) => (
                   <div key={i} className="flex items-center gap-1.5 bg-violet-50 rounded-lg px-2.5 py-1 text-xs text-violet-700">
@@ -328,14 +339,14 @@ export function CreateProjectTaskModal({ projectId, members, task, assigneeIds: 
             )}
           </div>
 
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          {error && <p role="alert" className="text-red-500 text-sm">{error}</p>}
 
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose}
+            <button type="button" onClick={close}
               className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Cancel
+              {savedWithErrors ? 'Close' : 'Cancel'}
             </button>
-            <button type="submit" disabled={saving || !title.trim()}
+            <button type="submit" disabled={saving || savedWithErrors || !title.trim()}
               className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
               {saving ? 'Saving…' : task ? 'Save Changes' : 'Create Task'}
             </button>
