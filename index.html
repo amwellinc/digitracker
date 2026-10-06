@@ -60,6 +60,15 @@
           window.location.replace('/#/reset-password' + s);
           return;
         }
+
+        // Magic-link sign-in — implicit flow: /auth/magic-link#access_token=...&type=magiclink
+        if (p === '/auth/magic-link' &&
+            hp.get('access_token') &&
+            hp.get('type') === 'magiclink') {
+          try { sessionStorage.setItem('dt_magiclink', h.slice(1)); } catch (e) {}
+          window.location.replace('/#/');
+          return;
+        }
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
