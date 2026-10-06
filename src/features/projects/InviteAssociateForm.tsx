@@ -36,7 +36,7 @@ export function InviteAssociateForm({ projectId, onInvited }: Props) {
 
     const result = (data ?? {}) as InviteResult
     const text =
-      result.status === 'invited' ? `${name} invited — a sign-in link was sent to ${email}.`
+      result.status === 'invited' ? `${name} invited — an email was sent to ${email} to set up their password.`
       : result.status === 'already_member' ? `${email} is already in this project.`
       : `${name} added to this project and notified.`
     setMsg({ type: result.error ? 'error' : 'success', text: result.error ? `${text} ${result.error}` : text })

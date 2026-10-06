@@ -1,7 +1,22 @@
 // Invites an outside collaborator ("associate") into a project. See
 // docs/superpowers/specs/2026-10-05-project-associates-design.md §2.2.
 // Authorization: Super-Admin, or an Admin who is a member of the project.
+//
+// Associates are not paying customers — they must never see the plan/
+// pricing signup flow. Two bugs made that happen in practice: (1) this used
+// to sign them in via a plain signInWithOtp() redirecting to the bare app
+// origin, which only HashRouter-bridges /auth/reset and /auth/magic-link —
+// landing on the bare root left them unauthenticated with "Create an
+// account" as the only visible next step, straight into the paid-plan
+// signup page; (2) even if the redirect were fixed, OTP signs a person
+// straight in with no password-setup step, where the whole point here is an
+// easy "set your password" flow. Using Supabase's invite/recovery admin API
+// instead sends them through the exact same /auth/reset bridge ->
+// ResetPasswordPage "set your password" form already used for staff
+// invites, then lands them in AssociateLayout (their only view) with no
+// plan step ever rendered.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { sendAssociateInviteEmail } from '../_shared/accountEmails.ts'
 
 const APP_URL = 'https://digitracker-app.digi5y.co'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -105,12 +120,36 @@ Deno.serve(async (req) => {
     if (notifErr) console.error('invite-associate: notification insert failed', notifErr.message)
   }
 
-  // 'already_member' re-invite doubles as a resend of the sign-in link.
-  if (status === 'invited' || status === 'already_member') {
-    // Same sign-in mechanism as Settings → Users → Add User.
-    const anon = createClient(supabaseUrl, anonKey)
-    const { error: otpErr } = await anon.auth.signInWithOtp({ email, options: { emailRedirectTo: APP_URL } })
-    if (otpErr) return json({ status, error: `Added, but the sign-in invite failed: ${otpErr.message}` })
+  // 'already_member' re-invite doubles as a resend of the password-setup link.
+  if (status === 'invited') {
+    // Brand-new associate: inviteUserByEmail both creates the Supabase Auth
+    // user and sends Supabase's own invite email, landing them on
+    // /auth/reset (already bridged) to set a password.
+    const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${APP_URL}/auth/reset`,
+    })
+    if (inviteErr) return json({ status, error: `Added, but the invite email failed: ${inviteErr.message}` })
+  } else if (status === 'already_member') {
+    // Auth user already exists from their first invite — inviteUserByEmail/
+    // generateLink(type:'invite') both fail for an existing user, so get a
+    // fresh recovery link instead (same fallback resend-invite uses) and
+    // deliver it ourselves with a plain, plan-free email.
+    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+      type: 'recovery',
+      email,
+      options: { redirectTo: `${APP_URL}/auth/reset` },
+    })
+    if (linkErr || !linkData?.properties?.action_link) {
+      return json({ status, error: `Added, but could not generate a sign-in link: ${linkErr?.message ?? 'unknown'}` })
+    }
+    const sent = await sendAssociateInviteEmail(admin, {
+      associateName: name,
+      associateEmail: email,
+      inviterName: caller.name,
+      projectName: project.name,
+      inviteLink: linkData.properties.action_link,
+    })
+    if (!sent.sent) return json({ status, error: `Added, but the sign-in email failed: ${sent.error}` })
   }
 
   return json({ status })

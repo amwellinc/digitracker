@@ -12,6 +12,53 @@ export interface EmailChangedNoticeInfo {
   newEmail: string
 }
 
+export interface AssociateInviteInfo {
+  associateName: string
+  associateEmail: string
+  inviterName: string
+  projectName: string
+  inviteLink: string
+}
+
+// Re-invite for an associate who already has a Supabase Auth user (from an
+// earlier invite) — generateLink/inviteUserByEmail can't be used again for
+// them, so the caller gets a fresh action_link via generateLink({type:
+// 'recovery'}) and hands it here to actually deliver. Associates are outside
+// collaborators, not paying customers, so this is a plain "set your
+// password" email with no plan/pricing content — see invite-associate's
+// header comment for why that distinction matters.
+export async function sendAssociateInviteEmail(
+  admin: ReturnType<typeof createClient>,
+  info: AssociateInviteInfo,
+): Promise<{ sent: boolean; error: string | null }> {
+  try {
+    const { smtp, error } = await getPlatformSmtp(admin)
+    if (!smtp) return { sent: false, error }
+    const { client, from } = smtp
+
+    await client.send({
+      from,
+      to: info.associateEmail,
+      subject: `You've been added to "${info.projectName}" on DIGITRACKER`,
+      content: 'auto',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+          <p>Hi ${info.associateName},</p>
+          <p>${info.inviterName} added you to the project <strong>${info.projectName}</strong> on DIGITRACKER.</p>
+          <p><a href="${info.inviteLink}" style="display:inline-block;background:#7c3aed;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Set your password &amp; get started</a></p>
+          <p>This link signs you in and lets you set a password — you'll only see this project, nothing else.</p>
+        </div>`,
+    })
+
+    await client.close()
+    return { sent: true, error: null }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('sendAssociateInviteEmail failed:', err)
+    return { sent: false, error: message }
+  }
+}
+
 // Never throws — a failed notice should never block the email change itself,
 // which has already happened by the time this is called.
 export async function sendEmailChangedNotice(

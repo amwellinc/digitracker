@@ -24,7 +24,7 @@ describe('InviteAssociateForm', () => {
     render(<InviteAssociateForm projectId="p1" onInvited={onInvited} />)
     await submit()
     expect(invokeMock).toHaveBeenCalledWith('invite-associate', { body: { projectId: 'p1', email: 'Guest@Partner.com', name: 'Guest' } })
-    await screen.findByText(/invited — a sign-in link was sent to Guest@Partner.com/i)
+    await screen.findByText(/invited — an email was sent to Guest@Partner.com to set up their password/i)
     expect(onInvited).toHaveBeenCalled()
   })
 
