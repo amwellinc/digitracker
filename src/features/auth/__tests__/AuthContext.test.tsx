@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { AuthProvider } from '../AuthContext'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -14,6 +14,7 @@ vi.mock('@/lib/supabase', () => ({
       }),
       signInWithOtp:       vi.fn().mockResolvedValue({ error: null }),
       signInWithPassword:  vi.fn(),
+      setSession:          vi.fn().mockResolvedValue({ error: null }),
       signOut:             vi.fn().mockResolvedValue({}),
     },
     from: vi.fn().mockReturnValue({
@@ -36,6 +37,40 @@ describe('AuthProvider', () => {
     render(<AuthProvider><TestConsumer /></AuthProvider>)
     expect(screen.getByText('loading')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('no-user')).toBeInTheDocument())
+  })
+})
+
+// Regression test for the "magic link not working" bug: the client defaults
+// to Supabase's implicit auth flow, so the email link delivers the session
+// as a #access_token=...&type=magiclink hash fragment. HashRouter reads
+// that fragment as a route path (it has no leading "/"), so nothing ever
+// handed the token to Supabase. index.html/public/404.html's inline bridge
+// scripts now intercept the dedicated /auth/magic-link path before React
+// boots and stash the raw hash in sessionStorage — this test verifies the
+// other half: that AuthProvider picks the stash up on mount, calls
+// setSession() with it, and clears it so it can't be replayed.
+describe('AuthProvider — magic-link bridge bootstrap', () => {
+  afterEach(() => {
+    sessionStorage.removeItem('dt_magiclink')
+    vi.mocked(supabase.auth.setSession).mockClear()
+  })
+
+  it('establishes the session from a stashed magic-link hash and clears it', async () => {
+    sessionStorage.setItem('dt_magiclink', 'access_token=abc123&refresh_token=def456&type=magiclink')
+
+    render(<AuthProvider><TestConsumer /></AuthProvider>)
+
+    await waitFor(() => expect(supabase.auth.setSession).toHaveBeenCalledWith({
+      access_token: 'abc123',
+      refresh_token: 'def456',
+    }))
+    expect(sessionStorage.getItem('dt_magiclink')).toBeNull()
+  })
+
+  it('does nothing when there is no stashed magic-link hash', async () => {
+    render(<AuthProvider><TestConsumer /></AuthProvider>)
+    await waitFor(() => expect(screen.getByText('no-user')).toBeInTheDocument())
+    expect(supabase.auth.setSession).not.toHaveBeenCalled()
   })
 })
 
@@ -62,7 +97,7 @@ describe('AuthContext.signIn', () => {
     await waitFor(() => expect(result.error).toBeNull())
     expect(supabase.auth.signInWithOtp).toHaveBeenCalledWith({
       email: 'x@x.com',
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: `${window.location.origin}/auth/magic-link` },
     })
   })
 

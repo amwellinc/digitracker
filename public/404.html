@@ -53,6 +53,19 @@
         return;
       }
 
+      // ── Magic-link sign-in — IMPLICIT FLOW ────────────────────────────────
+      // Supabase sends: /auth/magic-link#access_token=...&type=magiclink
+      // Same problem as password reset: HashRouter can't hold the token, so
+      // stash it and send the browser to a clean "/". AuthContext's bootstrap
+      // effect reads it from sessionStorage and calls setSession() itself.
+      if (p === '/auth/magic-link' &&
+          hp.get('access_token') &&
+          hp.get('type') === 'magiclink') {
+        try { sessionStorage.setItem('dt_magiclink', h.slice(1)); } catch (e) {}
+        window.location.replace('/#/');
+        return;
+      }
+
       // ── Everything else → home ───────────────────────────────────────────
       window.location.replace('/');
     })();

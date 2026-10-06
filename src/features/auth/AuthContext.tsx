@@ -115,6 +115,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // Magic-link bridge: with the client's default implicit flow, Supabase
+    // delivers the session as a #access_token=...&type=magiclink hash
+    // fragment. HashRouter would otherwise read that fragment as a route
+    // path (it has no leading "/") and never let Supabase parse it. So the
+    // redirect lands on a dedicated path first; index.html/404.html's inline
+    // bridge scripts stash the raw hash here before React boots, then send
+    // the browser to a clean "/" with no token noise in the URL. We finish
+    // the job by establishing the session ourselves — the onAuthStateChange
+    // listener below then picks up the resulting SIGNED_IN event normally.
+    const storedMagicLink = sessionStorage.getItem('dt_magiclink')
+    if (storedMagicLink) {
+      sessionStorage.removeItem('dt_magiclink')
+      const hp = new URLSearchParams(storedMagicLink)
+      const accessToken = hp.get('access_token') ?? ''
+      const refreshToken = hp.get('refresh_token') ?? ''
+      if (accessToken && refreshToken) {
+        void supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+      }
+    }
+
     void supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user?.email) void loadUser(session.user.email)
       else dispatch({ type: 'SIGNED_OUT' })
@@ -137,13 +157,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadUser])
 
   // Magic-link sign-in (OTP).
-  // Redirects to origin root so Supabase PKCE code lands in window.location.search
-  // (not buried inside the hash where Supabase JS can't find it).
+  // Redirects to a dedicated path (not the bare origin) so the inline bridge
+  // scripts in index.html/public/404.html can recognize it and stash the
+  // implicit-flow #access_token hash before HashRouter ever sees it — see
+  // the bootstrap effect above for the other half of this flow.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const signIn = useCallback(async (email: string, _subAccount: string) => {
     const { error } = await supabase.auth.signInWithOtp({
       email: email.toLowerCase().trim(),
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: `${window.location.origin}/auth/magic-link` },
     })
     return { error: error?.message ?? null }
   }, [])
