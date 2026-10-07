@@ -7,9 +7,9 @@ export interface ProjectMembership {
   name: string
 }
 
-interface MembershipRow {
-  project_id: string
-  projects: { name: string } | null
+interface ProjectRow {
+  id: string
+  name: string
 }
 
 export function useProjectMemberships() {
@@ -18,20 +18,20 @@ export function useProjectMemberships() {
   const [memberships, setMemberships] = useState<ProjectMembership[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Queries projects directly (no project_members filter) and lets
+  // projects_select RLS decide what's visible, rather than filtering to
+  // literal project_members rows for this user. is_project_member() --
+  // the function that RLS gates on -- also grants an Admin visibility into
+  // any project their own sub_account already participates in, even before
+  // they're personally added as a member; filtering by user_id here would
+  // silently drop those projects despite RLS allowing them.
   const load = useCallback(async () => {
     if (!user) { setMemberships([]); setLoading(false); return }
     setLoading(true)
-    const { data } = await supabase
-      .from('project_members')
-      .select('project_id, projects(name)')
-      .eq('user_id', user.id)
+    const { data } = await supabase.from('projects').select('id, name').order('name')
 
-    const rows = (data ?? []) as unknown as MembershipRow[]
-    setMemberships(
-      rows
-        .filter(r => r.projects)
-        .map(r => ({ id: r.project_id, name: r.projects!.name }))
-    )
+    const rows = (data ?? []) as ProjectRow[]
+    setMemberships(rows.map(r => ({ id: r.id, name: r.name })))
     setLoading(false)
   }, [user])
 
@@ -54,12 +54,18 @@ export function useProjectMemberships() {
   // error boundary anywhere in this app, unmounts the entire React tree
   // (a fully blank page, not just this component) the moment you open any
   // project.
+  // No filter: an Admin's visibility can now come from ANY project_members
+  // row that establishes their sub_account's participation, not only a row
+  // naming them directly, so a user_id-scoped filter would miss the event
+  // that should add/remove this project from their sidebar. The refetch
+  // itself is cheap (a handful of rows), and RLS still decides what comes
+  // back.
   useEffect(() => {
     if (!user) return
     const ch = supabase
       .channel(`project-memberships:${instanceId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'project_members', filter: `user_id=eq.${user.id}` }, () => void load())
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'project_members', filter: `user_id=eq.${user.id}` }, () => void load())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'project_members' }, () => void load())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'project_members' }, () => void load())
       .subscribe()
     return () => { void supabase.removeChannel(ch) }
   }, [user, load, instanceId])

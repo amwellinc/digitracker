@@ -6,14 +6,13 @@ import { AuthContext } from '@/features/auth/AuthContext'
 import type { User } from '@/types'
 
 const selectMock = vi.fn()
-const eqMock = vi.fn()
+const orderMock = vi.fn()
+const fromMock = vi.fn()
 const channelMock = vi.fn()
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    from: vi.fn(() => ({
-      select: (...args: unknown[]) => { selectMock(...args); return { eq: (...eqArgs: unknown[]) => eqMock(...eqArgs) } },
-    })),
+    from: (...fromArgs: unknown[]) => { fromMock(...fromArgs); return { select: (...args: unknown[]) => { selectMock(...args); return { order: (...orderArgs: unknown[]) => orderMock(...orderArgs) } } } },
     channel: (...args: unknown[]) => { channelMock(...args); return { on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis() } },
     removeChannel: vi.fn(),
   },
@@ -44,18 +43,23 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe('useProjectMemberships', () => {
-  it('returns an empty list when the user has no project memberships', async () => {
-    eqMock.mockResolvedValueOnce({ data: [] })
+  it('returns an empty list when the user has no visible projects', async () => {
+    orderMock.mockResolvedValueOnce({ data: [] })
     const { result } = renderHook(() => useProjectMemberships(), { wrapper })
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.memberships).toEqual([])
   })
 
-  it('maps joined project rows into {id, name}', async () => {
-    eqMock.mockResolvedValueOnce({
+  // Queries projects directly (not project_members filtered to this user)
+  // so RLS alone decides visibility — including an Admin who can see a
+  // project through their sub_account's participation without personally
+  // having a project_members row (is_project_member() grants that, but a
+  // user_id-filtered query would still hide it).
+  it('maps every RLS-visible project row into {id, name}', async () => {
+    orderMock.mockResolvedValueOnce({
       data: [
-        { project_id: 'p1', projects: { name: 'JohnBakery' } },
-        { project_id: 'p2', projects: { name: 'AcmeCorp' } },
+        { id: 'p1', name: 'JohnBakery' },
+        { id: 'p2', name: 'AcmeCorp' },
       ],
     })
     const { result } = renderHook(() => useProjectMemberships(), { wrapper })
@@ -64,6 +68,8 @@ describe('useProjectMemberships', () => {
       { id: 'p1', name: 'JohnBakery' },
       { id: 'p2', name: 'AcmeCorp' },
     ])
+    expect(fromMock).toHaveBeenCalledWith('projects')
+    expect(selectMock).toHaveBeenCalledWith('id, name')
   })
 
   // Regression test: on any project page, this hook runs simultaneously in
@@ -73,7 +79,7 @@ describe('useProjectMemberships', () => {
   // that (with no error boundary in the app) blanked the entire page on
   // every project navigation.
   it('gives each simultaneously-mounted instance its own realtime channel name', async () => {
-    eqMock.mockResolvedValue({ data: [] })
+    orderMock.mockResolvedValue({ data: [] })
     channelMock.mockClear()
 
     renderHook(() => useProjectMemberships(), { wrapper })
