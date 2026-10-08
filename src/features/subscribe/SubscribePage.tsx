@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { COUNTRY_OPTIONS } from '@/lib/constants'
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 interface PlanConfig {
   id: 'free' | 'basic' | 'business' | 'professional'
@@ -36,6 +38,8 @@ interface FormState {
   companyName: string
   adminName: string
   adminEmail: string
+  country: string
+  timezone: string
 }
 
 export function SubscribePage() {
@@ -52,7 +56,9 @@ export function SubscribePage() {
   const [cycle, setCycle] = useState<BillingCycle>('monthly')
   const [currencyCode, setCurrencyCode] = useState('USD')
   const [selectedPlan, setSelectedPlan] = useState<PlanConfig['id']>('business')
-  const [form, setForm] = useState<FormState>({ companyName: '', adminName: '', adminEmail: '' })
+  const [form, setForm] = useState<FormState>({
+    companyName: '', adminName: '', adminEmail: '', country: '', timezone: DEFAULT_TIMEZONE,
+  })
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -110,6 +116,8 @@ export function SubscribePage() {
         companyName: form.companyName.trim(),
         adminName: form.adminName.trim(),
         adminEmail: form.adminEmail.trim(),
+        country: form.country || null,
+        timezone: form.timezone,
         plan: selectedPlan,
         billingCycle: cycle,
         currencyCode,
@@ -285,6 +293,26 @@ export function SubscribePage() {
                   onChange={e => setForm(f => ({ ...f, adminEmail: e.target.value }))}
                   placeholder="you@company.com" className="input" />
                 <p className="text-xs text-slate-400 mt-1">We'll email you an invite link to set your password.</p>
+              </Field>
+              <Field label="Country">
+                <select value={form.country} aria-label="Country"
+                  onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
+                  className="input">
+                  <option value="">— Select your country —</option>
+                  {COUNTRY_OPTIONS.map(opt => (
+                    <option key={opt.code} value={opt.code}>{opt.flag} {opt.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Work Calendar Timezone">
+                <select value={form.timezone} aria-label="Work Calendar Timezone"
+                  onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))}
+                  className="input">
+                  {TIMEZONE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">Used for "Today" and date highlights across your workspace. You can change this later in Settings.</p>
               </Field>
 
               <button type="submit" disabled={!formValid}

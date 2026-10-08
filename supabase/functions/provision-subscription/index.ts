@@ -56,10 +56,14 @@ interface RequestBody {
   companyName: string
   adminName: string
   adminEmail: string
+  country: string | null
+  timezone: string | null
   plan: 'free' | 'basic' | 'business' | 'professional'
   billingCycle: 'monthly' | 'annual'
   currencyCode: string
 }
+
+const DEFAULT_TIMEZONE = 'Asia/Singapore'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -82,6 +86,8 @@ Deno.serve(async (req) => {
   const companyName   = (body.companyName ?? '').trim()
   const adminName     = (body.adminName ?? '').trim()
   const adminEmail    = (body.adminEmail ?? '').toLowerCase().trim()
+  const country       = (body.country ?? '').trim().toUpperCase() || null
+  const timezone      = (body.timezone ?? '').trim() || DEFAULT_TIMEZONE
   const plan          = body.plan
   const billingCycle  = body.billingCycle === 'annual' ? 'annual' : 'monthly'
   const currencyCode  = (body.currencyCode || 'USD').toUpperCase()
@@ -160,6 +166,8 @@ Deno.serve(async (req) => {
       code: tryCode,
       company_name: companyName,
       admin_email: adminEmail,
+      country,
+      timezone,
       plan,
       seats: planCfg.max_seats,
       status: initialStatus,
@@ -186,7 +194,7 @@ Deno.serve(async (req) => {
     time_off:          40,
     reporting_time_in: '09:00',
     reporting_time_out: '18:00',
-    country:           'SG',
+    country:           country ?? 'SG',
   })
   if (userErr) return await rollback(userErr.message)
 

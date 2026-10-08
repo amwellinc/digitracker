@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { COUNTRY_OPTIONS } from '@/lib/constants'
 import { invalidateTimezoneCache } from '@/hooks/useSubAccountTimezone'
 import { invalidateBrandingCache } from '@/hooks/useSubAccountBranding'
 
@@ -21,6 +22,7 @@ export function AccountTab() {
   const isAdmin = user?.role === 'Admin' || user?.role === 'Super-Admin'
 
   const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE)
+  const [country, setCountry] = useState('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -36,13 +38,14 @@ export function AccountTab() {
     if (!user?.sub_account || !isAdmin) return
     void supabase
       .from('sub_accounts')
-      .select('timezone, company_name, logo_url')
+      .select('timezone, country, company_name, logo_url')
       .eq('code', user.sub_account)
       .single()
       .then(({ data }) => {
         if (!data) return
-        const row = data as { timezone: string; company_name: string | null; logo_url: string | null }
+        const row = data as { timezone: string; country: string | null; company_name: string | null; logo_url: string | null }
         setTimezone(row.timezone ?? DEFAULT_TIMEZONE)
+        setCountry(row.country ?? '')
         setCompanyName(row.company_name ?? '')
         setLogoUrl(row.logo_url)
       })
@@ -54,14 +57,14 @@ export function AccountTab() {
     setSaving(true)
     const { error } = await supabase
       .from('sub_accounts')
-      .update({ timezone })
+      .update({ timezone, country: country || null })
       .eq('code', user.sub_account)
     setSaving(false)
     if (error) {
       setMsg({ type: 'error', text: error.message })
     } else {
       invalidateTimezoneCache(user.sub_account)
-      setMsg({ type: 'success', text: 'Work timezone saved. Calendars will now follow this timezone.' })
+      setMsg({ type: 'success', text: 'Country and work timezone saved. Calendars will now follow this timezone.' })
     }
   }
 
@@ -207,15 +210,29 @@ export function AccountTab() {
         </div>
       )}
 
-      {/* Timezone setting — Admin / Super-Admin only */}
+      {/* Country + Timezone — Admin / Super-Admin only */}
       {isAdmin && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Work Calendar Timezone</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Country &amp; Work Calendar Timezone</h2>
           <p className="text-sm text-gray-500 mb-5">
-            Sets the timezone used by all calendars in your workspace. "Today" and date highlights
-            will follow this timezone for every user in your sub-account.
+            Sets your workspace's country and the timezone used by all calendars in it. "Today" and
+            date highlights will follow this timezone for every user in your sub-account.
           </p>
           <form onSubmit={handleSave} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+              <select
+                value={country}
+                onChange={e => setCountry(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              >
+                <option value="">— Not set —</option>
+                {COUNTRY_OPTIONS.map(opt => (
+                  <option key={opt.code} value={opt.code}>{opt.flag} {opt.label}</option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
               <select
@@ -243,7 +260,7 @@ export function AccountTab() {
               disabled={saving}
               className="bg-violet-600 text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
             >
-              {saving ? 'Saving…' : 'Save Timezone'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </form>
         </div>

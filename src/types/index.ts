@@ -1,6 +1,9 @@
 export type UserRole = 'Super-Admin' | 'Admin' | 'Manager' | 'Staff' | 'Associate'
 
-export type UserCountry = 'SG' | 'MY' | 'PH' | 'IN' | 'AU' | 'US' | 'GB' | 'ID' | 'TH' | 'VN' | 'AE' | 'CN' | 'JP'
+// A free-form ISO 3166-1 alpha-2 code, not a closed set — any country can
+// be selected (see COUNTRY_OPTIONS in lib/constants.ts), so this can't be a
+// fixed literal union.
+export type UserCountry = string
 
 export interface User {
   id: string
@@ -249,6 +252,7 @@ export interface SubAccount {
   seats: number
   status: 'active' | 'trialing' | 'cancelled' | 'suspended'
   timezone: string
+  country: string | null
   notes: string | null
   trial_starts_at: string | null
   trial_ends_at: string | null
