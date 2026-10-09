@@ -14,6 +14,7 @@ import { ProjectTaskDetailModal } from './ProjectTaskDetailModal'
 import { presenceFromStatus } from './projectPresence'
 import { ProjectFilesTab } from './files/ProjectFilesTab'
 import { RecentFilesCard } from './files/RecentFilesCard'
+import { AddProjectMemberForm } from './AddProjectMemberForm'
 
 const FILTERS: { id: TaskFilter; label: string }[] = [
   { id: 'all',      label: 'All Tasks' },
@@ -317,9 +318,16 @@ export function ProjectPage() {
         )}
       </div>
 
-      {user?.role === 'Admin' && (
-        <div className="mb-4">
-          <InviteAssociateForm projectId={projectId!} onInvited={() => void loadMemberStatus()} />
+      {canManage && (
+        <div className="mb-4 space-y-3">
+          <AddProjectMemberForm
+            projectId={projectId!}
+            existingMemberIds={members.map(m => m.id)}
+            onAdded={() => void loadMemberStatus()}
+          />
+          {user?.role === 'Admin' && (
+            <InviteAssociateForm projectId={projectId!} onInvited={() => void loadMemberStatus()} />
+          )}
         </div>
       )}
 
