@@ -98,14 +98,17 @@ export function PlatformSettingsTab() {
       return
     }
 
-    const { error: inviteError } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin },
-    })
+    // This is an existing (platform) sub-account adding a Super-Admin, not a
+    // new signup, so it must land on a password-setup form, never the plan/
+    // pricing page. invite-staff-user's own check (caller.role ===
+    // 'Super-Admin') already bypasses the "same sub_account" restriction, so
+    // this is a straight reuse — no edge-function change needed.
+    const { data: inviteData, error: inviteFnError } = await supabase.functions.invoke('invite-staff-user', { body: { email } })
+    const inviteError = await extractFunctionError(inviteFnError, inviteData)
     setInviting(false)
     setInviteMsg(inviteError
-      ? { type: 'error', text: `${inviteName} added, but the invite email failed to send: ${inviteError.message}. Use "Set Password" below instead.` }
-      : { type: 'success', text: `${inviteName} added and invited — check ${email} for a magic link. They should choose "Platform" when signing in.` }
+      ? { type: 'error', text: `${inviteName} added, but the invite email failed to send: ${inviteError}. Use "Set Password" below instead.` }
+      : { type: 'success', text: `${inviteName} added and invited — check ${email} to set up their password. They should choose "Platform" when signing in.` }
     )
     void fetchSuperAdmins()
     setInviteName(''); setInviteEmail('')

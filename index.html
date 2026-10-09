@@ -46,10 +46,15 @@
           return;
         }
 
-        // Password reset — implicit flow: /auth/reset#access_token=...&type=recovery
+        // Password reset / account invite — implicit flow:
+        // /auth/reset#access_token=...&type=recovery (reset)
+        // /auth/reset#access_token=...&type=invite (new account invite)
+        // Kept in parity with public/404.html's equivalent check — GitHub
+        // Pages serves 404.html for this path today, but this file's own
+        // check should never silently diverge from it.
         if (p === '/auth/reset' &&
             hp.get('access_token') &&
-            hp.get('type') === 'recovery') {
+            (hp.get('type') === 'recovery' || hp.get('type') === 'invite')) {
           try { sessionStorage.setItem('dt_recovery', h.slice(1)); } catch (e) {}
           window.location.replace('/#/reset-password');
           return;
