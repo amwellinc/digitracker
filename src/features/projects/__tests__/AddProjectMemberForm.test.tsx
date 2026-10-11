@@ -58,7 +58,20 @@ describe('AddProjectMemberForm', () => {
     rpcMock.mockReset().mockResolvedValue({ error: null })
   })
 
-  it('searches the caller\'s own workspace and excludes existing members', async () => {
+  // Regression test: the first version searched live as you typed, showing
+  // a per-result "+ Add" button only once a match came back — with nothing
+  // typed yet, or no match, there was no visible button anywhere, reading
+  // as a feature with no button at all.
+  it('always shows a clickable Search button, even before anything is typed', () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
+      </AuthContext.Provider>
+    )
+    expect(screen.getByRole('button', { name: /search/i })).toBeInTheDocument()
+  })
+
+  it('searches the caller\'s own workspace on Search and excludes existing members', async () => {
     render(
       <AuthContext.Provider value={makeCtx()}>
         <AddProjectMemberForm projectId="p1" existingMemberIds={['u2']} onAdded={vi.fn()} />
@@ -66,8 +79,11 @@ describe('AddProjectMemberForm', () => {
     )
 
     await userEvent.type(screen.getByLabelText(/search your workspace/i), 'Jane')
+    await userEvent.click(screen.getByRole('button', { name: /search/i }))
+
     await waitFor(() => expect(ilikeMock).toHaveBeenCalledWith('name', '%Jane%'))
     expect(screen.queryByText('Jane Staff')).not.toBeInTheDocument()
+    expect(await screen.findByText(/no one in your workspace matched/i)).toBeInTheDocument()
   })
 
   it('adds a candidate via add_project_member and reports success', async () => {
@@ -80,6 +96,7 @@ describe('AddProjectMemberForm', () => {
     )
 
     await userEvent.type(screen.getByLabelText(/search your workspace/i), 'New')
+    await userEvent.click(screen.getByRole('button', { name: /search/i }))
     await userEvent.click(await screen.findByRole('button', { name: /new hire/i }))
 
     await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('add_project_member', { p_project_id: 'p1', p_user_id: 'u3' }))
@@ -97,6 +114,7 @@ describe('AddProjectMemberForm', () => {
     )
 
     await userEvent.type(screen.getByLabelText(/search your workspace/i), 'New')
+    await userEvent.click(screen.getByRole('button', { name: /search/i }))
     await userEvent.click(await screen.findByRole('button', { name: /new hire/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/3 workspaces/i)

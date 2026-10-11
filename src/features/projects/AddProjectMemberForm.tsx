@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { User } from '@/types'
@@ -16,29 +16,36 @@ interface Props {
 // dropdown, use a small search box at the bottom, pick someone, then
 // actually submit the task. Nothing let an Admin just add a teammate to
 // the project on its own, without creating a task as a side effect.
+//
+// The first version searched live as you typed, with no button at all
+// until a match appeared — with nothing typed, or no match, there was
+// nothing visibly clickable, reading as a feature with no button. This
+// version always shows an explicit Search button next to the input.
 export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: Props) {
   const { user } = useAuth()
   const [search, setSearch] = useState('')
   const [candidates, setCandidates] = useState<Pick<User, 'id' | 'name' | 'role'>[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searched, setSearched] = useState(false)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  useEffect(() => {
-    if (!user?.sub_account || !search.trim()) { setCandidates([]); return }
-    let cancelled = false
-    void supabase
+  async function runSearch(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user?.sub_account || !search.trim()) return
+    setSearching(true)
+    setMsg(null)
+    const { data } = await supabase
       .from('users')
       .select('id, name, role')
       .eq('sub_account', user.sub_account)
       .eq('status', 'active')
       .ilike('name', `%${search.trim()}%`)
-      .then(({ data }) => {
-        if (cancelled) return
-        const known = new Set(existingMemberIds)
-        setCandidates(((data ?? []) as Pick<User, 'id' | 'name' | 'role'>[]).filter(c => !known.has(c.id)))
-      })
-    return () => { cancelled = true }
-  }, [search, user?.sub_account, existingMemberIds])
+    setSearching(false)
+    setSearched(true)
+    const known = new Set(existingMemberIds)
+    setCandidates(((data ?? []) as Pick<User, 'id' | 'name' | 'role'>[]).filter(c => !known.has(c.id)))
+  }
 
   async function addMember(c: Pick<User, 'id' | 'name' | 'role'>) {
     setAddingId(c.id)
@@ -52,17 +59,27 @@ export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: 
     setMsg({ type: 'success', text: `${c.name} added to this project.` })
     setSearch('')
     setCandidates([])
+    setSearched(false)
     onAdded()
   }
 
   return (
     <div className="border border-violet-200 bg-violet-50/50 rounded-lg p-3 space-y-2">
       <p className="text-xs font-semibold text-violet-800">Add a teammate from your workspace</p>
-      <input
-        value={search} onChange={e => setSearch(e.target.value)}
-        placeholder="Search by name…" aria-label="Search your workspace to add a teammate"
-        className="input w-full sm:max-w-xs"
-      />
+      <form onSubmit={e => void runSearch(e)} className="flex flex-col sm:flex-row gap-2">
+        <input
+          value={search} onChange={e => { setSearch(e.target.value); setSearched(false) }}
+          placeholder="Search by name…" aria-label="Search your workspace to add a teammate"
+          className="input flex-1 sm:max-w-xs"
+        />
+        <button type="submit" disabled={searching || !search.trim()}
+          className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 rounded-md px-4 py-2">
+          {searching ? 'Searching…' : 'Search'}
+        </button>
+      </form>
+      {searched && candidates.length === 0 && (
+        <p className="text-xs text-gray-400">No one in your workspace matched that name.</p>
+      )}
       {candidates.length > 0 && (
         <div className="space-y-1 max-w-xs">
           {candidates.map(c => (
