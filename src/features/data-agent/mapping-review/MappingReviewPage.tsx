@@ -20,6 +20,9 @@ export function MappingReviewPage() {
   const [pageError, setPageError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [defaultCountryCode, setDefaultCountryCode] = useState('')
+  const [promptText, setPromptText] = useState<Record<string, string>>({})
+  const [promptReply, setPromptReply] = useState<Record<string, string>>({})
+  const [promptBusy, setPromptBusy] = useState<string | null>(null)
 
   const loadMappings = useCallback(async () => {
     if (!migrationId) return
@@ -59,6 +62,23 @@ export function MappingReviewPage() {
         })()
     const { error } = await supabase.from('data_agent_column_mappings').update(update).eq('id', mapping.id)
     if (error) { setPageError(`Could not update "${mapping.source_column_name}": ${error.message}`); return }
+    await loadMappings()
+  }
+
+  async function askPrompt(mapping: DataAgentColumnMapping) {
+    if (!migrationId || !promptText[mapping.id]?.trim()) return
+    setPromptBusy(mapping.id)
+    const { data, error } = await supabase.functions.invoke('data-agent-prompt', {
+      body: { migrationId, columnMappingId: mapping.id, promptText: promptText[mapping.id].trim() },
+    })
+    setPromptBusy(null)
+    // data-agent-prompt returns HTTP 200 for every business outcome (see
+    // its own comment) so a real failure shows up as `data.error`, not a
+    // thrown `error` — `error` only fires for a genuine network/relay
+    // failure, which carries no useful message of its own either.
+    if (error) { setPromptReply(prev => ({ ...prev, [mapping.id]: 'Error: could not reach the prompt service.' })); return }
+    const result = data as { responseText?: string; error?: string }
+    setPromptReply(prev => ({ ...prev, [mapping.id]: result.responseText ?? `Error: ${result.error ?? 'unknown failure'}` }))
     await loadMappings()
   }
 
@@ -115,6 +135,22 @@ export function MappingReviewPage() {
               {targetFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
               <option value="ignore">Ignore this column</option>
             </select>
+            <div className="flex-1 min-w-[180px]">
+              <div className="flex gap-1">
+                <input
+                  aria-label={`Ask about "${m.source_column_name}"`}
+                  value={promptText[m.id] ?? ''}
+                  onChange={e => setPromptText(prev => ({ ...prev, [m.id]: e.target.value }))}
+                  placeholder="Ask or instruct…"
+                  className="input text-xs flex-1"
+                />
+                <button onClick={() => void askPrompt(m)} disabled={promptBusy === m.id}
+                  className="text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 disabled:opacity-50 rounded-md px-2">
+                  Ask
+                </button>
+              </div>
+              {promptReply[m.id] && <p className="text-xs text-gray-500 mt-1">{promptReply[m.id]}</p>}
+            </div>
           </div>
         ))}
       </div>

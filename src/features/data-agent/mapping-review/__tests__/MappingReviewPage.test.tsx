@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -120,5 +120,25 @@ describe('MappingReviewPage', () => {
     renderAt('mig-1')
     await userEvent.selectOptions(await screen.findByLabelText(/map "Mystery" to/i), 'ignore')
     expect(await screen.findByRole('alert')).toHaveTextContent(/row-level security violation/i)
+  })
+
+  it('submitting a prompt for a column calls data-agent-prompt and shows the response', async () => {
+    const invokeMock = vi.fn().mockResolvedValue({ data: { responseText: 'Mapped to Notes.' }, error: null })
+    // `functions` is typed readonly on the real SupabaseClient; this mock
+    // module is a plain object at runtime, so cast through `unknown` to
+    // assign the test double without weakening the real client's type.
+    ;(vi.mocked(await import('@/lib/supabase')).supabase as unknown as { functions: unknown }).functions = { invoke: invokeMock }
+    renderAt('mig-1')
+    await screen.findByText('Mystery')
+    const promptInput = screen.getByLabelText(/ask about "Mystery"/i)
+    await userEvent.type(promptInput, 'map this to notes')
+    // Both rows render an "Ask" button, so scope the query to Mystery's
+    // own row (the input's sibling container) rather than the ambiguous
+    // page-wide getByRole, which would match Email's "Ask" button too.
+    await userEvent.click(within(promptInput.parentElement as HTMLElement).getByRole('button', { name: /ask$/i }))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('data-agent-prompt', {
+      body: { migrationId: 'mig-1', columnMappingId: 'cm-2', promptText: 'map this to notes' },
+    }))
+    expect(await screen.findByText('Mapped to Notes.')).toBeInTheDocument()
   })
 })
