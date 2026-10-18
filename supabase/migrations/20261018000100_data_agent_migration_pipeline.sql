@@ -133,6 +133,42 @@ insert into public.data_agent_source_profiles (source_system, pattern, target_fi
   -- portals (spec §6.2) — deliberately no hubspot DND-call row here; such a
   -- column is routed to the Claude tier rather than guessed.
 
+-- ── Fix: is_data_agent_member() must never return null ──────────────────────
+-- Found during this task's own review: auth_user_role()/auth_user_sub_account()/
+-- auth_user_app_id() all resolve to NULL for a suspended or deleted-but-
+-- still-logged-in caller (migration 027), which made Task 1's original
+-- definition of this function (unchanged otherwise) evaluate to NULL
+-- instead of false in that case. Harmless in every RLS USING/WITH CHECK
+-- usage (NULL excludes a row exactly like false does) — but
+-- confirm_data_agent_migration just below calls this imperatively via
+-- `if not ... then raise exception`, and PL/pgSQL's `if null then` never
+-- executes the branch, so a NULL return silently skipped the
+-- authorization check entirely. Redefining here (never edit Task 1's
+-- already-applied migration) with a top-level coalesce fixes every
+-- caller, RLS or imperative, present or future.
+create or replace function public.is_data_agent_member(p_sub_account text)
+  returns boolean
+  language sql security definer stable
+  set search_path = public
+as $$
+  select coalesce(
+    exists (select 1 from public.data_agent_entitlements e where e.sub_account = p_sub_account and e.enabled)
+    and (
+      public.auth_user_role() = 'Super-Admin'
+      or (
+        public.auth_user_sub_account() = p_sub_account
+        and (
+          public.auth_user_role() = 'Admin'
+          or exists (select 1 from public.data_agent_members m where m.sub_account = p_sub_account and m.user_id = public.auth_user_app_id())
+        )
+      )
+    ),
+    false
+  )
+$$;
+revoke execute on function public.is_data_agent_member(text) from public, anon;
+grant execute on function public.is_data_agent_member(text) to authenticated;
+
 -- ── Gate enforcement: the one place a migration can leave `mapping` ──────────
 -- Re-validates server-side, never trusting a client-only check, that every
 -- column is green (confirmed rule/profile/user match) or explicitly
@@ -153,7 +189,12 @@ begin
   if v_sub_account is null then
     raise exception 'Migration not found';
   end if;
-  if not public.is_data_agent_member(v_sub_account) then
+  -- is_data_agent_member() always returns true/false, never null (see its
+  -- own definition) — the explicit "is not true" here is defense in
+  -- depth, not a workaround: this is the single authorization gate before
+  -- a real CRM write, and must stay correct even if a future edit to that
+  -- function's body ever reintroduced a NULL path.
+  if coalesce(public.is_data_agent_member(v_sub_account), false) is not true then
     raise exception 'Not authorized for this migration';
   end if;
 
