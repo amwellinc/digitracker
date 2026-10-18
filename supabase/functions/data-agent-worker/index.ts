@@ -35,16 +35,26 @@ Deno.serve(async (req) => {
     await processMigratingMigration(serviceClient, migration)
   }
 
-  const { data: verifying, error: verifyingErr } = await serviceClient.from('data_agent_migrations').select('*').eq('status', 'verifying').limit(5)
-  if (verifyingErr) {
-    console.error('Data Agent worker: failed to load verifying migrations:', verifyingErr)
-    return json({ error: 'Failed to load migrations' }, 500)
-  }
-  for (const migration of (verifying ?? []) as MigratingRow[]) {
-    await processVerifyingMigration(serviceClient, migration)
+  const staleThreshold = new Date(Date.now() - STALE_CLAIM_MS).toISOString()
+  const { data: verifyingCandidates, error: verifyingCandErr } = await serviceClient.from('data_agent_migrations')
+    .select('id').eq('status', 'verifying').or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`).limit(5)
+  if (verifyingCandErr) console.error('Data Agent worker: failed to list verifying migrations:', verifyingCandErr)
+  const verifyingCandidateIds = (verifyingCandidates ?? []).map(m => (m as { id: string }).id)
+  let verifyingProcessedCount = 0
+  if (verifyingCandidateIds.length > 0) {
+    const { data: verifying, error: verifyingClaimErr } = await serviceClient.from('data_agent_migrations')
+      .update({ claimed_at: new Date().toISOString() })
+      .in('id', verifyingCandidateIds).eq('status', 'verifying')
+      .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`)
+      .select('*')
+    if (verifyingClaimErr) console.error('Data Agent worker: failed to claim verifying migrations:', verifyingClaimErr)
+    for (const migration of (verifying ?? []) as MigratingRow[]) {
+      await processVerifyingMigration(serviceClient, migration)
+    }
+    verifyingProcessedCount = (verifying ?? []).length
   }
 
-  return json({ ok: true, processed: (migrating ?? []).length + (verifying ?? []).length })
+  return json({ ok: true, processed: (migrating ?? []).length + verifyingProcessedCount })
 })
 
 interface MigratingRow { id: string; sub_account: string; target_object_type: string; match_key_column: string | null; default_country_code: string | null }
@@ -191,43 +201,73 @@ async function processMigratingMigration(serviceClient: SupabaseClient, migratio
 }
 
 async function processVerifyingMigration(serviceClient: SupabaseClient, migration: MigratingRow) {
-  const { data: mappingRows } = await serviceClient.from('data_agent_column_mappings')
+  const { data: mappingRows, error: mappingErr } = await serviceClient.from('data_agent_column_mappings')
     .select('source_column_name, target_type, target_field_key, metadata').eq('migration_id', migration.id)
+  if (mappingErr) { console.error(`Data Agent worker: failed to load column mappings for verifying migration ${migration.id}:`, mappingErr); return }
   const mappings = (mappingRows ?? []) as ConfirmedMapping[]
 
-  const { data: writtenRows } = await serviceClient.from('data_agent_migration_records')
-    .select('id, source_row_data, ghl_record_id').eq('migration_id', migration.id).in('write_status', ['created', 'replaced'])
-  const written = (writtenRows ?? []) as { id: string; source_row_data: Record<string, string>; ghl_record_id: string }[]
+  const { count: totalWritten, error: countErr } = await serviceClient.from('data_agent_migration_records')
+    .select('id', { count: 'exact', head: true }).eq('migration_id', migration.id).in('write_status', ['created', 'replaced'])
+  if (countErr) { console.error(`Data Agent worker: failed to count written records for migration ${migration.id}:`, countErr); return }
 
-  const sampleSize = computeSampleSize(written.length)
-  const sample = selectRandomSample(written, sampleSize)
+  const sampleSize = computeSampleSize(totalWritten ?? 0)
+  // Sample by picking random OFFSETS into the true total (not by fetching
+  // the whole population) — a plain, unbounded .select() here would be
+  // silently capped at PostgREST's default page size for any migration
+  // with more written rows than that cap, biasing the sample toward an
+  // arbitrary (and, without an explicit order, undefined) subset instead
+  // of being genuinely representative.
+  const offsets = sampleSize > 0 ? selectRandomSample(Array.from({ length: totalWritten ?? 0 }, (_, i) => i), sampleSize) : []
+  const sample: { id: string; source_row_data: Record<string, string>; ghl_record_id: string }[] = []
+  for (const offset of offsets) {
+    const { data: rows, error: rowErr } = await serviceClient.from('data_agent_migration_records')
+      .select('id, source_row_data, ghl_record_id').eq('migration_id', migration.id).in('write_status', ['created', 'replaced'])
+      .order('row_number').range(offset, offset)
+    if (rowErr) { console.error(`Data Agent worker: failed to fetch sample offset ${offset} for migration ${migration.id}:`, rowErr); continue }
+    if (rows?.[0]) sample.push(rows[0] as { id: string; source_row_data: Record<string, string>; ghl_record_id: string })
+  }
+
+  let accuracyRating: number | null = null
+  let verificationNote: string | null = null
 
   if (sample.length > 0) {
     const config = await loadGhlConfig(serviceClient, migration.sub_account)
-    const matchPcts: number[] = []
-    for (const record of sample) {
-      if (!config) continue
-      try {
-        const fetched = migration.target_object_type === 'contact'
-          ? (await getContact(config, record.ghl_record_id)).contact
-          : (await getObjectRecord(config, migration.target_object_type, record.ghl_record_id)).properties
-        const flattened = flattenGhlRecordFields(fetched as Record<string, unknown>)
-        const comparisons = compareFields(record.source_row_data, mappings, flattened)
-        const matchPct = comparisons.length === 0 ? 100 : (comparisons.filter(c => c.match).length / comparisons.length) * 100
-        matchPcts.push(matchPct)
-        await serviceClient.from('data_agent_qa_samples').insert({
-          migration_record_id: record.id, fetched_ghl_data: fetched, field_comparisons: comparisons, match_pct: matchPct,
-        })
-      } catch {
-        // A sample that fails to re-fetch is skipped from the average rather
-        // than crashing the whole verification pass — it is informational,
-        // never a reason to block `completed` (spec §8).
+    if (!config) {
+      // The migration itself already succeeded (it only reaches this
+      // phase after a clean migrating phase) — only the QA step couldn't
+      // run, so this stays `completed`, not `failed`, but must be
+      // distinguishable from "nothing to verify" (both would otherwise
+      // collapse into the same accuracy_rating: null with zero signal).
+      verificationNote = 'Verification skipped: no usable GHL connection'
+      console.error(`Data Agent worker: ${verificationNote} (migration ${migration.id})`)
+    } else {
+      const matchPcts: number[] = []
+      for (const record of sample) {
+        try {
+          const fetched = migration.target_object_type === 'contact'
+            ? (await getContact(config, record.ghl_record_id)).contact
+            : (await getObjectRecord(config, migration.target_object_type, record.ghl_record_id)).properties
+          const flattened = flattenGhlRecordFields(fetched as Record<string, unknown>)
+          const comparisons = compareFields(record.source_row_data, mappings, flattened)
+          const matchPct = comparisons.length === 0 ? 100 : (comparisons.filter(c => c.match).length / comparisons.length) * 100
+          matchPcts.push(matchPct)
+          const { error: insertErr } = await serviceClient.from('data_agent_qa_samples').insert({
+            migration_record_id: record.id, fetched_ghl_data: fetched, field_comparisons: comparisons, match_pct: matchPct,
+          })
+          if (insertErr) console.error(`Data Agent worker: failed to insert QA sample for record ${record.id}:`, insertErr)
+        } catch {
+          // A sample that fails to re-fetch is skipped from the average rather
+          // than crashing the whole verification pass — it is informational,
+          // never a reason to block `completed` (spec §8).
+        }
       }
+      accuracyRating = matchPcts.length > 0 ? matchPcts.reduce((a, b) => a + b, 0) / matchPcts.length : null
     }
-    const accuracyRating = matchPcts.length > 0 ? matchPcts.reduce((a, b) => a + b, 0) / matchPcts.length : null
-    await serviceClient.from('data_agent_migrations').update({ status: 'completed', completed_at: new Date().toISOString(), accuracy_rating: accuracyRating }).eq('id', migration.id)
-    return
   }
 
-  await serviceClient.from('data_agent_migrations').update({ status: 'completed', completed_at: new Date().toISOString(), accuracy_rating: null }).eq('id', migration.id)
+  const { error } = await serviceClient.from('data_agent_migrations').update({
+    status: 'completed', completed_at: new Date().toISOString(),
+    accuracy_rating: accuracyRating, error_message: verificationNote, claimed_at: null,
+  }).eq('id', migration.id)
+  if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} completed:`, error)
 }
