@@ -126,8 +126,17 @@ declare
   v_secret_name text := 'data_agent_pit_' || p_sub_account;
   v_existing_id uuid;
 begin
-  if public.auth_user_role() is distinct from 'Super-Admin'
-     and not (public.auth_user_role() = 'Admin' and public.auth_user_sub_account() = p_sub_account) then
+  -- coalesce(..., false) is required here, not optional style: a caller
+  -- whose role/sub_account resolve to NULL (unrecognized or suspended —
+  -- auth_user_role()/auth_user_sub_account() are NULL for both, per
+  -- migration 027) would otherwise make this whole condition evaluate to
+  -- NULL, and `if NULL then` never raises in PL/pgSQL — silently falling
+  -- through to write a Vault secret for an arbitrary entitled sub-account.
+  if not coalesce(
+    public.auth_user_role() = 'Super-Admin'
+    or (public.auth_user_role() = 'Admin' and public.auth_user_sub_account() = p_sub_account),
+    false
+  ) then
     raise exception 'Not authorized to connect this sub-account';
   end if;
   if not exists (select 1 from public.data_agent_entitlements where sub_account = p_sub_account and enabled) then
