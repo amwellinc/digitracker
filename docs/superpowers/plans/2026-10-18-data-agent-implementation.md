@@ -4956,7 +4956,7 @@ git commit -m "feat: add the Data Agent verifying phase (QA sampling and accurac
 ### Task 17: Worker's `undoing` phase — rollback, and the Undo control
 
 **Files:**
-- Create: `supabase/migrations/20261018000300_data_agent_undo_tracking.sql`
+- Create: `supabase/migrations/20261018000500_data_agent_undo_tracking.sql`
 - Modify: `supabase/functions/data-agent-worker/index.ts`
 - Modify: `src/features/data-agent/mapping-review/MappingReviewPage.tsx`
 - Modify: `src/features/data-agent/mapping-review/__tests__/MappingReviewPage.test.tsx`
@@ -4970,8 +4970,11 @@ git commit -m "feat: add the Data Agent verifying phase (QA sampling and accurac
 - [ ] **Step 1: Write the migration**
 
 ```sql
--- Migration 20261018000300: Data Agent — per-record undo tracking and the
--- undo-request gate (spec §9).
+-- Migration 20261018000500: Data Agent — per-record undo tracking and the
+-- undo-request gate (spec §9). Numbered 000500, not 000300 — Task 15's
+-- and Task 16's own fix rounds already claimed 000300/000400 for their
+-- own new migrations after this task's brief was first written; this is
+-- a filename-collision fix, not a design change.
 
 alter table public.data_agent_migration_records
   add column undo_status text check (undo_status in ('pending', 'done', 'failed'));
@@ -5022,7 +5025,7 @@ select proname from pg_proc where proname = 'request_data_agent_undo';
 - [ ] **Step 3: Commit the migration**
 
 ```bash
-git add supabase/migrations/20261018000300_data_agent_undo_tracking.sql
+git add supabase/migrations/20261018000500_data_agent_undo_tracking.sql
 git commit -m "feat: add Data Agent undo tracking and the undo-request gate"
 ```
 
@@ -5031,7 +5034,8 @@ git commit -m "feat: add Data Agent undo tracking and the undo-request gate"
 In `supabase/functions/data-agent-worker/index.ts`, add the dispatch call:
 
 ```ts
-  const { data: undoing } = await serviceClient.from('data_agent_migrations').select('*').eq('status', 'undoing').limit(5)
+  const { data: undoing, error: undoingErr } = await serviceClient.from('data_agent_migrations').select('*').eq('status', 'undoing').limit(5)
+  if (undoingErr) console.error('Data Agent worker: failed to load undoing migrations:', undoingErr)
   for (const migration of (undoing ?? []) as MigratingRow[]) {
     await processUndoingMigration(serviceClient, migration)
   }
@@ -5045,18 +5049,24 @@ async function processUndoingMigration(serviceClient: SupabaseClient, migration:
   // has since changed, undo uses whatever is current now (Review Focus #5).
   const config = await loadGhlConfig(serviceClient, migration.sub_account)
   if (!config) {
-    await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: 'No usable GHL connection for undo' }).eq('id', migration.id)
+    const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: 'No usable GHL connection for undo' }).eq('id', migration.id)
+    if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} failed (no connection for undo):`, error)
     return
   }
 
-  const { data: pendingRows } = await serviceClient.from('data_agent_migration_records')
-    .select('id, write_status, ghl_record_id, pre_replace_snapshot').eq('migration_id', migration.id).eq('undo_status', 'pending').limit(BATCH_SIZE)
+  const { data: pendingRows, error: pendingErr } = await serviceClient.from('data_agent_migration_records')
+    .select('id, write_status, ghl_record_id, pre_replace_snapshot').eq('migration_id', migration.id).eq('undo_status', 'pending').order('row_number').limit(BATCH_SIZE)
+  if (pendingErr) { console.error(`Data Agent worker: failed to load pending undo records for migration ${migration.id}:`, pendingErr); return }
   const pending = (pendingRows ?? []) as { id: string; write_status: string; ghl_record_id: string; pre_replace_snapshot: Record<string, unknown> | null }[]
 
   if (pending.length === 0) {
-    const { count } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
+    const { count, error: countErr } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
       .eq('migration_id', migration.id).eq('undo_status', 'pending')
-    if ((count ?? 0) === 0) await serviceClient.from('data_agent_migrations').update({ status: 'undone' }).eq('id', migration.id)
+    if (countErr) { console.error(`Data Agent worker: failed to check remaining undo count for migration ${migration.id}:`, countErr); return }
+    if ((count ?? 0) === 0) {
+      const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'undone' }).eq('id', migration.id)
+      if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} undone:`, error)
+    }
     return
   }
 
@@ -5066,14 +5076,23 @@ async function processUndoingMigration(serviceClient: SupabaseClient, migration:
       if (record.write_status === 'created') {
         if (isContact) await deleteContact(config, record.ghl_record_id)
         else await deleteObjectRecord(config, migration.target_object_type, record.ghl_record_id)
-      } else if (record.write_status === 'replaced' && record.pre_replace_snapshot) {
+      } else if (record.write_status === 'replaced') {
+        // A 'replaced' row with no captured snapshot can't actually be
+        // reversed — this should never happen (writeRecordBatch always
+        // captures one for a replace), but failing loudly here is the
+        // safe default: silently marking undo_status: 'done' with
+        // nothing actually reverted would be a false "this was undone"
+        // signal on a destructive, irreversible operation.
+        if (!record.pre_replace_snapshot) throw new Error('Cannot undo: no pre-replace snapshot was captured for this record')
         if (isContact) await upsertContact(config, { locationId: config.locationId, ...record.pre_replace_snapshot } as never)
         else await updateObjectRecord(config, migration.target_object_type, record.ghl_record_id, record.pre_replace_snapshot)
       }
-      await serviceClient.from('data_agent_migration_records').update({ undo_status: 'done' }).eq('id', record.id)
+      const { error } = await serviceClient.from('data_agent_migration_records').update({ undo_status: 'done' }).eq('id', record.id)
+      if (error) console.error(`Data Agent worker: failed to mark record ${record.id} undo done:`, error)
     } catch (err) {
       if (err instanceof GhlRateLimitError) continue // left pending, retried next tick
-      await serviceClient.from('data_agent_migration_records').update({ undo_status: 'failed', error_message: err instanceof Error ? err.message : String(err) }).eq('id', record.id)
+      const { error } = await serviceClient.from('data_agent_migration_records').update({ undo_status: 'failed', error_message: err instanceof Error ? err.message : String(err) }).eq('id', record.id)
+      if (error) console.error(`Data Agent worker: failed to mark record ${record.id} undo failed:`, error)
     }
   }
 }
@@ -5135,7 +5154,7 @@ And in the JSX, after the Confirm & Migrate button:
 - [ ] **Step 6: Run tests, typecheck, and commit**
 
 Run: `corepack pnpm vitest run src/features/data-agent/mapping-review/__tests__/MappingReviewPage.test.tsx`
-Expected: PASS (7 tests).
+Expected: PASS (10 tests).
 
 Run: `corepack pnpm tsc --noEmit`
 Expected: no errors.
