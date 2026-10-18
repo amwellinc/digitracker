@@ -23,17 +23,19 @@ export function useDataAgentAccess(): { hasAccess: boolean; entitled: boolean } 
 
     if (user.role === 'Admin' || user.role === 'Super-Admin') {
       setIsMember(true)
-      return
+    } else {
+      // RLS already scopes this to the caller's own sub_account; this hook
+      // only gates nav/route visibility, never real data access, so a
+      // single user_id filter is sufficient here.
+      void supabase
+        .from('data_agent_members')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!cancelled) setIsMember(Boolean((data as { user_id?: string } | null)?.user_id))
+        })
     }
-
-    void supabase
-      .from('data_agent_members')
-      .select('user_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled) setIsMember(Boolean((data as { user_id?: string } | null)?.user_id))
-      })
 
     return () => { cancelled = true }
   }, [user?.sub_account, user?.role, user?.id])
