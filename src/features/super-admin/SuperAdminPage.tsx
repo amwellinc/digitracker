@@ -3,8 +3,9 @@ import { PlatformDashboard } from './PlatformDashboard'
 import { PlatformSubscriptionsTab } from './PlatformSubscriptionsTab'
 import { PlansAndPricingTab } from './PlansAndPricingTab'
 import { PlatformSettingsTab } from './PlatformSettingsTab'
+import { DataAgentEntitlementsTab } from '@/features/data-agent/entitlements/DataAgentEntitlementsTab'
 
-type TabId = 'dashboard' | 'subscriptions' | 'plans' | 'settings'
+type TabId = 'dashboard' | 'subscriptions' | 'plans' | 'settings' | 'data-agent'
 
 export function SuperAdminPage() {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
@@ -14,6 +15,7 @@ export function SuperAdminPage() {
     { id: 'subscriptions', label: 'Subscriptions',       icon: '💳' },
     { id: 'plans',         label: 'Plans & Pricing',     icon: '⭐' },
     { id: 'settings',      label: 'Platform Settings',   icon: '⚙️' },
+    { id: 'data-agent',    label: 'Data Agent',          icon: '🧭' },
   ]
 
   return (
@@ -53,6 +55,7 @@ export function SuperAdminPage() {
       {activeTab === 'subscriptions' && <PlatformSubscriptionsTab />}
       {activeTab === 'plans'         && <PlansAndPricingTab />}
       {activeTab === 'settings'      && <PlatformSettingsTab />}
+      {activeTab === 'data-agent'    && <DataAgentEntitlementsTab />}
     </div>
   )
 }
