@@ -4762,7 +4762,7 @@ export function compareFields(sourceRow: Record<string, string>, mappings: Confi
 - [ ] **Step 3: Run the test**
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentQa.test.ts`
-Expected: PASS (13 tests).
+Expected: PASS (14 tests).
 
 - [ ] **Step 4: Add the `verifying`-phase handler to the worker**
 
