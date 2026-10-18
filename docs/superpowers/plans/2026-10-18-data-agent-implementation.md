@@ -5520,15 +5520,35 @@ git commit -m "feat: add the Data Agent dashboard"
 ### Task 19: Chat panel
 
 **Files:**
+- Create: `supabase/migrations/20261018000600_data_agent_realtime.sql`
 - Create: `src/features/data-agent/chat/DataAgentChat.tsx`
 - Create: `src/features/data-agent/chat/__tests__/DataAgentChat.test.tsx`
 - Modify: `src/features/data-agent/dashboard/DataAgentDashboard.tsx`
 
 **Interfaces:**
 - Consumes: table `data_agent_chat_messages` (Task 7); hook `useRealtime` (existing).
-- Produces: component `DataAgentChat({ subAccount: string })`.
+- Produces: component `DataAgentChat({ subAccount: string })`. `data_agent_column_mappings`/`data_agent_migrations`/`data_agent_chat_messages` added to the `supabase_realtime` publication.
 
 Spec §11: one thread per sub-account's whole Data Agent workspace, not per-migration — distinct from the per-column prompt feature (Task 13), which talks to the App about one mapping decision rather than to other people.
+
+- [ ] **Step 0: Enable Realtime for the tables this feature's `useRealtime()` subscriptions depend on**
+
+Found while building this task: Postgres Realtime (via Supabase) only broadcasts changes for tables explicitly added to the `supabase_realtime` publication — subscribing client-side with `useRealtime()` does nothing without this server-side opt-in, confirmed by this codebase's own established convention of an explicit `ALTER PUBLICATION supabase_realtime ADD TABLE ...` for every realtime-subscribed table elsewhere in `supabase/migrations/` (e.g. `056_projects_realtime_and_fk_fixes.sql`, `049_message_board.sql`). None of this feature's three `useRealtime()`-subscribed tables were ever added — `data_agent_column_mappings` and `data_agent_migrations` (both subscribed to by `MappingReviewPage.tsx` since Tasks 10 and 17) have been silently non-functional since each was written, and this task's own new `data_agent_chat_messages` subscription would join them. Fixed comprehensively rather than leaving the other two broken, since it's the same one-line-per-table fix:
+
+```sql
+-- Migration 20261018000600: Data Agent — enable Realtime for this
+-- feature's three useRealtime()-subscribed tables. Wrapped in DO/EXCEPTION
+-- (idempotent-safe re-run) matching this codebase's own more recent
+-- realtime-publication migrations, not the older bare-ALTER form.
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.data_agent_column_mappings; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.data_agent_migrations; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.data_agent_chat_messages; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+```
+
+```bash
+git add supabase/migrations/20261018000600_data_agent_realtime.sql
+git commit -m "fix: enable Realtime for the Data Agent tables useRealtime() already subscribes to"
+```
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5540,6 +5560,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const messagesData = [{ id: 'm1', user_id: 'u1', message: 'Started the contacts upload', created_at: '2026-10-01T00:00:00Z', users: { name: 'Jane' } }]
 const insertMock = vi.fn()
+let insertShouldFail = false
 
 vi.mock('@/hooks/useRealtime', () => ({ useRealtime: () => {} }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'u2', sub_account: 'AM333' } }) }))
@@ -5547,7 +5568,10 @@ vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: vi.fn(() => ({
       select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: messagesData }) }) }),
-      insert: (...args: unknown[]) => { insertMock(...args); return Promise.resolve({ error: null }) },
+      insert: (...args: unknown[]) => {
+        insertMock(...args)
+        return Promise.resolve({ error: insertShouldFail ? { message: 'insert failed' } : null })
+      },
     })),
   },
 }))
@@ -5555,7 +5579,7 @@ vi.mock('@/lib/supabase', () => ({
 import { DataAgentChat } from '../DataAgentChat'
 
 describe('DataAgentChat', () => {
-  beforeEach(() => insertMock.mockReset())
+  beforeEach(() => { insertMock.mockReset(); insertShouldFail = false })
 
   it('shows existing messages with the sender\'s name', async () => {
     render(<DataAgentChat subAccount="AM333" />)
@@ -5568,6 +5592,16 @@ describe('DataAgentChat', () => {
     await userEvent.type(await screen.findByLabelText(/message/i), 'Mapping looks good')
     await userEvent.click(screen.getByRole('button', { name: /send/i }))
     await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ sub_account: 'AM333', user_id: 'u2', message: 'Mapping looks good' }))
+  })
+
+  it('REVIEW FINDING: keeps the draft and shows an error when sending fails, instead of silently clearing it', async () => {
+    insertShouldFail = true
+    render(<DataAgentChat subAccount="AM333" />)
+    const input = await screen.findByLabelText(/message/i)
+    await userEvent.type(input, 'Mapping looks good')
+    await userEvent.click(screen.getByRole('button', { name: /send/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(input).toHaveValue('Mapping looks good')
   })
 })
 ```
@@ -5590,10 +5624,13 @@ export function DataAgentChat({ subAccount }: { subAccount: string }) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<MessageRow[]>([])
   const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('data_agent_chat_messages').select('id, user_id, message, created_at, users(name)')
+    const { data, error } = await supabase.from('data_agent_chat_messages').select('id, user_id, message, created_at, users(name)')
       .eq('sub_account', subAccount).order('created_at')
+    if (error) { setChatError('Could not load team chat.'); return }
     setMessages((data ?? []) as unknown as MessageRow[])
   }, [subAccount])
 
@@ -5602,13 +5639,24 @@ export function DataAgentChat({ subAccount }: { subAccount: string }) {
 
   async function send() {
     if (!draft.trim() || !user?.id) return
-    await supabase.from('data_agent_chat_messages').insert({ sub_account: subAccount, user_id: user.id, message: draft.trim() })
+    setSending(true); setChatError(null)
+    const { error } = await supabase.from('data_agent_chat_messages').insert({ sub_account: subAccount, user_id: user.id, message: draft.trim() })
+    setSending(false)
+    // Keep the draft on failure — clearing it regardless of outcome would
+    // silently drop the user's message with no way to retry it short of
+    // retyping. Re-load explicitly on success rather than waiting on the
+    // realtime round-trip, matching this feature's own established
+    // belt-and-suspenders pattern (e.g. the per-column prompt feature's
+    // askPrompt) — realtime still covers messages from other users.
+    if (error) { setChatError('Could not send message.'); return }
     setDraft('')
+    await load()
   }
 
   return (
     <div className="space-y-2">
       <h3 className="text-sm font-semibold text-gray-900">Team Chat</h3>
+      {chatError && <p role="alert" className="text-sm text-red-600">{chatError}</p>}
       <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-64 overflow-y-auto">
         {messages.map(m => (
           <div key={m.id} className="text-sm">
@@ -5618,9 +5666,9 @@ export function DataAgentChat({ subAccount }: { subAccount: string }) {
         ))}
       </div>
       <div className="flex gap-2">
-        <input aria-label="message" value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message your team…" className="input flex-1" />
-        <button onClick={() => void send()} className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-md px-4 py-2">
-          Send
+        <input aria-label="message" value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message your team…" className="input flex-1" disabled={sending} />
+        <button onClick={() => void send()} disabled={sending} className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 rounded-md px-4 py-2">
+          {sending ? 'Sending…' : 'Send'}
         </button>
       </div>
     </div>
@@ -5643,7 +5691,7 @@ import { DataAgentChat } from '../chat/DataAgentChat'
 - [ ] **Step 4: Run tests, typecheck, and commit**
 
 Run: `corepack pnpm vitest run src/features/data-agent/chat/__tests__/DataAgentChat.test.tsx`
-Expected: PASS (2 tests).
+Expected: PASS (3 tests).
 
 Run: `corepack pnpm tsc --noEmit`
 Expected: no errors.
