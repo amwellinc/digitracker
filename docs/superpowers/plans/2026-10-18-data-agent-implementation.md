@@ -5375,19 +5375,27 @@ interface MemberRow { user_id: string; users: { name: string } | null }
 export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
   const [migrations, setMigrations] = useState<MigrationRow[]>([])
   const [members, setMembers] = useState<MemberRow[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     void supabase.from('data_agent_migrations').select('id, status, row_count, accuracy_rating, created_at, original_filename')
       .eq('sub_account', subAccount).order('created_at', { ascending: false })
-      .then(({ data }) => setMigrations((data ?? []) as MigrationRow[]))
+      .then(({ data, error }) => {
+        if (error) { setLoadError('Could not load migration history.'); return }
+        setMigrations((data ?? []) as MigrationRow[])
+      })
     void supabase.from('data_agent_members').select('user_id, users(name)').eq('sub_account', subAccount)
-      .then(({ data }) => setMembers((data ?? []) as unknown as MemberRow[]))
+      .then(({ data, error }) => {
+        if (error) { setLoadError('Could not load team members.'); return }
+        setMembers((data ?? []) as unknown as MemberRow[])
+      })
   }, [subAccount])
 
   const stats = computeDashboardStats(migrations)
 
   return (
     <div className="space-y-5">
+      {loadError && <p role="alert" className="text-sm text-red-600">{loadError}</p>}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Migrations Completed" value={stats.completedCount} testId="completed-count" />
         <StatCard label="Records Processed" value={stats.recordsProcessed} testId="records-processed" />
