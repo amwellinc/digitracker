@@ -173,7 +173,16 @@ grant execute on function public.is_data_agent_member(text) to authenticated;
 -- Re-validates server-side, never trusting a client-only check, that every
 -- column is green (confirmed rule/profile/user match) or explicitly
 -- ignored before flipping status (spec §6.4's hard gate).
-create or replace function public.confirm_data_agent_migration(p_migration_id uuid)
+--
+-- p_default_country_code: there is deliberately no client UPDATE policy
+-- on data_agent_migrations (see this table's RLS comment below) — this
+-- SECURITY DEFINER function is the only write path into that table from
+-- the browser, so it accepts the value as a parameter here rather than
+-- requiring a separate prior write the client has no privilege to make
+-- (found during Task 10's review: a direct client-side
+-- `.update({ default_country_code })` call is a guaranteed silent RLS
+-- no-op — 0 rows matched, no exception).
+create or replace function public.confirm_data_agent_migration(p_migration_id uuid, p_default_country_code text default null)
   returns void
   language plpgsql security definer
   set search_path = public
@@ -196,6 +205,10 @@ begin
   -- function's body ever reintroduced a NULL path.
   if coalesce(public.is_data_agent_member(v_sub_account), false) is not true then
     raise exception 'Not authorized for this migration';
+  end if;
+
+  if p_default_country_code is not null and trim(p_default_country_code) <> '' then
+    v_default_country_code := trim(p_default_country_code);
   end if;
 
   -- Blocking is purely a function of status, never target_type: a column
@@ -225,16 +238,26 @@ begin
     raise exception 'Cannot confirm: a default country code is required for at least one phone column';
   end if;
 
+  -- Accepts either pre-migration status. 'awaiting_confirmation' is the
+  -- lucky case: every column was already green at upload time, per Task
+  -- 8's computeMigrationStatus. 'mapping' is the common case this page
+  -- (Task 10) exists for: a migration that needed manual review and
+  -- reaches this RPC only once every column is resolved HERE — nothing
+  -- else ever transitions it to 'awaiting_confirmation' first (found
+  -- during Task 10's review: requiring that status alone made this RPC
+  -- unreachable for exactly the workflow it's built to serve). The
+  -- blocking-count and country-code checks above are the real gate;
+  -- requiring one specific status string on top of them was redundant.
   update public.data_agent_migrations
-    set status = 'migrating', started_at = now()
-    where id = p_migration_id and status = 'awaiting_confirmation';
+    set status = 'migrating', started_at = now(), default_country_code = v_default_country_code
+    where id = p_migration_id and status in ('mapping', 'awaiting_confirmation');
   if not found then
     raise exception 'Migration is not awaiting confirmation';
   end if;
 end;
 $$;
-revoke execute on function public.confirm_data_agent_migration(uuid) from public, anon;
-grant execute on function public.confirm_data_agent_migration(uuid) to authenticated;
+revoke execute on function public.confirm_data_agent_migration(uuid, text) from public, anon;
+grant execute on function public.confirm_data_agent_migration(uuid, text) to authenticated;
 
 -- ── RLS ───────────────────────────────────────────────────────────────────
 alter table public.data_agent_migrations enable row level security;
