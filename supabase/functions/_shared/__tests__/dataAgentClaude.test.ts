@@ -43,4 +43,34 @@ describe('proposeMappingsWithClaude', () => {
     const result = await proposeMappingsWithClaude([{ columnName: 'X', sampleValues: [] }], [], null, 'key', fetchImpl)
     expect(result[0].target_field_key).toBeNull()
   })
+
+  it('throws a clear error when the response text is not valid JSON', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      content: [{ type: 'text', text: 'not json at all' }],
+    }), { status: 200 }))
+    await expect(proposeMappingsWithClaude([{ columnName: 'X', sampleValues: [] }], [], null, 'key', fetchImpl))
+      .rejects.toThrow(/not valid JSON/)
+  })
+
+  it('throws a clear error when the response has no text content block', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: [] }), { status: 200 }))
+    await expect(proposeMappingsWithClaude([{ columnName: 'X', sampleValues: [] }], [], null, 'key', fetchImpl))
+      .rejects.toThrow(/no text content/)
+  })
+
+  it('fills in a safe "no proposal" entry for any input column the model silently dropped, rather than returning a mismatched array', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      content: [{ type: 'text', text: JSON.stringify([
+        { source_column_name: 'Notes', target_field_key: 'custom_notes', confidence: 0.9, reasoning: 'ok', metadata: {} },
+      ]) }],
+    }), { status: 200 }))
+    const result = await proposeMappingsWithClaude(
+      [{ columnName: 'Notes', sampleValues: [] }, { columnName: 'Dropped', sampleValues: [] }],
+      [], null, 'key', fetchImpl,
+    )
+    expect(result).toHaveLength(2)
+    expect(result.find(r => r.source_column_name === 'Dropped')).toEqual({
+      source_column_name: 'Dropped', target_field_key: null, confidence: 0, reasoning: 'No proposal returned for this column', metadata: {},
+    })
+  })
 })

@@ -59,6 +59,31 @@ export async function proposeMappingsWithClaude(
   if (!res.ok) throw new Error(`Claude mapping request failed: ${res.status} ${await res.text()}`)
 
   const body = await res.json() as { content: { type: string; text: string }[] }
-  const text = body.content.find(c => c.type === 'text')?.text ?? '[]'
-  return JSON.parse(text) as ClaudeProposal[]
+  const textBlock = body.content?.find(c => c.type === 'text')?.text
+  if (!textBlock) throw new Error('Claude mapping response had no text content block')
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(textBlock)
+  } catch (err) {
+    // A clear, specific error — LLM output isn't guaranteed to strictly
+    // follow "respond with ONLY a JSON array" despite the prompt asking
+    // for it, and a bare SyntaxError here would give Task 12 (and anyone
+    // debugging a production failure) nothing actionable.
+    throw new Error(`Claude mapping response was not valid JSON: ${err instanceof Error ? err.message : String(err)} — raw text: ${textBlock.slice(0, 500)}`)
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Claude mapping response was not a JSON array — raw text: ${textBlock.slice(0, 500)}`)
+  }
+  const proposals = parsed as ClaudeProposal[]
+
+  // Guarantee exactly one proposal per input column, regardless of model
+  // output quality — accuracy matters more than trusting the model to
+  // follow instructions exactly. A column Claude silently dropped,
+  // renamed, or duplicated gets a safe "no proposal" entry here rather
+  // than a mismatched array silently reaching the caller (Task 12).
+  return columns.map(col => {
+    const match = proposals.find(p => p.source_column_name === col.columnName)
+    return match ?? { source_column_name: col.columnName, target_field_key: null, confidence: 0, reasoning: 'No proposal returned for this column', metadata: {} }
+  })
 }
