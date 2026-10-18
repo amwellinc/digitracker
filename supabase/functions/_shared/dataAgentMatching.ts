@@ -86,11 +86,17 @@ const EMAIL_BASE_KEYWORDS = ['email', 'mail']
 // are equally plausible as address fields and require a base keyword too.
 const UNAMBIGUOUS_PHONE_MODIFIERS = ['mobile', 'cell']
 
+// 'fax' checked first: it's a wholly unambiguous substring (no other
+// subtype's keywords contain "fax" and "fax" contains none of theirs), so
+// checking it first costs nothing and resolves a real collision —
+// "Office Fax" normalizes to "officefax", which contains both "office"
+// (a 'work' keyword) and "fax"; checking 'work' first would wrongly
+// classify it as a work-phone column before 'fax' is ever considered.
 const SUBTYPE_KEYWORDS: Array<[PhoneEmailSubtype, string[]]> = [
+  ['fax', ['fax']],
   ['mobile', ['mobile', 'cell']],
   ['work', ['work', 'office', 'business']],
   ['home', ['home']],
-  ['fax', ['fax']],
 ]
 
 export interface PhoneEmailSubtypeResult { base: 'phone' | 'email'; subtype: PhoneEmailSubtype }

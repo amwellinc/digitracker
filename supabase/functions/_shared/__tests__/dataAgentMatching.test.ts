@@ -165,6 +165,19 @@ describe('classifyColumn', () => {
     expect(result.target_field_key).toBe('custom_mobile_phone')
   })
 
+  it('green-maps a non-exact fax-subtype column name (not the literal "Fax") to the existing fax custom field', () => {
+    // "Office Fax" doesn't exact-match the schema's "Fax" label (step 2), so
+    // this only passes through resolveSubtypeTargetField's fax-specific
+    // base-word exemption (step 3) — a regression here would silently
+    // reintroduce the under-mapping bug that exemption fixes. It also pins
+    // the SUBTYPE_KEYWORDS ordering fix: "officefax" contains both "office"
+    // (a 'work' trigger) and "fax" — if 'fax' weren't checked first, this
+    // would wrongly resolve to a work-phone field instead.
+    const result = classifyColumn({ ...base, columnName: 'Office Fax' })
+    expect(result.status).toBe('mapped')
+    expect(result.target_field_key).toBe('custom_fax')
+  })
+
   it('routes an ambiguous "Do Not Contact" column to unmapped rather than guessing a channel', () => {
     const result = classifyColumn({ ...base, columnName: 'Do Not Contact' })
     expect(result.status).toBe('unmapped')
