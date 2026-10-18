@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { ClockProvider, useClockContext } from '@/features/time-tracking/ClockContext'
 import { useReportsAccess } from '@/hooks/useReportsAccess'
+import { useDataAgentAccess } from '@/hooks/useDataAgentAccess'
 import { useSubAccountBranding } from '@/hooks/useSubAccountBranding'
 import { useProjectMemberships } from '@/hooks/useProjectMemberships'
 
@@ -69,9 +70,13 @@ function LayoutInner() {
     icon: '🗂',
     children: [] as { to: string; label: string; icon: string }[],
   }))
+  const { hasAccess: hasDataAgentAccess } = useDataAgentAccess()
+  const DATA_AGENT_NAV_ITEM = hasDataAgentAccess
+    ? [{ to: '/data-agent', end: false, label: 'Data Agent', icon: '🧭', children: [] as { to: string; label: string; icon: string }[] }]
+    : []
   const NAV = isSuperAdminView
     ? SUPER_ADMIN_NAV
-    : [...(canViewReports ? [...STAFF_NAV, REPORTS_NAV_ITEM] : STAFF_NAV), ...PROJECT_NAV_ITEMS]
+    : [...(canViewReports ? [...STAFF_NAV, REPORTS_NAV_ITEM] : STAFF_NAV), ...PROJECT_NAV_ITEMS, ...DATA_AGENT_NAV_ITEM]
 
   // Close sidebar on route change (mobile nav)
   useEffect(() => {

@@ -16,6 +16,7 @@ import { TermsOfServicePage } from '@/features/legal/TermsOfServicePage'
 import { ProjectGuard } from '@/features/projects/ProjectGuard'
 import { useAuth } from '@/hooks/useAuth'
 import { useReportsAccess } from '@/hooks/useReportsAccess'
+import { useDataAgentAccess } from '@/hooks/useDataAgentAccess'
 
 const TimeTrackingPage = lazy(() =>
   import('@/features/time-tracking/TimeTrackingPage').then(m => ({ default: m.TimeTrackingPage }))
@@ -59,6 +60,9 @@ const StripePaymentsTab = lazy(() =>
 const ReportsPage = lazy(() =>
   import('@/features/reports/ReportsPage').then(m => ({ default: m.ReportsPage }))
 )
+const DataAgentPage = lazy(() =>
+  import('@/features/data-agent/DataAgentPage').then(m => ({ default: m.DataAgentPage }))
+)
 
 function Spinner() {
   return (
@@ -89,6 +93,19 @@ function ReportsRoute() {
   return (
     <Suspense fallback={<Spinner />}>
       <ReportsPage />
+    </Suspense>
+  )
+}
+
+// Data Agent is nav-gated (entitled sub-account + Admin/Super-Admin/member) —
+// this guard blocks direct navigation to the URL for anyone the nav link
+// isn't shown to.
+function DataAgentRoute() {
+  const { hasAccess } = useDataAgentAccess()
+  if (!hasAccess) return <Navigate to="/" replace />
+  return (
+    <Suspense fallback={<Spinner />}>
+      <DataAgentPage />
     </Suspense>
   )
 }
@@ -181,6 +198,7 @@ export function AppRouter() {
             }
           />
           <Route path="reports" element={<ReportsRoute />} />
+          <Route path="data-agent" element={<DataAgentRoute />} />
           <Route
             path="settings"
             element={
