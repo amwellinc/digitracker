@@ -11,11 +11,14 @@ import { BankDetailsTab } from './BankDetailsTab'
 import { PayrollTab } from './PayrollTab'
 import { ArchiveTab } from './ArchiveTab'
 import { GHLIntegrationTab } from '@/features/ghl/GHLIntegrationTab'
+import { DataAgentSettingsTab } from '@/features/data-agent/settings/DataAgentSettingsTab'
+import { useDataAgentAccess } from '@/hooks/useDataAgentAccess'
 
-type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'departments' | 'subscription' | 'ghl' | 'archive'
+type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'departments' | 'subscription' | 'ghl' | 'archive' | 'data-agent'
 
 export function SettingsPage() {
   const { user } = useAuth()
+  const { entitled } = useDataAgentAccess()
   const [activeTab, setActiveTab] = useState<TabId>('profile')
 
   const isAdmin = user?.role === 'Admin'
@@ -36,6 +39,10 @@ export function SettingsPage() {
     { id: 'ghl',          label: '🔗 DIGI5Y-CRM Integration' },
     { id: 'archive',      label: '🗄 Archive' },
   ]
+
+  if (isAdmin && entitled) {
+    businessTabs.push({ id: 'data-agent', label: '🧭 Data Agent' })
+  }
 
   return (
     <div>
@@ -101,6 +108,7 @@ export function SettingsPage() {
       {activeTab === 'subscription' && isAdmin && <SubscriptionTab />}
       {activeTab === 'ghl'          && isAdmin && <GHLIntegrationTab />}
       {activeTab === 'archive'      && isAdmin && <ArchiveTab />}
+      {activeTab === 'data-agent'   && isAdmin && entitled && <DataAgentSettingsTab />}
     </div>
   )
 }
