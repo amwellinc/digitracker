@@ -63,6 +63,9 @@ const ReportsPage = lazy(() =>
 const DataAgentPage = lazy(() =>
   import('@/features/data-agent/DataAgentPage').then(m => ({ default: m.DataAgentPage }))
 )
+const MappingReviewPage = lazy(() =>
+  import('@/features/data-agent/mapping-review/MappingReviewPage').then(m => ({ default: m.MappingReviewPage }))
+)
 
 function Spinner() {
   return (
@@ -100,14 +103,10 @@ function ReportsRoute() {
 // Data Agent is nav-gated (entitled sub-account + Admin/Super-Admin/member) —
 // this guard blocks direct navigation to the URL for anyone the nav link
 // isn't shown to.
-function DataAgentRoute() {
+function DataAgentRoute({ children }: { children?: React.ReactNode }) {
   const { hasAccess } = useDataAgentAccess()
   if (!hasAccess) return <Navigate to="/" replace />
-  return (
-    <Suspense fallback={<Spinner />}>
-      <DataAgentPage />
-    </Suspense>
-  )
+  return <Suspense fallback={<Spinner />}>{children ?? <DataAgentPage />}</Suspense>
 }
 
 export function AppRouter() {
@@ -199,6 +198,7 @@ export function AppRouter() {
           />
           <Route path="reports" element={<ReportsRoute />} />
           <Route path="data-agent" element={<DataAgentRoute />} />
+          <Route path="data-agent/migrations/:migrationId" element={<DataAgentRoute><MappingReviewPage /></DataAgentRoute>} />
           <Route
             path="settings"
             element={
