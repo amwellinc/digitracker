@@ -5413,8 +5413,13 @@ export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
 
       <div>
         <h3 className="text-sm font-semibold text-gray-900 mb-2">Migration History</h3>
+        {/* Excludes stats.latest — it's already shown in the "Most recent"
+            callout above; without this filter the latest migration's
+            filename renders twice on the page (a real bug: the brief's own
+            component test asserts a single screen.findByText match on it,
+            which throws on a duplicate). */}
         <ul className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
-          {migrations.map(m => (
+          {migrations.filter(m => m.id !== stats.latest?.id).map(m => (
             <li key={m.id} className="px-4 py-2 text-sm">
               <Link to={`/data-agent/migrations/${m.id}`} className="text-violet-700 hover:underline">{m.original_filename}</Link>
               <span className="text-gray-400 ml-2 text-xs">{m.status}</span>
