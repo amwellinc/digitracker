@@ -20,6 +20,22 @@ export function selectRandomSample<T>(items: T[], size: number, randomFn: () => 
   return result
 }
 
+// Picks `size` distinct offsets in [0, total) without ever materializing
+// a `total`-length array — selectRandomSample over Array.from({length:
+// total}) scales O(total) in both memory and time (its own internal
+// `[...items]` copy plus up to `size` O(pool.length) splices), which is
+// fine for a small list but a real cost once `total` is the written-row
+// count of a large migration (this tool's own mainline case, not an edge
+// case). Rejection sampling into a Set is O(size) in the common case
+// (size is capped at 50 by computeSampleSize, so collisions are rare).
+export function sampleOffsets(total: number, size: number, randomFn: () => number = Math.random): number[] {
+  if (size <= 0 || total <= 0) return []
+  if (size >= total) return Array.from({ length: total }, (_, i) => i)
+  const chosen = new Set<number>()
+  while (chosen.size < size) chosen.add(Math.floor(randomFn() * total))
+  return [...chosen]
+}
+
 export function flattenGhlRecordFields(raw: Record<string, unknown>): Record<string, unknown> {
   const { customFields, ...rest } = raw as { customFields?: { id: string; value: unknown }[] }
   const flat: Record<string, unknown> = { ...rest }

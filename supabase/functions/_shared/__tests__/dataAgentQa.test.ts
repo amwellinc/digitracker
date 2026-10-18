@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeSampleSize, selectRandomSample, flattenGhlRecordFields, compareFields } from '../dataAgentQa'
+import { computeSampleSize, selectRandomSample, sampleOffsets, flattenGhlRecordFields, compareFields } from '../dataAgentQa'
 import type { ConfirmedMapping } from '../dataAgentWriter'
 
 describe('computeSampleSize', () => {
@@ -23,6 +23,22 @@ describe('selectRandomSample', () => {
   })
   it('returns an empty array for size 0', () => {
     expect(selectRandomSample([1, 2, 3], 0)).toEqual([])
+  })
+})
+
+describe('sampleOffsets', () => {
+  it('returns distinct offsets within [0, total) without ever materializing an array of size `total`', () => {
+    const offsets = sampleOffsets(1_000_000, 10)
+    expect(offsets).toHaveLength(10)
+    expect(new Set(offsets).size).toBe(10)
+    for (const o of offsets) { expect(o).toBeGreaterThanOrEqual(0); expect(o).toBeLessThan(1_000_000) }
+  })
+  it('returns the full range (deduplicated) when size >= total', () => {
+    expect(sampleOffsets(3, 5).slice().sort((a, b) => a - b)).toEqual([0, 1, 2])
+  })
+  it('returns an empty array for size 0 or total 0', () => {
+    expect(sampleOffsets(10, 0)).toEqual([])
+    expect(sampleOffsets(0, 5)).toEqual([])
   })
 })
 

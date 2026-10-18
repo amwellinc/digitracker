@@ -5,7 +5,7 @@ import {
   type GhlClientConfig,
 } from '../_shared/dataAgentGhlClient.ts'
 import { buildGhlFields, getFieldValue, isBlankBuiltFields, writeRecordBatch, type ConfirmedMapping, type GhlRecordWriter, type BatchRow } from '../_shared/dataAgentWriter.ts'
-import { computeSampleSize, selectRandomSample, flattenGhlRecordFields, compareFields } from '../_shared/dataAgentQa.ts'
+import { computeSampleSize, sampleOffsets, flattenGhlRecordFields, compareFields } from '../_shared/dataAgentQa.ts'
 
 const BATCH_SIZE = 25
 // A worker tick that crashed or ran unusually long shouldn't permanently
@@ -217,7 +217,7 @@ async function processVerifyingMigration(serviceClient: SupabaseClient, migratio
   // with more written rows than that cap, biasing the sample toward an
   // arbitrary (and, without an explicit order, undefined) subset instead
   // of being genuinely representative.
-  const offsets = sampleSize > 0 ? selectRandomSample(Array.from({ length: totalWritten ?? 0 }, (_, i) => i), sampleSize) : []
+  const offsets = sampleOffsets(totalWritten ?? 0, sampleSize)
   const sample: { id: string; source_row_data: Record<string, string>; ghl_record_id: string }[] = []
   for (const offset of offsets) {
     const { data: rows, error: rowErr } = await serviceClient.from('data_agent_migration_records')
