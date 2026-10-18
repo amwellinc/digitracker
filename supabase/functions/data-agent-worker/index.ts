@@ -1,9 +1,11 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import {
   upsertContact, searchContactByEmail, searchObjectRecord, createObjectRecord, updateObjectRecord,
+  getContact, getObjectRecord,
   type GhlClientConfig,
 } from '../_shared/dataAgentGhlClient.ts'
 import { buildGhlFields, getFieldValue, isBlankBuiltFields, writeRecordBatch, type ConfirmedMapping, type GhlRecordWriter, type BatchRow } from '../_shared/dataAgentWriter.ts'
+import { computeSampleSize, selectRandomSample, flattenGhlRecordFields, compareFields } from '../_shared/dataAgentQa.ts'
 
 const BATCH_SIZE = 25
 // A worker tick that crashed or ran unusually long shouldn't permanently
@@ -33,7 +35,16 @@ Deno.serve(async (req) => {
     await processMigratingMigration(serviceClient, migration)
   }
 
-  return json({ ok: true, processed: (migrating ?? []).length })
+  const { data: verifying, error: verifyingErr } = await serviceClient.from('data_agent_migrations').select('*').eq('status', 'verifying').limit(5)
+  if (verifyingErr) {
+    console.error('Data Agent worker: failed to load verifying migrations:', verifyingErr)
+    return json({ error: 'Failed to load migrations' }, 500)
+  }
+  for (const migration of (verifying ?? []) as MigratingRow[]) {
+    await processVerifyingMigration(serviceClient, migration)
+  }
+
+  return json({ ok: true, processed: (migrating ?? []).length + (verifying ?? []).length })
 })
 
 interface MigratingRow { id: string; sub_account: string; target_object_type: string; match_key_column: string | null; default_country_code: string | null }
@@ -177,4 +188,46 @@ async function processMigratingMigration(serviceClient: SupabaseClient, migratio
       console.error(`Data Agent worker: CRITICAL — GHL write for record ${result.recordId} succeeded (${result.writeStatus}, ghl id ${result.ghlRecordId}) but writing that result back to the database failed — this row will be retried after the stale-claim window and may create a duplicate GHL record:`, error)
     }
   }
+}
+
+async function processVerifyingMigration(serviceClient: SupabaseClient, migration: MigratingRow) {
+  const { data: mappingRows } = await serviceClient.from('data_agent_column_mappings')
+    .select('source_column_name, target_type, target_field_key, metadata').eq('migration_id', migration.id)
+  const mappings = (mappingRows ?? []) as ConfirmedMapping[]
+
+  const { data: writtenRows } = await serviceClient.from('data_agent_migration_records')
+    .select('id, source_row_data, ghl_record_id').eq('migration_id', migration.id).in('write_status', ['created', 'replaced'])
+  const written = (writtenRows ?? []) as { id: string; source_row_data: Record<string, string>; ghl_record_id: string }[]
+
+  const sampleSize = computeSampleSize(written.length)
+  const sample = selectRandomSample(written, sampleSize)
+
+  if (sample.length > 0) {
+    const config = await loadGhlConfig(serviceClient, migration.sub_account)
+    const matchPcts: number[] = []
+    for (const record of sample) {
+      if (!config) continue
+      try {
+        const fetched = migration.target_object_type === 'contact'
+          ? (await getContact(config, record.ghl_record_id)).contact
+          : (await getObjectRecord(config, migration.target_object_type, record.ghl_record_id)).properties
+        const flattened = flattenGhlRecordFields(fetched as Record<string, unknown>)
+        const comparisons = compareFields(record.source_row_data, mappings, flattened)
+        const matchPct = comparisons.length === 0 ? 100 : (comparisons.filter(c => c.match).length / comparisons.length) * 100
+        matchPcts.push(matchPct)
+        await serviceClient.from('data_agent_qa_samples').insert({
+          migration_record_id: record.id, fetched_ghl_data: fetched, field_comparisons: comparisons, match_pct: matchPct,
+        })
+      } catch {
+        // A sample that fails to re-fetch is skipped from the average rather
+        // than crashing the whole verification pass — it is informational,
+        // never a reason to block `completed` (spec §8).
+      }
+    }
+    const accuracyRating = matchPcts.length > 0 ? matchPcts.reduce((a, b) => a + b, 0) / matchPcts.length : null
+    await serviceClient.from('data_agent_migrations').update({ status: 'completed', completed_at: new Date().toISOString(), accuracy_rating: accuracyRating }).eq('id', migration.id)
+    return
+  }
+
+  await serviceClient.from('data_agent_migrations').update({ status: 'completed', completed_at: new Date().toISOString(), accuracy_rating: null }).eq('id', migration.id)
 }
