@@ -1,0 +1,101 @@
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+
+const migrationRow = { id: 'mig-1', sub_account: 'AM333', target_object_type: 'contact', status: 'mapping', original_filename: 'contacts.csv', row_count: 2 }
+let mappingRows: Record<string, unknown>[] = []
+const updateMock = vi.fn()
+const rpcMock = vi.fn()
+
+vi.mock('@/hooks/useRealtime', () => ({ useRealtime: () => {} }))
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    rpc: (...args: unknown[]) => rpcMock(...args),
+    from: vi.fn((table: string) => {
+      if (table === 'data_agent_migrations') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: migrationRow }) }) }),
+          update: (...args: unknown[]) => { updateMock(...args); return { eq: () => Promise.resolve({ error: null }) } },
+        }
+      }
+      if (table === 'data_agent_column_mappings') {
+        return {
+          select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: mappingRows }) }) }),
+          update: (...args: unknown[]) => { updateMock(...args); return { eq: () => Promise.resolve({ error: null }) } },
+        }
+      }
+      // NOTE: the brief's own mock here only chained a single `.eq()` before
+      // resolving to a Promise, but MappingReviewPage.tsx chains
+      // `.eq('sub_account', ...).eq('object_type', ...)` against
+      // `data_agent_ghl_schema_cache` — matching real Supabase query-builder
+      // semantics, where each `.eq()` returns a further chainable/thenable
+      // builder. The brief's mock and its own component code disagree here;
+      // this adds the second `.eq()` level to the mock so it matches real
+      // Supabase behavior, rather than weakening the component's query.
+      return { select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ fields: [{ key: 'email', label: 'Email', type: 'standard' }] }] }) }) }) }
+    }),
+  },
+}))
+
+import { MappingReviewPage } from '../MappingReviewPage'
+
+function renderAt(id: string) {
+  return render(
+    <MemoryRouter initialEntries={[`/data-agent/migrations/${id}`]}>
+      <Routes><Route path="/data-agent/migrations/:migrationId" element={<MappingReviewPage />} /></Routes>
+    </MemoryRouter>
+  )
+}
+
+describe('MappingReviewPage', () => {
+  beforeEach(() => {
+    updateMock.mockReset()
+    rpcMock.mockReset().mockResolvedValue({ error: null })
+    mappingRows = [
+      { id: 'cm-1', source_column_name: 'Email', status: 'mapped', target_field_key: 'email', target_type: 'standard_field', mapped_by: 'rule', metadata: {} },
+      { id: 'cm-2', source_column_name: 'Mystery', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} },
+    ]
+  })
+
+  it('shows green for a mapped column and red for an unmapped one', async () => {
+    renderAt('mig-1')
+    expect(await screen.findByText('Email')).toBeInTheDocument()
+    expect(screen.getByTestId('status-cm-1')).toHaveTextContent(/mapped/i)
+    expect(screen.getByTestId('status-cm-2')).toHaveTextContent(/unmapped/i)
+  })
+
+  it('disables Confirm & Migrate while any column is still unresolved', async () => {
+    renderAt('mig-1')
+    await screen.findByText('Mystery')
+    expect(screen.getByRole('button', { name: /confirm & migrate/i })).toBeDisabled()
+  })
+
+  it('choosing "Ignore this column" resolves it as mapped/ignored, not as still-red', async () => {
+    renderAt('mig-1')
+    await screen.findByText('Mystery')
+    await userEvent.selectOptions(screen.getByLabelText(/map "Mystery" to/i), 'ignore')
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'mapped', target_type: 'ignored', target_field_key: null, mapped_by: 'user', confirmed_by_user: true,
+    })))
+  })
+
+  it('calls confirm_data_agent_migration when every column is resolved', async () => {
+    mappingRows = [{ id: 'cm-1', source_column_name: 'Email', status: 'mapped', target_field_key: 'email', target_type: 'standard_field', mapped_by: 'rule', metadata: {} }]
+    renderAt('mig-1')
+    const confirmBtn = await screen.findByRole('button', { name: /confirm & migrate/i })
+    expect(confirmBtn).toBeEnabled()
+    await userEvent.click(confirmBtn)
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1' }))
+  })
+
+  it('shows a default-country-code input when a mapped phone column has absent/mixed country codes, and saves it before confirming', async () => {
+    mappingRows = [{ id: 'cm-1', source_column_name: 'Phone', status: 'mapped', target_field_key: 'phone', target_type: 'standard_field', mapped_by: 'rule', metadata: { country_code_presence: 'mixed' } }]
+    renderAt('mig-1')
+    const input = await screen.findByLabelText(/default country code/i)
+    await userEvent.type(input, '+65')
+    await userEvent.click(screen.getByRole('button', { name: /confirm & migrate/i }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ default_country_code: '+65' }))
+    expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1' })
+  })
+})
