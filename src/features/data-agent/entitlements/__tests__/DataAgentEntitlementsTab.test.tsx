@@ -43,4 +43,14 @@ describe('DataAgentEntitlementsTab', () => {
       expect.objectContaining({ sub_account: 'DERMITAGE', enabled: true }),
     ))
   })
+
+  it('surfaces an upsert error without flipping the checkbox', async () => {
+    upsertMock.mockResolvedValue({ error: { message: 'permission denied' } })
+    render(<DataAgentEntitlementsTab />)
+    await screen.findByText('Dermitage')
+    const toggles = screen.getAllByRole('checkbox')
+    await userEvent.click(toggles[1])
+    expect(await screen.findByRole('alert')).toHaveTextContent(/permission denied/i)
+    expect(toggles[1]).not.toBeChecked()
+  })
 })

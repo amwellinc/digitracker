@@ -10,6 +10,7 @@ export function DataAgentEntitlementsTab() {
   const [accounts, setAccounts] = useState<SubAccountRow[]>([])
   const [entitled, setEntitled] = useState<Record<string, boolean>>({})
   const [busyCode, setBusyCode] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const [{ data: accs }, { data: ents }] = await Promise.all([
@@ -26,11 +27,13 @@ export function DataAgentEntitlementsTab() {
 
   async function toggle(code: string, next: boolean) {
     setBusyCode(code)
-    await supabase.from('data_agent_entitlements').upsert({
+    setErrorMsg(null)
+    const { error } = await supabase.from('data_agent_entitlements').upsert({
       sub_account: code, enabled: next, enabled_by: user?.id, enabled_at: new Date().toISOString(),
     })
-    setEntitled(prev => ({ ...prev, [code]: next }))
     setBusyCode(null)
+    if (error) { setErrorMsg(`Could not update ${code}: ${error.message}`); return }
+    setEntitled(prev => ({ ...prev, [code]: next }))
   }
 
   return (
@@ -52,6 +55,7 @@ export function DataAgentEntitlementsTab() {
           </label>
         ))}
       </div>
+      {errorMsg && <p role="alert" className="text-sm text-red-600">{errorMsg}</p>}
     </div>
   )
 }
