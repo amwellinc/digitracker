@@ -47,7 +47,10 @@ describe('NewMigrationModal', () => {
   })
 
   it('surfaces an upload-function error instead of claiming success', async () => {
-    invokeMock.mockResolvedValue({ data: null, error: { message: 'No schema cached yet' } })
+    // The edge function returns HTTP 200 with { error } for a business
+    // failure, not a thrown error — see data-agent-upload's own comment on
+    // why (supabase-js discards a non-2xx response's real body).
+    invokeMock.mockResolvedValue({ data: { error: 'No schema cached yet' }, error: null })
     render(<NewMigrationModal subAccount="AM333" onCreated={vi.fn()} onClose={vi.fn()} />)
     await screen.findByRole('option', { name: /orders/i })
     const file = new File(['Email\njane@x.com\n'], 'contacts.csv', { type: 'text/csv' })

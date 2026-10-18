@@ -31,8 +31,14 @@ export function NewMigrationModal({ subAccount, onCreated, onClose }: Props) {
       body: { subAccount, targetObjectType: target, sourceSystem: sourceSystem || null, storagePath, originalFilename: file.name },
     })
     setUploading(false)
-    if (fnErr) { setError(fnErr.message); return }
-    onCreated((data as { migrationId: string }).migrationId)
+    // data-agent-upload returns HTTP 200 for every business outcome (see
+    // its own comment) so a real failure shows up as `data.error`, not a
+    // thrown `fnErr` — `fnErr` only fires for a genuine network/relay
+    // failure, which has no useful `.message` of its own either.
+    if (fnErr) { setError('Could not reach the upload service — check your connection and try again.'); return }
+    const result = data as { migrationId?: string; error?: string }
+    if (!result.migrationId) { setError(result.error ?? 'Upload failed for an unknown reason.'); return }
+    onCreated(result.migrationId)
   }
 
   return (
