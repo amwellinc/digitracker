@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { NewMigrationModal } from './upload/NewMigrationModal'
+import { DataAgentDashboard } from './dashboard/DataAgentDashboard'
 
 export function DataAgentPage() {
   const { user } = useAuth()
@@ -16,6 +17,7 @@ export function DataAgentPage() {
           New Migration
         </button>
       </div>
+      {user?.sub_account && <DataAgentDashboard subAccount={user.sub_account} />}
       {showNew && user?.sub_account && (
         <NewMigrationModal
           subAccount={user.sub_account}
