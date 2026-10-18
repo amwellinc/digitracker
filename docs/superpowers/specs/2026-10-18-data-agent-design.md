@@ -25,10 +25,48 @@ outranks convenience and speed everywhere in this design.
   user type is introduced).
 - Access to any Data Agent data requires: the sub-account is entitled, AND the caller
   either has a `data_agent_members` row or is that sub-account's Admin, OR the caller is
-  Super-Admin (unconditional). A new SECURITY DEFINER helper,
-  `is_data_agent_member(sub_account)`, encapsulates this check and is the single gate
-  every RLS policy in this feature uses — mirroring how `is_project_member()` already
-  gates the Projects feature in this codebase.
+  Super-Admin (unconditional), OR the caller is a member/Admin of a **provider**
+  sub-account Super-Admin has authorized to service this sub-account (below). A new
+  SECURITY DEFINER helper, `is_data_agent_member(sub_account)`, encapsulates this check
+  and is the single gate every RLS policy in this feature uses — mirroring how
+  `is_project_member()` already gates the Projects feature in this codebase.
+
+### 2.1 Service providers (agency model)
+
+A sub-account (e.g. AM333) can run Data Agent migrations on behalf of other
+sub-accounts (e.g. JOY Consultancy) as a managed service, rather than only ever
+migrating its own data. This is new: no concept of one sub-account acting on another's
+behalf exists anywhere else in this codebase today (confirmed by investigation — the
+only existing cross-tenant precedent, Projects, shares individual *users* across
+sub-accounts, always gated by Super-Admin, never a whole sub-account managing another's
+data). This section is intentionally narrow and specific to Data Agent — it does not
+introduce a general-purpose agency/reseller concept on `sub_accounts` itself.
+
+- `data_agent_provider_clients` — `provider_sub_account`, `client_sub_account`,
+  `added_by`, `added_at`, unique on `(provider_sub_account, client_sub_account)`.
+  **Only Super-Admin may write this table** — the same authority that already grants
+  `data_agent_entitlements`, and the one precedent this codebase has for any cross-tenant
+  grant (Projects). Neither the provider's nor the client's own Admin can self-grant this
+  relationship.
+- The client sub-account (JOY Consultancy) must *still* be independently entitled
+  (`data_agent_entitlements.enabled`) — a provider grant adds *who else* may act as a
+  member once the feature is on for that sub-account; it does not itself turn the
+  feature on.
+- **Ownership stays with the client.** JOY Consultancy's own Admin configures and owns
+  its own GHL connection (Section 3) in its own Settings — a provider's users never see
+  or enter a client's Private Integration Token. The provider relationship only grants
+  *operating* access (upload, mapping review, dashboard, chat) using the client's
+  already-configured connection; it is not a mechanism for a provider to supply or
+  substitute its own GHL credentials on a client's behalf.
+- JOY Consultancy is assumed to be an existing, independently-managed DigiTracker
+  sub-account with its own users and login — this feature does not add a way to
+  provision a brand-new sub-account from within Data Agent.
+- **Workspace switcher:** when the logged-in user's own sub-account is a provider for one
+  or more client sub-accounts, the Data Agent page shows a switcher to choose which
+  workspace's migrations to view/create (their own sub-account, or any client they can
+  service). The chosen sub-account drives the Dashboard and New Migration flow. A direct
+  migration URL (`/data-agent/migrations/:id`) needs no switcher — RLS alone (via
+  `is_data_agent_member`) already determines whether the caller can see that migration.
 
 ## 3. Settings — CRM Connection
 
@@ -262,13 +300,18 @@ instructing the App about a specific mapping decision.
 
 ## 12. Access UI Touchpoints
 
-- **Super-Admin**: a new panel to toggle `data_agent_entitlements` per sub-account.
+- **Super-Admin**: a new panel to toggle `data_agent_entitlements` per sub-account, and
+  a second panel (Section 2.1) to assign/revoke which sub-accounts a provider
+  sub-account may service.
 - **Sub-account Admin**: a new "Data Agent" entry in their own Settings (visible only
   when entitled), with a connection form (Section 3) and a team-access list for granting
-  `data_agent_members`.
-- **Navigation**: a new nav entry, visible only to users who are both in an entitled
-  sub-account and are either a `data_agent_members` row or that sub-account's Admin (or
-  Super-Admin).
+  `data_agent_members`. This stays scoped to the Admin's own sub-account — a provider's
+  Admin does not get a client's connection form.
+- **Navigation**: a new nav entry, visible only to users who are either in an entitled
+  sub-account (as a `data_agent_members` row or that sub-account's Admin), a provider for
+  at least one entitled client sub-account, or Super-Admin.
+- **Workspace switcher** (Section 2.1): shown on the Data Agent page only for a user
+  whose own sub-account is an authorized provider for one or more client sub-accounts.
 
 ## 13. Secrets & External Dependencies
 
