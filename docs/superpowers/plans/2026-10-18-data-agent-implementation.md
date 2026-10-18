@@ -3876,8 +3876,9 @@ Deno.serve(async (req) => {
     const update = 'ignore' in result.action
       ? { status: 'mapped', target_type: 'ignored', target_field_key: null, mapped_by: 'user', confirmed_by_user: true }
       : (() => {
-          const field = targetFields.find(f => f.key === result.action && 'target_field_key' in result.action! ? result.action!.target_field_key === f.key : false)
-          return { status: 'mapped', target_type: field?.type === 'standard' ? 'standard_field' : 'custom_field', target_field_key: (result.action as { target_field_key: string }).target_field_key, mapped_by: 'user', confirmed_by_user: true }
+          const targetKey = (result.action as { target_field_key: string }).target_field_key
+          const field = targetFields.find(f => f.key === targetKey)
+          return { status: 'mapped', target_type: field?.type === 'standard' ? 'standard_field' : 'custom_field', target_field_key: targetKey, mapped_by: 'user', confirmed_by_user: true }
         })()
     await serviceClient.from('data_agent_column_mappings').update(update).eq('id', columnMappingId)
   }
