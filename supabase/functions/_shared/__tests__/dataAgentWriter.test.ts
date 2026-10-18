@@ -1,6 +1,6 @@
 // supabase/functions/_shared/__tests__/dataAgentWriter.test.ts (part 1 of 2 — field building)
 import { describe, it, expect } from 'vitest'
-import { buildGhlFields, getFieldValue, applyDefaultCountryCode, type ConfirmedMapping } from '../dataAgentWriter'
+import { buildGhlFields, getFieldValue, applyDefaultCountryCode, isBlankBuiltFields, type ConfirmedMapping } from '../dataAgentWriter'
 
 const MAPPINGS: ConfirmedMapping[] = [
   { source_column_name: 'Email', target_type: 'standard_field', target_field_key: 'email', metadata: {} },
@@ -19,6 +19,9 @@ describe('applyDefaultCountryCode', () => {
   })
   it('returns the raw value unchanged when no default is configured', () => {
     expect(applyDefaultCountryCode('91234567', null)).toBe('91234567')
+  })
+  it('REVIEW FINDING: strips a leading zero correctly even when the raw value has leading whitespace', () => {
+    expect(applyDefaultCountryCode(' 091234567', '+65')).toBe('+6591234567')
   })
 })
 
@@ -46,6 +49,18 @@ describe('buildGhlFields', () => {
     const sparse = { Email: 'jane@x.com' }
     expect(() => buildGhlFields(sparse, MAPPINGS, '+65')).not.toThrow()
   })
+
+  it('REVIEW FINDING: treats a whitespace-only value as blank too, consistent with getFieldValue', () => {
+    const built = buildGhlFields({ ...row, Notes: '   ' }, MAPPINGS, '+65')
+    expect(built.customFields).toEqual([])
+  })
+
+  it('REVIEW FINDING: does not apply a DND/opt-out tag when the column\'s own value reads as falsy (common CSV boolean-export convention)', () => {
+    for (const falsy of ['no', 'false', '0', 'N', 'Off']) {
+      const built = buildGhlFields({ ...row, 'Email Opt-Out': falsy }, MAPPINGS, '+65')
+      expect(built.tags).toEqual([])
+    }
+  })
 })
 
 describe('getFieldValue', () => {
@@ -57,6 +72,17 @@ describe('getFieldValue', () => {
   })
   it('returns null when no mapping targets that field key', () => {
     expect(getFieldValue({ Email: 'jane@x.com' }, MAPPINGS, 'nonexistent')).toBeNull()
+  })
+})
+
+describe('isBlankBuiltFields', () => {
+  it('REVIEW FINDING: is true when every bucket is empty, so a fully-blank row can be skipped rather than written as an empty GHL record', () => {
+    expect(isBlankBuiltFields({ standardFields: {}, customFields: [], tags: [] })).toBe(true)
+  })
+  it('is false if any bucket has content', () => {
+    expect(isBlankBuiltFields({ standardFields: { email: 'a@x.com' }, customFields: [], tags: [] })).toBe(false)
+    expect(isBlankBuiltFields({ standardFields: {}, customFields: [{ id: 'x', value: 'y' }], tags: [] })).toBe(false)
+    expect(isBlankBuiltFields({ standardFields: {}, customFields: [], tags: ['dnd_email'] })).toBe(false)
   })
 })
 

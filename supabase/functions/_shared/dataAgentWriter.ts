@@ -13,11 +13,22 @@ export interface BuiltGhlFields {
 }
 
 export function applyDefaultCountryCode(value: string, defaultCountryCode: string | null): string {
-  if (!value || !defaultCountryCode || value.trim().startsWith('+')) return value
-  return `${defaultCountryCode}${value.replace(/^0+/, '')}`
+  // Check and strip against the TRIMMED value — a value with leading
+  // whitespace (" 091234567") must still have its leading zero detected
+  // and stripped; checking .startsWith('+') on the trimmed value but then
+  // stripping zeros from the untrimmed original (the review-flagged bug)
+  // silently produced a malformed "+65 091234567".
+  const trimmed = value.trim()
+  if (!trimmed || !defaultCountryCode || trimmed.startsWith('+')) return value
+  return `${defaultCountryCode}${trimmed.replace(/^0+/, '')}`
 }
 
 const PHONE_SUBTYPES = new Set(['mobile', 'home', 'work', 'fax'])
+// Common CSV boolean-export conventions for a DND/opt-out column whose
+// mere presence would otherwise always apply the tag regardless of what
+// the cell actually says — getting this backwards has real compliance
+// consequences, so a recognizably-falsy value must not apply the tag.
+const FALSY_TAG_VALUES = new Set(['no', 'false', '0', 'n', 'off'])
 
 export function buildGhlFields(sourceRow: Record<string, string>, mappings: ConfirmedMapping[], defaultCountryCode: string | null): BuiltGhlFields {
   const standardFields: Record<string, string> = {}
@@ -27,9 +38,16 @@ export function buildGhlFields(sourceRow: Record<string, string>, mappings: Conf
   for (const m of mappings) {
     if (m.target_type === 'ignored' || !m.target_field_key) continue
     const raw = sourceRow[m.source_column_name] ?? ''
-    if (raw === '') continue
+    // Blank-check on the trimmed value (consistent with getFieldValue's
+    // own check below) without permanently trimming raw — a whitespace-
+    // only cell is blank, but a cell with meaningful leading/trailing
+    // whitespace around real content keeps that content as written.
+    if (raw.trim() === '') continue
 
-    if (m.target_type === 'tag') { tags.push(m.target_field_key); continue }
+    if (m.target_type === 'tag') {
+      if (!FALSY_TAG_VALUES.has(raw.trim().toLowerCase())) tags.push(m.target_field_key)
+      continue
+    }
 
     const isPhoneLike = m.target_field_key === 'phone' || (m.metadata.subtype && PHONE_SUBTYPES.has(m.metadata.subtype))
     const value = isPhoneLike ? applyDefaultCountryCode(raw, defaultCountryCode) : raw
@@ -46,6 +64,16 @@ export function getFieldValue(sourceRow: Record<string, string>, mappings: Confi
   if (!mapping) return null
   const value = sourceRow[mapping.source_column_name]
   return value && value.trim().length > 0 ? value : null
+}
+
+// A row where every mapped column came back blank would otherwise still
+// reach writer.create()/replace() as an essentially-empty GHL record —
+// for a custom object (no upsert validation) this silently creates a
+// junk record with no signal anything was wrong. The worker checks this
+// before calling writeRecordBatch and marks such rows 'skipped' instead
+// (a write_status the schema already allows for exactly this case).
+export function isBlankBuiltFields(built: BuiltGhlFields): boolean {
+  return Object.keys(built.standardFields).length === 0 && built.customFields.length === 0 && built.tags.length === 0
 }
 
 // supabase/functions/_shared/dataAgentWriter.ts (part 2 of 2 — batch writing)
