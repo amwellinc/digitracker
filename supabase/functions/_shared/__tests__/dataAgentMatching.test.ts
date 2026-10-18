@@ -93,6 +93,10 @@ describe('resolveSubtypeTargetField', () => {
   it('returns null rather than inventing a field when none matches (phone/home has no custom field here)', () => {
     expect(resolveSubtypeTargetField({ base: 'phone', subtype: 'home' }, GHL_CONTACT_FIELDS)).toBeNull()
   })
+  it('resolves a fax-subtype column to a field labeled just "Fax", with no phone/tel base word required on the field label', () => {
+    const field = resolveSubtypeTargetField({ base: 'phone', subtype: 'fax' }, GHL_CONTACT_FIELDS)
+    expect(field?.key).toBe('custom_fax')
+  })
 })
 
 describe('matchTargetSchema', () => {

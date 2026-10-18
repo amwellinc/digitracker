@@ -114,11 +114,16 @@ export function detectPhoneEmailSubtype(columnName: string): PhoneEmailSubtypeRe
 // exists in the cached schema, by label. If nothing matches, the caller
 // must leave the column unmapped rather than guess a field key.
 export function resolveSubtypeTargetField(result: PhoneEmailSubtypeResult, targetFields: TargetField[]): TargetField | null {
-  const wantedBaseWords = result.base === 'phone' ? ['phone', 'tel'] : ['email', 'mail']
   const subtypeKeywords = SUBTYPE_KEYWORDS.find(([s]) => s === result.subtype)![1]
+  // "Fax" alone is already unambiguous — unlike mobile/home/work, which
+  // need a phone/email base word on the target field's own label to avoid
+  // matching an unrelated field, a field labeled just "Fax" is definitely
+  // a fax field with no base word required.
+  const wantedBaseWords = result.subtype === 'fax' ? [] : (result.base === 'phone' ? ['phone', 'tel'] : ['email', 'mail'])
   return targetFields.find(f => {
     const normalized = normalizeColumnName(f.label)
-    return hasAnyKeyword(normalized, wantedBaseWords) && hasAnyKeyword(normalized, subtypeKeywords)
+    const hasBase = wantedBaseWords.length === 0 || hasAnyKeyword(normalized, wantedBaseWords)
+    return hasBase && hasAnyKeyword(normalized, subtypeKeywords)
   }) ?? null
 }
 
