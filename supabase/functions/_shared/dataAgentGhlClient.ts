@@ -110,3 +110,13 @@ export async function deleteObjectRecord(config: GhlClientConfig, objectKey: str
   const res = await ghlFetch(config, `/objects/${objectKey}/records/${recordId}`, { method: 'DELETE' })
   if (!res.ok && res.status !== 404) await assertOk(res, 'GHL object delete')
 }
+
+export async function searchContactByEmail(config: GhlClientConfig, email: string): Promise<{ id: string; fields: Record<string, unknown> } | null> {
+  const res = await ghlFetch(config, `/contacts/?locationId=${config.locationId}&query=${encodeURIComponent(email)}`)
+  await assertOk(res, 'GHL contact search')
+  const body = await res.json() as { contacts?: { id: string }[] }
+  const first = body.contacts?.[0]
+  if (!first) return null
+  const detail = await getContact(config, first.id)
+  return { id: first.id, fields: detail.contact }
+}
