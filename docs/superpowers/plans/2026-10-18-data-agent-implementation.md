@@ -4063,11 +4063,12 @@ git commit -m "feat: add cron-polled invocation for the Data Agent worker"
 - Modify: `supabase/functions/_shared/dataAgentGhlClient.ts` (add `searchContactByEmail`)
 - Create: `supabase/functions/_shared/dataAgentWriter.ts`
 - Create: `supabase/functions/_shared/__tests__/dataAgentWriter.test.ts`
+- Create: `supabase/migrations/20261018000300_data_agent_worker_claiming.sql`
 - Create: `supabase/functions/data-agent-worker/index.ts`
 
 **Interfaces:**
 - Consumes: `GhlClientConfig`, `GhlRateLimitError`, `upsertContact`, `searchObjectRecord`, `createObjectRecord`, `updateObjectRecord` (Task 5); tables `data_agent_migrations`, `data_agent_connections`, `data_agent_column_mappings`, `data_agent_migration_records` (Tasks 1, 7).
-- Produces: `buildGhlFields(sourceRow, mappings, defaultCountryCode): BuiltGhlFields`, `getFieldValue(sourceRow, mappings, targetFieldKey): string | null`, `writeRecordBatch(rows: BatchRow[], writer: GhlRecordWriter): Promise<BatchWriteResult[]>` — consumed again by Tasks 17–18. Edge function `data-agent-worker` (unauthenticated-by-JWT, authenticated instead by `x-worker-secret` header from Task 14's cron trigger).
+- Produces: `buildGhlFields(sourceRow, mappings, defaultCountryCode): BuiltGhlFields`, `getFieldValue(sourceRow, mappings, targetFieldKey): string | null`, `isBlankBuiltFields(built): boolean`, `writeRecordBatch(rows: BatchRow[], writer: GhlRecordWriter): Promise<BatchWriteResult[]>` — consumed again by Tasks 17–18. `data_agent_migration_records.claimed_at` column — consumed again by Task 17's undo logic if it needs to avoid racing a live worker tick. Edge function `data-agent-worker` (unauthenticated-by-JWT, authenticated instead by `x-worker-secret` header from Task 14's cron trigger).
 
 - [ ] **Step 1: Add the contact-search helper to the GHL client**
 
@@ -4092,7 +4093,7 @@ This endpoint shape carries the same "verify against a real sandbox location" ca
 ```ts
 // supabase/functions/_shared/__tests__/dataAgentWriter.test.ts (part 1 of 2 — field building)
 import { describe, it, expect } from 'vitest'
-import { buildGhlFields, getFieldValue, applyDefaultCountryCode, type ConfirmedMapping } from '../dataAgentWriter'
+import { buildGhlFields, getFieldValue, applyDefaultCountryCode, isBlankBuiltFields, type ConfirmedMapping } from '../dataAgentWriter'
 
 const MAPPINGS: ConfirmedMapping[] = [
   { source_column_name: 'Email', target_type: 'standard_field', target_field_key: 'email', metadata: {} },
@@ -4111,6 +4112,9 @@ describe('applyDefaultCountryCode', () => {
   })
   it('returns the raw value unchanged when no default is configured', () => {
     expect(applyDefaultCountryCode('91234567', null)).toBe('91234567')
+  })
+  it('REVIEW FINDING: strips a leading zero correctly even when the raw value has leading whitespace', () => {
+    expect(applyDefaultCountryCode(' 091234567', '+65')).toBe('+6591234567')
   })
 })
 
@@ -4134,9 +4138,21 @@ describe('buildGhlFields', () => {
     expect(built.customFields).toEqual([])
   })
 
+  it('REVIEW FINDING: treats a whitespace-only value as blank too, consistent with getFieldValue', () => {
+    const built = buildGhlFields({ ...row, Notes: '   ' }, MAPPINGS, '+65')
+    expect(built.customFields).toEqual([])
+  })
+
   it('does not throw for a row missing one of the mapped columns entirely', () => {
     const sparse = { Email: 'jane@x.com' }
     expect(() => buildGhlFields(sparse, MAPPINGS, '+65')).not.toThrow()
+  })
+
+  it('REVIEW FINDING: does not apply a DND/opt-out tag when the column\'s own value reads as falsy (common CSV boolean-export convention)', () => {
+    for (const falsy of ['no', 'false', '0', 'N', 'Off']) {
+      const built = buildGhlFields({ ...row, 'Email Opt-Out': falsy }, MAPPINGS, '+65')
+      expect(built.tags).toEqual([])
+    }
   })
 })
 
@@ -4149,6 +4165,17 @@ describe('getFieldValue', () => {
   })
   it('returns null when no mapping targets that field key', () => {
     expect(getFieldValue({ Email: 'jane@x.com' }, MAPPINGS, 'nonexistent')).toBeNull()
+  })
+})
+
+describe('isBlankBuiltFields', () => {
+  it('REVIEW FINDING: is true when every bucket is empty, so a fully-blank row can be skipped rather than written as an empty GHL record', () => {
+    expect(isBlankBuiltFields({ standardFields: {}, customFields: [], tags: [] })).toBe(true)
+  })
+  it('is false if any bucket has content', () => {
+    expect(isBlankBuiltFields({ standardFields: { email: 'a@x.com' }, customFields: [], tags: [] })).toBe(false)
+    expect(isBlankBuiltFields({ standardFields: {}, customFields: [{ id: 'x', value: 'y' }], tags: [] })).toBe(false)
+    expect(isBlankBuiltFields({ standardFields: {}, customFields: [], tags: ['dnd_email'] })).toBe(false)
   })
 })
 ```
@@ -4174,11 +4201,22 @@ export interface BuiltGhlFields {
 }
 
 export function applyDefaultCountryCode(value: string, defaultCountryCode: string | null): string {
-  if (!value || !defaultCountryCode || value.trim().startsWith('+')) return value
-  return `${defaultCountryCode}${value.replace(/^0+/, '')}`
+  // Check and strip against the TRIMMED value — a value with leading
+  // whitespace (" 091234567") must still have its leading zero detected
+  // and stripped; checking .startsWith('+') on the trimmed value but then
+  // stripping zeros from the untrimmed original (the review-flagged bug)
+  // silently produced a malformed "+65 091234567".
+  const trimmed = value.trim()
+  if (!trimmed || !defaultCountryCode || trimmed.startsWith('+')) return value
+  return `${defaultCountryCode}${trimmed.replace(/^0+/, '')}`
 }
 
 const PHONE_SUBTYPES = new Set(['mobile', 'home', 'work', 'fax'])
+// Common CSV boolean-export conventions for a DND/opt-out column whose
+// mere presence would otherwise always apply the tag regardless of what
+// the cell actually says — getting this backwards has real compliance
+// consequences, so a recognizably-falsy value must not apply the tag.
+const FALSY_TAG_VALUES = new Set(['no', 'false', '0', 'n', 'off'])
 
 export function buildGhlFields(sourceRow: Record<string, string>, mappings: ConfirmedMapping[], defaultCountryCode: string | null): BuiltGhlFields {
   const standardFields: Record<string, string> = {}
@@ -4188,9 +4226,16 @@ export function buildGhlFields(sourceRow: Record<string, string>, mappings: Conf
   for (const m of mappings) {
     if (m.target_type === 'ignored' || !m.target_field_key) continue
     const raw = sourceRow[m.source_column_name] ?? ''
-    if (raw === '') continue
+    // Blank-check on the trimmed value (consistent with getFieldValue's
+    // own check below) without permanently trimming raw — a whitespace-
+    // only cell is blank, but a cell with meaningful leading/trailing
+    // whitespace around real content keeps that content as written.
+    if (raw.trim() === '') continue
 
-    if (m.target_type === 'tag') { tags.push(m.target_field_key); continue }
+    if (m.target_type === 'tag') {
+      if (!FALSY_TAG_VALUES.has(raw.trim().toLowerCase())) tags.push(m.target_field_key)
+      continue
+    }
 
     const isPhoneLike = m.target_field_key === 'phone' || (m.metadata.subtype && PHONE_SUBTYPES.has(m.metadata.subtype))
     const value = isPhoneLike ? applyDefaultCountryCode(raw, defaultCountryCode) : raw
@@ -4208,10 +4253,20 @@ export function getFieldValue(sourceRow: Record<string, string>, mappings: Confi
   const value = sourceRow[mapping.source_column_name]
   return value && value.trim().length > 0 ? value : null
 }
+
+// A row where every mapped column came back blank would otherwise still
+// reach writer.create()/replace() as an essentially-empty GHL record —
+// for a custom object (no upsert validation) this silently creates a
+// junk record with no signal anything was wrong. The worker checks this
+// before calling writeRecordBatch and marks such rows 'skipped' instead
+// (a write_status the schema already allows for exactly this case).
+export function isBlankBuiltFields(built: BuiltGhlFields): boolean {
+  return Object.keys(built.standardFields).length === 0 && built.customFields.length === 0 && built.tags.length === 0
+}
 ```
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentWriter.test.ts`
-Expected: PASS (10 tests).
+Expected: PASS (15 tests).
 
 - [ ] **Step 4: Write the failing test for batch writing (Review Focus #2 and #3)**
 
@@ -4354,9 +4409,27 @@ export async function writeRecordBatch(rows: BatchRow[], writer: GhlRecordWriter
 - [ ] **Step 6: Run the full test file**
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentWriter.test.ts`
-Expected: PASS (13 tests).
+Expected: PASS (18 tests).
 
-- [ ] **Step 7: Write the worker edge function's `migrating`-phase handler**
+- [ ] **Step 7: Add a claim column so overlapping worker ticks can't double-process the same rows**
+
+Task 14's cron fires every minute via a fire-and-forget `net.http_post` — it never waits for the previous tick's HTTP response. If one batch of GHL writes takes longer than 60 seconds, the next tick invokes this same worker again while the first is still running, and without a claim, both would independently `SELECT` and process the identical batch of `pending` rows: for a custom object (no upsert semantics, just a plain `POST`), this creates real duplicate GHL records, not just a theoretical race (confirmed in Task 15's review).
+
+```sql
+-- Migration 20261018000300: Data Agent — claim pending migration_records
+-- before writing them to GHL, so two overlapping worker ticks can't both
+-- pick up and process the same batch (see Task 15's review for why this
+-- is a real, non-contrived risk, not just a theoretical one).
+alter table public.data_agent_migration_records add column claimed_at timestamptz;
+create index data_agent_migration_records_claim_idx on public.data_agent_migration_records (migration_id, write_status, claimed_at);
+```
+
+```bash
+git add supabase/migrations/20261018000300_data_agent_worker_claiming.sql
+git commit -m "feat: add a claim column so the Data Agent worker can't double-process rows across overlapping ticks"
+```
+
+- [ ] **Step 8: Write the worker edge function's `migrating`-phase handler**
 
 ```ts
 // supabase/functions/data-agent-worker/index.ts
@@ -4365,9 +4438,13 @@ import {
   upsertContact, searchContactByEmail, searchObjectRecord, createObjectRecord, updateObjectRecord,
   type GhlClientConfig,
 } from '../_shared/dataAgentGhlClient.ts'
-import { buildGhlFields, getFieldValue, writeRecordBatch, type ConfirmedMapping, type GhlRecordWriter, type BatchRow } from '../_shared/dataAgentWriter.ts'
+import { buildGhlFields, getFieldValue, isBlankBuiltFields, writeRecordBatch, type ConfirmedMapping, type GhlRecordWriter, type BatchRow } from '../_shared/dataAgentWriter.ts'
 
 const BATCH_SIZE = 25
+// A worker tick that crashed or ran unusually long shouldn't permanently
+// strand its claimed rows — after this long with no result written back,
+// another tick is allowed to reclaim and retry them.
+const STALE_CLAIM_MS = 2 * 60_000
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -4382,7 +4459,11 @@ Deno.serve(async (req) => {
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const serviceClient = createClient(supabaseUrl, serviceKey)
 
-  const { data: migrating } = await serviceClient.from('data_agent_migrations').select('*').eq('status', 'migrating').limit(5)
+  const { data: migrating, error: migratingErr } = await serviceClient.from('data_agent_migrations').select('*').eq('status', 'migrating').limit(5)
+  if (migratingErr) {
+    console.error('Data Agent worker: failed to load migrating migrations:', migratingErr)
+    return json({ error: 'Failed to load migrations' }, 500)
+  }
   for (const migration of (migrating ?? []) as MigratingRow[]) {
     await processMigratingMigration(serviceClient, migration)
   }
@@ -4393,10 +4474,12 @@ Deno.serve(async (req) => {
 interface MigratingRow { id: string; sub_account: string; target_object_type: string; match_key_column: string | null; default_country_code: string | null }
 
 async function loadGhlConfig(serviceClient: SupabaseClient, subAccount: string): Promise<GhlClientConfig | null> {
-  const { data: connection } = await serviceClient.from('data_agent_connections').select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
+  const { data: connection, error: connErr } = await serviceClient.from('data_agent_connections').select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
+  if (connErr) { console.error(`Data Agent worker: failed to load connection for ${subAccount}:`, connErr); return null }
   if (!connection) return null
-  const { data: secretRow } = await serviceClient.schema('vault').from('decrypted_secrets').select('decrypted_secret')
+  const { data: secretRow, error: secretErr } = await serviceClient.schema('vault').from('decrypted_secrets').select('decrypted_secret')
     .eq('name', (connection as { secret_name: string }).secret_name).maybeSingle()
+  if (secretErr) { console.error(`Data Agent worker: failed to load Vault secret for ${subAccount}:`, secretErr); return null }
   const pit = (secretRow as { decrypted_secret?: string } | null)?.decrypted_secret
   if (!pit) return null
   return { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
@@ -4429,30 +4512,64 @@ function buildWriter(isContact: boolean, config: GhlClientConfig, objectKey: str
 async function processMigratingMigration(serviceClient: SupabaseClient, migration: MigratingRow) {
   const config = await loadGhlConfig(serviceClient, migration.sub_account)
   if (!config) {
-    await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: 'No usable GHL connection' }).eq('id', migration.id)
+    const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: 'No usable GHL connection' }).eq('id', migration.id)
+    if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} as failed:`, error)
     return
   }
 
-  const { data: mappingRows } = await serviceClient.from('data_agent_column_mappings')
+  const { data: mappingRows, error: mappingErr } = await serviceClient.from('data_agent_column_mappings')
     .select('source_column_name, target_type, target_field_key, metadata').eq('migration_id', migration.id)
+  if (mappingErr) { console.error(`Data Agent worker: failed to load column mappings for migration ${migration.id}:`, mappingErr); return }
   const mappings = (mappingRows ?? []) as ConfirmedMapping[]
 
-  const { data: pendingRows } = await serviceClient.from('data_agent_migration_records')
-    .select('id, source_row_data').eq('migration_id', migration.id).eq('write_status', 'pending').order('row_number').limit(BATCH_SIZE)
-  const pending = (pendingRows ?? []) as { id: string; source_row_data: Record<string, string> }[]
+  const staleThreshold = new Date(Date.now() - STALE_CLAIM_MS).toISOString()
+  const { data: candidateRows, error: candidateErr } = await serviceClient.from('data_agent_migration_records')
+    .select('id').eq('migration_id', migration.id).eq('write_status', 'pending')
+    .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`)
+    .order('row_number').limit(BATCH_SIZE)
+  if (candidateErr) { console.error(`Data Agent worker: failed to list pending records for migration ${migration.id}:`, candidateErr); return }
+  const candidateIds = (candidateRows ?? []).map(r => (r as { id: string }).id)
 
-  if (pending.length === 0) {
+  if (candidateIds.length === 0) {
     const { count } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
       .eq('migration_id', migration.id).eq('write_status', 'pending')
-    if ((count ?? 0) === 0) await serviceClient.from('data_agent_migrations').update({ status: 'verifying' }).eq('id', migration.id)
+    if ((count ?? 0) === 0) {
+      const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'verifying' }).eq('id', migration.id)
+      if (error) console.error(`Data Agent worker: failed to transition migration ${migration.id} to verifying:`, error)
+    }
     return
   }
+
+  // Atomic claim: the WHERE clause re-checks write_status/claimed_at in
+  // the SAME statement, so a row another tick already claimed between
+  // our SELECT above and this UPDATE simply won't match here and won't
+  // come back from .select() — no double-processing, no extra locking
+  // primitive needed.
+  const { data: claimedRows, error: claimErr } = await serviceClient.from('data_agent_migration_records')
+    .update({ claimed_at: new Date().toISOString() })
+    .in('id', candidateIds).eq('write_status', 'pending')
+    .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`)
+    .select('id, source_row_data')
+  if (claimErr) { console.error(`Data Agent worker: failed to claim records for migration ${migration.id}:`, claimErr); return }
+  const pending = (claimedRows ?? []) as { id: string; source_row_data: Record<string, string> }[]
+  if (pending.length === 0) return // everything was claimed by a concurrent tick between our select and update
 
   const isContact = migration.target_object_type === 'contact'
   const writer = buildWriter(isContact, config, migration.target_object_type, migration.match_key_column)
 
-  const rows: BatchRow[] = pending.map(r => {
-    const built = buildGhlFields(r.source_row_data, mappings, migration.default_country_code)
+  const builtRows = pending.map(r => ({ record: r, built: buildGhlFields(r.source_row_data, mappings, migration.default_country_code) }))
+
+  // A row where every mapped column came back blank would otherwise still
+  // be create()'d/replace()'d as an essentially-empty GHL record — mark
+  // it skipped instead of writing it at all.
+  const blankIds = builtRows.filter(b => isBlankBuiltFields(b.built)).map(b => b.record.id)
+  if (blankIds.length > 0) {
+    const { error } = await serviceClient.from('data_agent_migration_records')
+      .update({ write_status: 'skipped', written_at: new Date().toISOString(), claimed_at: null }).in('id', blankIds)
+    if (error) console.error(`Data Agent worker: failed to mark blank records skipped for migration ${migration.id}:`, error)
+  }
+
+  const rows: BatchRow[] = builtRows.filter(b => !isBlankBuiltFields(b.built)).map(({ record: r, built }) => {
     const fields = isContact
       ? { ...built.standardFields, customFields: built.customFields, tags: built.tags }
       : { ...built.standardFields, ...Object.fromEntries(built.customFields.map(c => [c.id, c.value])) }
@@ -4464,20 +4581,38 @@ async function processMigratingMigration(serviceClient: SupabaseClient, migratio
 
   const results = await writeRecordBatch(rows, writer)
   for (const result of results) {
-    if (result.writeStatus === 'pending') continue // 429 — untouched, retried next tick
-    await serviceClient.from('data_agent_migration_records').update({
+    if (result.writeStatus === 'pending') {
+      // 429 — release the claim so the very next tick can retry
+      // immediately rather than waiting out the stale-claim window.
+      const { error } = await serviceClient.from('data_agent_migration_records').update({ claimed_at: null }).eq('id', result.recordId)
+      if (error) console.error(`Data Agent worker: failed to release claim on record ${result.recordId}:`, error)
+      continue
+    }
+    const { error } = await serviceClient.from('data_agent_migration_records').update({
       write_status: result.writeStatus, ghl_record_id: result.ghlRecordId,
       pre_replace_snapshot: result.preReplaceSnapshot, error_message: result.errorMessage,
       written_at: result.writeStatus === 'failed' ? null : new Date().toISOString(),
+      claimed_at: null,
     }).eq('id', result.recordId)
+    if (error) {
+      // This DB write failing right after a successful GHL write is a
+      // genuine dual-write risk this plan accepts without a full outbox
+      // pattern (out of scope for this task) — the row stays claimed
+      // until the stale window expires, then gets retried and MAY create
+      // a duplicate GHL record for a custom object (contacts self-heal
+      // via GHL's upsert-by-email, per Task 5). Logging loudly here is
+      // the mitigation: it turns a silent failure into an operationally
+      // visible one instead of pretending this write-back can't fail.
+      console.error(`Data Agent worker: CRITICAL — GHL write for record ${result.recordId} succeeded (${result.writeStatus}, ghl id ${result.ghlRecordId}) but writing that result back to the database failed — this row will be retried after the stale-claim window and may create a duplicate GHL record:`, error)
+    }
   }
 }
 ```
 
-- [ ] **Step 8: Typecheck and commit**
+- [ ] **Step 9: Typecheck and commit**
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentWriter.test.ts`
-Expected: PASS (13 tests).
+Expected: PASS (18 tests).
 
 Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json` (the real check for `dataAgentGhlClient.ts`/`dataAgentWriter.ts` — see Task 6's Global Constraint).
 Expected: no errors.
