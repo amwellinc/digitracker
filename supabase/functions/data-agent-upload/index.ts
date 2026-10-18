@@ -3,6 +3,7 @@ import { parseCsvWithHeaders } from '../_shared/parseCsv.ts'
 import { planColumnMappings, computeMigrationStatus, buildTargetFields, type CachedGhlField } from '../_shared/dataAgentUploadPlanner.ts'
 import type { SourceProfileEntry } from '../_shared/dataAgentMatching.ts'
 import { ensureSchemaCacheFresh } from '../_shared/dataAgentSchemaCache.ts'
+import { planWithClaude } from './planWithClaude.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -85,7 +86,9 @@ Deno.serve(async (req) => {
     : { data: [] as SourceProfileEntry[] }
   const sourceProfiles = (profileRows ?? []) as SourceProfileEntry[]
 
-  const plan = planColumnMappings(headers, rows, sourceSystem, targetFields, sourceProfiles)
+  const rulesPlan = planColumnMappings(headers, rows, sourceSystem, targetFields, sourceProfiles)
+  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+  const plan = anthropicKey ? await planWithClaude(rulesPlan, targetFields, sourceSystem, anthropicKey) : rulesPlan
   const status = computeMigrationStatus(plan)
 
   const { data: migration, error: migrationErr } = await serviceClient.from('data_agent_migrations').insert({
@@ -101,6 +104,7 @@ Deno.serve(async (req) => {
       migration_id: migrationId, source_column_name: p.source_column_name, sample_values: p.sample_values,
       target_type: p.target_type, target_field_key: p.target_field_key, status: p.status,
       confidence: p.confidence, mapped_by: p.mapped_by, metadata: p.metadata,
+      reasoning: p.reasoning ?? null,
     }))
   )
   if (mappingsErr) {

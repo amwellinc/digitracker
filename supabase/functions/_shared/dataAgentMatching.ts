@@ -33,7 +33,7 @@ export interface ColumnClassificationMetadata {
 
 export interface ColumnClassification {
   status: 'mapped' | 'uncertain' | 'unmapped'
-  mapped_by: 'rule' | 'source_profile' | null
+  mapped_by: 'rule' | 'source_profile' | 'claude' | null
   target_field_key: string | null
   target_type: 'standard_field' | 'custom_field' | 'tag' | 'ignored'
   confidence: number | null

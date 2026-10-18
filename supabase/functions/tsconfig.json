@@ -9,7 +9,7 @@
     "allowImportingTsExtensions": true,
     "isolatedModules": true
   },
-  "include": ["_shared/**/*.ts"],
+  "include": ["_shared/**/*.ts", "data-agent-upload/planWithClaude.ts"],
   "exclude": [
     "_shared/__tests__",
     "_shared/dataAgentSchemaCache.ts",
