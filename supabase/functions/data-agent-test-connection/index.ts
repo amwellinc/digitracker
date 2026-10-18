@@ -14,12 +14,23 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } })
 }
 
+// IMPORTANT: every branch below returns HTTP 200. supabase-js's
+// functions.invoke() throws a generic FunctionsHttpError — whose .message
+// is ALWAYS the fixed string "Edge Function returned a non-2xx status
+// code", never this function's own text — for any non-2xx response; the
+// real body only reaches the caller via `error.context`, which none of
+// this plan's UI callers read. Returning 200 with `{ ok, error }` for
+// every business outcome is what actually lets `data.error` reach the UI
+// as written (verified against the installed @supabase/functions-js
+// source). Only true protocol-level cases (CORS preflight, wrong method)
+// stay as real HTTP status codes, since the UI only ever sends POST and
+// never has to parse those.
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader) return json({ error: 'Missing authorization header' }, 401)
+  if (!authHeader) return json({ error: 'Missing authorization header' })
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
@@ -27,26 +38,26 @@ Deno.serve(async (req) => {
 
   const callerClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } })
   const { data: { user: callerAuth }, error: callerErr } = await callerClient.auth.getUser()
-  if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' }, 401)
+  if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' })
 
   let body: { subAccount?: unknown }
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
+  try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }) }
   const subAccount = typeof body.subAccount === 'string' ? body.subAccount : ''
-  if (!subAccount) return json({ error: 'subAccount is required' }, 400)
+  if (!subAccount) return json({ error: 'subAccount is required' })
 
   const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: subAccount })
-  if (!isMember) return json({ ok: false, error: 'Not authorized for this sub-account' }, 403)
+  if (!isMember) return json({ ok: false, error: 'Not authorized for this sub-account' })
 
   const serviceClient = createClient(supabaseUrl, serviceKey)
   const { data: connection } = await serviceClient.from('data_agent_connections')
     .select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
-  if (!connection) return json({ ok: false, error: 'No connection saved for this sub-account yet' }, 400)
+  if (!connection) return json({ ok: false, error: 'No connection saved for this sub-account yet' })
 
   const { data: secretRow } = await serviceClient
     .schema('vault').from('decrypted_secrets').select('decrypted_secret')
     .eq('name', (connection as { secret_name: string }).secret_name).maybeSingle()
   const pit = (secretRow as { decrypted_secret?: string } | null)?.decrypted_secret
-  if (!pit) return json({ ok: false, error: 'Saved token could not be read from Vault' }, 500)
+  if (!pit) return json({ ok: false, error: 'Saved token could not be read from Vault' })
 
   const config = { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
 
@@ -55,6 +66,12 @@ Deno.serve(async (req) => {
     await serviceClient.from('data_agent_connections').update({ last_verified_at: new Date().toISOString() }).eq('sub_account', subAccount)
     return json({ ok: true })
   } catch (err) {
-    return json({ ok: false, error: err instanceof Error ? err.message : String(err) })
+    // GHL's own response text (surfaced via assertOk() in dataAgentGhlClient.ts)
+    // is logged in full server-side only, never forwarded to the browser —
+    // an unverified third-party API echoing back any form of the submitted
+    // token in an error body is a real secret-leak vector this function
+    // must not relay to the client.
+    console.error('data-agent-test-connection: GHL call failed', err)
+    return json({ ok: false, error: 'Could not verify the connection — check the Location ID and token, then try again.' })
   }
 })
