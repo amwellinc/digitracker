@@ -101,6 +101,17 @@ export function MappingReviewPage() {
     if (error) setPageError(error.message)
   }
 
+  const [undoing, setUndoing] = useState(false)
+  const [undoError, setUndoError] = useState<string | null>(null)
+
+  async function undoMigration() {
+    if (!migrationId) return
+    setUndoing(true); setUndoError(null)
+    const { error } = await supabase.rpc('request_data_agent_undo', { p_migration_id: migrationId })
+    setUndoing(false)
+    if (error) setUndoError(error.message)
+  }
+
   const allResolved = mappings.length > 0 && mappings.every(m => m.status === 'mapped')
 
   return (
@@ -170,6 +181,16 @@ export function MappingReviewPage() {
         className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 rounded-md px-4 py-2">
         {confirming ? 'Starting…' : 'Confirm & Migrate'}
       </button>
+
+      {migration?.status === 'completed' && (
+        <div className="space-y-1">
+          <button onClick={() => void undoMigration()} disabled={undoing}
+            className="text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-50 rounded-md px-4 py-2">
+            {undoing ? 'Undoing…' : 'Undo Migration'}
+          </button>
+          {undoError && <p role="alert" className="text-sm text-red-600">{undoError}</p>}
+        </div>
+      )}
     </div>
   )
 }

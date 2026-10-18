@@ -141,4 +141,20 @@ describe('MappingReviewPage', () => {
     }))
     expect(await screen.findByText('Mapped to Notes.')).toBeInTheDocument()
   })
+
+  it('shows an Undo button only once the migration has completed, and calls request_data_agent_undo', async () => {
+    Object.assign(migrationRow, { status: 'completed' })
+    mappingRows = [{ id: 'cm-1', source_column_name: 'Email', status: 'mapped', target_field_key: 'email', target_type: 'standard_field', mapped_by: 'rule', metadata: {} }]
+    renderAt('mig-1')
+    const undoBtn = await screen.findByRole('button', { name: /undo migration/i })
+    await userEvent.click(undoBtn)
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('request_data_agent_undo', { p_migration_id: 'mig-1' }))
+  })
+
+  it('does not show Undo while the migration is still in progress', async () => {
+    Object.assign(migrationRow, { status: 'mapping' })
+    renderAt('mig-1')
+    await screen.findByText('Mystery')
+    expect(screen.queryByRole('button', { name: /undo migration/i })).not.toBeInTheDocument()
+  })
 })
