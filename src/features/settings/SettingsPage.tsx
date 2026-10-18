@@ -37,12 +37,9 @@ export function SettingsPage() {
     { id: 'departments',  label: 'Departments' },
     { id: 'subscription', label: 'Subscription' },
     { id: 'ghl',          label: '🔗 DIGI5Y-CRM Integration' },
+    ...(isAdmin && entitled ? [{ id: 'data-agent' as const, label: '🧭 Data Agent' }] : []),
     { id: 'archive',      label: '🗄 Archive' },
   ]
-
-  if (isAdmin && entitled) {
-    businessTabs.push({ id: 'data-agent', label: '🧭 Data Agent' })
-  }
 
   return (
     <div>

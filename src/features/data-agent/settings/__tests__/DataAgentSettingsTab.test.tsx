@@ -52,4 +52,49 @@ describe('DataAgentSettingsTab', () => {
     expect(await screen.findByDisplayValue('loc_999')).toBeInTheDocument()
     expect(screen.queryByText(/pit_/)).not.toBeInTheDocument()
   })
+
+  it('enables Test Connection immediately after a successful first-time save, with no reload needed', async () => {
+    render(<DataAgentSettingsTab />)
+    await userEvent.type(await screen.findByLabelText(/GHL Location ID/i), 'loc_123')
+    await userEvent.type(screen.getByLabelText(/Private Integration Token/i), 'pit_abc')
+    const testBtn = screen.getByRole('button', { name: /test connection/i })
+    expect(testBtn).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: /save connection/i }))
+    await waitFor(() => expect(testBtn).toBeEnabled())
+  })
+
+  it('shows named candidates for explicit selection rather than auto-granting a partial-name match', async () => {
+    const ilikeMock = vi.fn().mockResolvedValue({ data: [{ id: 'u1', name: 'Jo Smith' }, { id: 'u2', name: 'Jo Lee' }] })
+    vi.mocked(await import('@/lib/supabase')).supabase.from = vi.fn((table: string) => {
+      if (table === 'data_agent_connections') return { select: () => ({ eq: () => ({ maybeSingle: () => connectionSingle() }) }) }
+      if (table === 'data_agent_members') return { select: () => ({ eq: () => membersData() }), insert: (...args: unknown[]) => insertMock(...args) }
+      return { select: () => ({ eq: () => ({ eq: () => ({ ilike: () => ilikeMock() }) }) }) }
+    }) as never
+
+    render(<DataAgentSettingsTab />)
+    await userEvent.type(await screen.findByLabelText(/search your team/i), 'jo')
+    await userEvent.click(screen.getByRole('button', { name: /^search$/i }))
+
+    expect(await screen.findByRole('button', { name: /jo smith/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /jo lee/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /jo lee/i }))
+    await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ sub_account: 'AM333', user_id: 'u2', added_by: 'admin-1' }))
+  })
+
+  it('surfaces a grant error instead of claiming success', async () => {
+    const ilikeMock = vi.fn().mockResolvedValue({ data: [{ id: 'u1', name: 'Jo Smith' }] })
+    vi.mocked(await import('@/lib/supabase')).supabase.from = vi.fn((table: string) => {
+      if (table === 'data_agent_connections') return { select: () => ({ eq: () => ({ maybeSingle: () => connectionSingle() }) }) }
+      if (table === 'data_agent_members') return { select: () => ({ eq: () => membersData() }), insert: (...args: unknown[]) => insertMock(...args) }
+      return { select: () => ({ eq: () => ({ eq: () => ({ ilike: () => ilikeMock() }) }) }) }
+    }) as never
+    insertMock.mockResolvedValue({ error: { message: 'duplicate key' } })
+
+    render(<DataAgentSettingsTab />)
+    await userEvent.type(await screen.findByLabelText(/search your team/i), 'jo')
+    await userEvent.click(screen.getByRole('button', { name: /^search$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /jo smith/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/duplicate key/i)
+  })
 })
