@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -26,17 +26,19 @@ describe('DataAgentEntitlementsTab', () => {
 
   it('lists every sub-account with its current entitlement state', async () => {
     render(<DataAgentEntitlementsTab />)
-    expect(await screen.findByText('AM333 Wellness')).toBeInTheDocument()
-    expect(screen.getByText('Dermitage')).toBeInTheDocument()
-    const toggles = screen.getAllByRole('checkbox')
+    const list = within(await screen.findByTestId('data-agent-entitlements-list'))
+    expect(await list.findByText('AM333 Wellness')).toBeInTheDocument()
+    expect(list.getByText('Dermitage')).toBeInTheDocument()
+    const toggles = list.getAllByRole('checkbox')
     expect(toggles[0]).toBeChecked()
     expect(toggles[1]).not.toBeChecked()
   })
 
   it('enabling a sub-account upserts data_agent_entitlements', async () => {
     render(<DataAgentEntitlementsTab />)
-    await screen.findByText('Dermitage')
-    const toggles = screen.getAllByRole('checkbox')
+    const list = within(await screen.findByTestId('data-agent-entitlements-list'))
+    await list.findByText('Dermitage')
+    const toggles = list.getAllByRole('checkbox')
     await userEvent.click(toggles[1])
     await waitFor(() => expect(upsertMock).toHaveBeenCalledWith(
       'data_agent_entitlements',
@@ -47,8 +49,9 @@ describe('DataAgentEntitlementsTab', () => {
   it('surfaces an upsert error without flipping the checkbox', async () => {
     upsertMock.mockResolvedValue({ error: { message: 'permission denied' } })
     render(<DataAgentEntitlementsTab />)
-    await screen.findByText('Dermitage')
-    const toggles = screen.getAllByRole('checkbox')
+    const list = within(await screen.findByTestId('data-agent-entitlements-list'))
+    await list.findByText('Dermitage')
+    const toggles = list.getAllByRole('checkbox')
     await userEvent.click(toggles[1])
     expect(await screen.findByRole('alert')).toHaveTextContent(/permission denied/i)
     expect(toggles[1]).not.toBeChecked()

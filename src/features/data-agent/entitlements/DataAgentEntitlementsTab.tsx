@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
+import { ProviderClientsPanel } from './ProviderClientsPanel'
 
 interface SubAccountRow { code: string; company_name: string }
 interface EntitlementRow { sub_account: string; enabled: boolean }
@@ -41,7 +42,7 @@ export function DataAgentEntitlementsTab() {
       <p className="text-sm text-gray-500">
         Toggle Data Agent access per sub-account. This is a manual grant, independent of their subscription plan.
       </p>
-      <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
+      <div data-testid="data-agent-entitlements-list" className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
         {accounts.map(a => (
           <label key={a.code} className="flex items-center justify-between px-4 py-3 text-sm">
             <span>{a.company_name} <span className="text-gray-400 font-mono text-xs">{a.code}</span></span>
@@ -56,6 +57,10 @@ export function DataAgentEntitlementsTab() {
         ))}
       </div>
       {errorMsg && <p role="alert" className="text-sm text-red-600">{errorMsg}</p>}
+      <div className="pt-4 border-t border-gray-100">
+        <h4 className="text-sm font-semibold text-gray-900 mb-2">Service Providers</h4>
+        <ProviderClientsPanel />
+      </div>
     </div>
   )
 }
