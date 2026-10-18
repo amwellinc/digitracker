@@ -17,7 +17,7 @@ export function MappingReviewPage() {
   const [migration, setMigration] = useState<DataAgentMigration | null>(null)
   const [mappings, setMappings] = useState<DataAgentColumnMapping[]>([])
   const [targetFields, setTargetFields] = useState<TargetFieldOption[]>([])
-  const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [pageError, setPageError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [defaultCountryCode, setDefaultCountryCode] = useState('')
 
@@ -57,7 +57,8 @@ export function MappingReviewPage() {
             target_field_key: choice, mapped_by: 'user' as const, confirmed_by_user: true,
           }
         })()
-    await supabase.from('data_agent_column_mappings').update(update).eq('id', mapping.id)
+    const { error } = await supabase.from('data_agent_column_mappings').update(update).eq('id', mapping.id)
+    if (error) { setPageError(`Could not update "${mapping.source_column_name}": ${error.message}`); return }
     await loadMappings()
   }
 
@@ -65,14 +66,19 @@ export function MappingReviewPage() {
 
   async function confirmMigration() {
     if (!migrationId) return
-    setConfirming(true); setConfirmError(null)
-    if (needsCountryCode) {
-      if (!defaultCountryCode.trim()) { setConfirming(false); setConfirmError('A default country code is required for at least one phone column.'); return }
-      await supabase.from('data_agent_migrations').update({ default_country_code: defaultCountryCode.trim() }).eq('id', migrationId)
+    setConfirming(true); setPageError(null)
+    if (needsCountryCode && !defaultCountryCode.trim()) {
+      setConfirming(false); setPageError('A default country code is required for at least one phone column.'); return
     }
-    const { error } = await supabase.rpc('confirm_data_agent_migration', { p_migration_id: migrationId })
+    // There is no client UPDATE policy on data_agent_migrations (Task 7) —
+    // the default country code is passed as an RPC parameter instead of a
+    // separate prior write, which would silently no-op under RLS (0 rows
+    // matched, no error) rather than actually persisting.
+    const { error } = await supabase.rpc('confirm_data_agent_migration', {
+      p_migration_id: migrationId, p_default_country_code: needsCountryCode ? defaultCountryCode.trim() : null,
+    })
     setConfirming(false)
-    if (error) setConfirmError(error.message)
+    if (error) setPageError(error.message)
   }
 
   const allResolved = mappings.length > 0 && mappings.every(m => m.status === 'mapped')
@@ -96,7 +102,12 @@ export function MappingReviewPage() {
             </span>
             <select
               aria-label={`Map "${m.source_column_name}" to`}
-              value={m.target_field_key ?? (m.target_type === 'ignored' ? 'ignore' : '')}
+              // target_type === 'ignored' alone does NOT mean the user chose to ignore
+              // this column — classifyColumn's no-match default (Task 6) also sets
+              // target_type: 'ignored' on a genuinely unmapped/red column, which still
+              // has status !== 'mapped'. Only a column BOTH mapped AND typed 'ignored'
+              // was actually ignored by a human.
+              value={m.target_field_key ?? (m.status === 'mapped' && m.target_type === 'ignored' ? 'ignore' : '')}
               onChange={e => void remap(m, e.target.value)}
               className="input text-xs"
             >
@@ -118,7 +129,7 @@ export function MappingReviewPage() {
         </div>
       )}
 
-      {confirmError && <p role="alert" className="text-sm text-red-600">{confirmError}</p>}
+      {pageError && <p role="alert" className="text-sm text-red-600">{pageError}</p>}
       <button onClick={() => void confirmMigration()} disabled={!allResolved || confirming}
         className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 rounded-md px-4 py-2">
         {confirming ? 'Starting…' : 'Confirm & Migrate'}

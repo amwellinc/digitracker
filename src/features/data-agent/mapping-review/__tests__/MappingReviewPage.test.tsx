@@ -7,6 +7,10 @@ const migrationRow = { id: 'mig-1', sub_account: 'AM333', target_object_type: 'c
 let mappingRows: Record<string, unknown>[] = []
 const updateMock = vi.fn()
 const rpcMock = vi.fn()
+// Lets a test inject a write failure — the mock's own .eq() resolution
+// reads this, rather than always resolving { error: null }, so a test can
+// actually exercise the "surface a remap write error" path.
+let mappingUpdateError: { message: string } | null = null
 
 vi.mock('@/hooks/useRealtime', () => ({ useRealtime: () => {} }))
 vi.mock('@/lib/supabase', () => ({
@@ -22,7 +26,7 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'data_agent_column_mappings') {
         return {
           select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: mappingRows }) }) }),
-          update: (...args: unknown[]) => { updateMock(...args); return { eq: () => Promise.resolve({ error: null }) } },
+          update: (...args: unknown[]) => { updateMock(...args); return { eq: () => Promise.resolve({ error: mappingUpdateError }) } },
         }
       }
       // NOTE: the brief's own mock here only chained a single `.eq()` before
@@ -52,6 +56,7 @@ describe('MappingReviewPage', () => {
   beforeEach(() => {
     updateMock.mockReset()
     rpcMock.mockReset().mockResolvedValue({ error: null })
+    mappingUpdateError = null
     mappingRows = [
       { id: 'cm-1', source_column_name: 'Email', status: 'mapped', target_field_key: 'email', target_type: 'standard_field', mapped_by: 'rule', metadata: {} },
       { id: 'cm-2', source_column_name: 'Mystery', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} },
@@ -86,7 +91,7 @@ describe('MappingReviewPage', () => {
     const confirmBtn = await screen.findByRole('button', { name: /confirm & migrate/i })
     expect(confirmBtn).toBeEnabled()
     await userEvent.click(confirmBtn)
-    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1' }))
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1', p_default_country_code: null }))
   })
 
   it('shows a default-country-code input when a mapped phone column has absent/mixed country codes, and saves it before confirming', async () => {
@@ -95,7 +100,25 @@ describe('MappingReviewPage', () => {
     const input = await screen.findByLabelText(/default country code/i)
     await userEvent.type(input, '+65')
     await userEvent.click(screen.getByRole('button', { name: /confirm & migrate/i }))
-    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ default_country_code: '+65' }))
-    expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1' })
+    // There is no client UPDATE policy on data_agent_migrations (Task 7) —
+    // the default country code must travel through the RPC parameter, not
+    // a separate direct write, which would silently no-op under RLS.
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1', p_default_country_code: '+65' }))
+    expect(updateMock).not.toHaveBeenCalledWith({ default_country_code: '+65' })
+  })
+
+  it('does not pre-select "Ignore this column" for a genuinely unmapped column, even though classifyColumn also sets target_type "ignored" on its own no-match default', async () => {
+    mappingRows = [{ id: 'cm-2', source_column_name: 'Mystery', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} }]
+    renderAt('mig-1')
+    const select = await screen.findByLabelText(/map "Mystery" to/i) as HTMLSelectElement
+    expect(select.value).toBe('')
+  })
+
+  it('surfaces a remap write error instead of silently leaving the column unchanged', async () => {
+    mappingRows = [{ id: 'cm-2', source_column_name: 'Mystery', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} }]
+    mappingUpdateError = { message: 'row-level security violation' }
+    renderAt('mig-1')
+    await userEvent.selectOptions(await screen.findByLabelText(/map "Mystery" to/i), 'ignore')
+    expect(await screen.findByRole('alert')).toHaveTextContent(/row-level security violation/i)
   })
 })
