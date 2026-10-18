@@ -4644,14 +4644,14 @@ git commit -m "feat: add the Data Agent write pipeline (migrating phase)"
 
 **Interfaces:**
 - Consumes: `ConfirmedMapping`, `getFieldValue`, `STALE_CLAIM_MS` (Task 15); `getContact` (Task 5).
-- Produces: `computeSampleSize(total: number): number`, `selectRandomSample<T>(items: T[], size: number, randomFn?: () => number): T[]`, `flattenGhlRecordFields(raw: Record<string, unknown>): Record<string, unknown>`, `compareFields(sourceRow, mappings, flattenedActual): FieldComparison[]`, `getObjectRecord(config, objectKey, recordId): Promise<GhlObjectRecord>`. `data_agent_migrations.claimed_at` column.
+- Produces: `computeSampleSize(total: number): number`, `selectRandomSample<T>(items: T[], size: number, randomFn?: () => number): T[]`, `sampleOffsets(total: number, size: number, randomFn?: () => number): number[]`, `flattenGhlRecordFields(raw: Record<string, unknown>): Record<string, unknown>`, `compareFields(sourceRow, mappings, flattenedActual): FieldComparison[]`, `getObjectRecord(config, objectKey, recordId): Promise<GhlObjectRecord>`. `data_agent_migrations.claimed_at` column.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // supabase/functions/_shared/__tests__/dataAgentQa.test.ts
 import { describe, it, expect } from 'vitest'
-import { computeSampleSize, selectRandomSample, flattenGhlRecordFields, compareFields } from '../dataAgentQa'
+import { computeSampleSize, selectRandomSample, sampleOffsets, flattenGhlRecordFields, compareFields } from '../dataAgentQa'
 import type { ConfirmedMapping } from '../dataAgentWriter'
 
 describe('computeSampleSize', () => {
@@ -4675,6 +4675,22 @@ describe('selectRandomSample', () => {
   })
   it('returns an empty array for size 0', () => {
     expect(selectRandomSample([1, 2, 3], 0)).toEqual([])
+  })
+})
+
+describe('sampleOffsets', () => {
+  it('REVIEW FINDING: returns distinct offsets within [0, total) without ever materializing an array of size `total` (selectRandomSample over a full index range scales O(total) in both memory and time — unacceptable once `total` is large, which Task 16\'s own commit calls a mainline scenario for this tool)', () => {
+    const offsets = sampleOffsets(1_000_000, 10)
+    expect(offsets).toHaveLength(10)
+    expect(new Set(offsets).size).toBe(10)
+    for (const o of offsets) { expect(o).toBeGreaterThanOrEqual(0); expect(o).toBeLessThan(1_000_000) }
+  })
+  it('returns the full range (deduplicated) when size >= total', () => {
+    expect(sampleOffsets(3, 5).slice().sort((a, b) => a - b)).toEqual([0, 1, 2])
+  })
+  it('returns an empty array for size 0 or total 0', () => {
+    expect(sampleOffsets(10, 0)).toEqual([])
+    expect(sampleOffsets(0, 5)).toEqual([])
   })
 })
 
@@ -4738,6 +4754,22 @@ export function selectRandomSample<T>(items: T[], size: number, randomFn: () => 
   return result
 }
 
+// Picks `size` distinct offsets in [0, total) without ever materializing
+// a `total`-length array — selectRandomSample over Array.from({length:
+// total}) scales O(total) in both memory and time (its own internal
+// `[...items]` copy plus up to `size` O(pool.length) splices), which is
+// fine for a small list but a real cost once `total` is the written-row
+// count of a large migration (this tool's own mainline case, not an edge
+// case). Rejection sampling into a Set is O(size) in the common case
+// (size is capped at 50 by computeSampleSize, so collisions are rare).
+export function sampleOffsets(total: number, size: number, randomFn: () => number = Math.random): number[] {
+  if (size <= 0 || total <= 0) return []
+  if (size >= total) return Array.from({ length: total }, (_, i) => i)
+  const chosen = new Set<number>()
+  while (chosen.size < size) chosen.add(Math.floor(randomFn() * total))
+  return [...chosen]
+}
+
 export function flattenGhlRecordFields(raw: Record<string, unknown>): Record<string, unknown> {
   const { customFields, ...rest } = raw as { customFields?: { id: string; value: unknown }[] }
   const flat: Record<string, unknown> = { ...rest }
@@ -4764,7 +4796,7 @@ export function compareFields(sourceRow: Record<string, string>, mappings: Confi
 - [ ] **Step 3: Run the test**
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentQa.test.ts`
-Expected: PASS (14 tests).
+Expected: PASS (17 tests).
 
 - [ ] **Step 4: Add `getObjectRecord` (custom-object get-by-id) to the GHL client**
 
@@ -4803,7 +4835,7 @@ git commit -m "feat: add a claim column so the Data Agent worker can't double-pr
 In `supabase/functions/data-agent-worker/index.ts`, add the import:
 
 ```ts
-import { computeSampleSize, selectRandomSample, flattenGhlRecordFields, compareFields } from '../_shared/dataAgentQa.ts'
+import { computeSampleSize, sampleOffsets, flattenGhlRecordFields, compareFields } from '../_shared/dataAgentQa.ts'
 import { getContact, getObjectRecord } from '../_shared/dataAgentGhlClient.ts'
 ```
 
@@ -4847,8 +4879,10 @@ async function processVerifyingMigration(serviceClient: SupabaseClient, migratio
   // silently capped at PostgREST's default page size for any migration
   // with more written rows than that cap, biasing the sample toward an
   // arbitrary (and, without an explicit order, undefined) subset instead
-  // of being genuinely representative.
-  const offsets = sampleSize > 0 ? selectRandomSample(Array.from({ length: totalWritten ?? 0 }, (_, i) => i), sampleSize) : []
+  // of being genuinely representative. sampleOffsets (not
+  // selectRandomSample over a materialized index array) keeps this
+  // O(sampleSize) instead of O(totalWritten) for a large migration.
+  const offsets = sampleOffsets(totalWritten ?? 0, sampleSize)
   const sample: { id: string; source_row_data: Record<string, string>; ghl_record_id: string }[] = []
   for (const offset of offsets) {
     const { data: rows, error: rowErr } = await serviceClient.from('data_agent_migration_records')
