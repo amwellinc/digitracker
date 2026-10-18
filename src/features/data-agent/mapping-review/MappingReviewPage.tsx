@@ -48,6 +48,7 @@ export function MappingReviewPage() {
   }, [migration?.sub_account, migration?.target_object_type])
 
   useRealtime({ table: 'data_agent_column_mappings', filter: migrationId ? `migration_id=eq.${migrationId}` : undefined, onUpdate: () => void loadMappings() })
+  useRealtime({ table: 'data_agent_migrations', filter: migrationId ? `id=eq.${migrationId}` : undefined, onUpdate: row => setMigration(row as unknown as DataAgentMigration) })
 
   async function remap(mapping: DataAgentColumnMapping, choice: string) {
     const update = choice === 'ignore'
