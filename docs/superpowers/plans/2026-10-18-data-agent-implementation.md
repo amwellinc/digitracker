@@ -4211,7 +4211,7 @@ export function getFieldValue(sourceRow: Record<string, string>, mappings: Confi
 ```
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentWriter.test.ts`
-Expected: PASS (11 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 4: Write the failing test for batch writing (Review Focus #2 and #3)**
 
@@ -4354,7 +4354,7 @@ export async function writeRecordBatch(rows: BatchRow[], writer: GhlRecordWriter
 - [ ] **Step 6: Run the full test file**
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentWriter.test.ts`
-Expected: PASS (14 tests).
+Expected: PASS (13 tests).
 
 - [ ] **Step 7: Write the worker edge function's `migrating`-phase handler**
 
@@ -4477,7 +4477,7 @@ async function processMigratingMigration(serviceClient: SupabaseClient, migratio
 - [ ] **Step 8: Typecheck and commit**
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentWriter.test.ts`
-Expected: PASS (14 tests).
+Expected: PASS (13 tests).
 
 Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json` (the real check for `dataAgentGhlClient.ts`/`dataAgentWriter.ts` — see Task 6's Global Constraint).
 Expected: no errors.
