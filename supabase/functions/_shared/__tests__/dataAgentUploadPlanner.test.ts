@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planColumnMappings, computeMigrationStatus } from '../dataAgentUploadPlanner'
+import { planColumnMappings, computeMigrationStatus, buildTargetFields } from '../dataAgentUploadPlanner'
 import type { TargetField } from '../dataAgentMatching'
 
 const FIELDS: TargetField[] = [
@@ -38,6 +38,36 @@ describe('planColumnMappings', () => {
     const plan = planColumnMappings(['Email'], [], null, FIELDS, [])
     expect(plan[0].sample_values).toEqual([])
     expect(plan[0].status).toBe('mapped')
+  })
+
+  it('does not mix an email-subtype column into the phone primary-candidate grouping', () => {
+    const fieldsWithWorkEmail: TargetField[] = [...FIELDS, { key: 'custom_work_email', label: 'Work Email', type: 'custom' }]
+    const rows = [{ Phone: '+14155550001', 'Work Email': 'jane@x.com' }]
+    const plan = planColumnMappings(['Phone', 'Work Email'], rows, null, fieldsWithWorkEmail, [])
+    const phone = plan.find(p => p.source_column_name === 'Phone')!
+    const workEmail = plan.find(p => p.source_column_name === 'Work Email')!
+    expect(workEmail.target_field_key).toBe('custom_work_email')
+    expect(workEmail.metadata.is_primary_candidate).toBeUndefined()
+    expect(phone.metadata.is_primary_candidate).toBeUndefined()
+  })
+})
+
+describe('buildTargetFields', () => {
+  it('bridges the real cached custom-field shape ({id, fieldKey, name}) into TargetField ({key, label, type}), using the GHL field id as the key', () => {
+    const fields = buildTargetFields('contact', [{ id: 'abc123', fieldKey: 'mobile_phone', name: 'Mobile Phone' }])
+    expect(fields).toContainEqual({ key: 'abc123', label: 'Mobile Phone', type: 'custom' })
+  })
+
+  it('includes the hardcoded standard contact fields for object type "contact"', () => {
+    const fields = buildTargetFields('contact', [])
+    expect(fields.map(f => f.key)).toContain('email')
+    expect(fields.map(f => f.key)).toContain('phone')
+    expect(fields.find(f => f.key === 'email')?.type).toBe('standard')
+  })
+
+  it('excludes standard contact fields for a Custom Object target (they do not apply)', () => {
+    const fields = buildTargetFields('orders', [{ id: 'xyz789', fieldKey: 'order_number', name: 'Order Number' }])
+    expect(fields).toEqual([{ key: 'xyz789', label: 'Order Number', type: 'custom' }])
   })
 })
 
