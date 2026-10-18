@@ -8,10 +8,13 @@ const migrationsData = [
 ]
 const membersData = [{ user_id: 'u1', users: { name: 'Jane' } }]
 
+vi.mock('@/hooks/useRealtime', () => ({ useRealtime: () => {} }))
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'u1', sub_account: 'AM333' } }) }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: vi.fn((table: string) => {
       if (table === 'data_agent_migrations') return { select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: migrationsData }) }) }) }
+      if (table === 'data_agent_chat_messages') return { select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: [] }) }) }) }
       return { select: () => ({ eq: () => Promise.resolve({ data: membersData }) }) }
     }),
   },

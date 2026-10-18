@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { computeDashboardStats, type DashboardMigrationLike } from './dashboardStats'
+import { DataAgentChat } from '../chat/DataAgentChat'
 
 interface MigrationRow extends DashboardMigrationLike { id: string; original_filename: string }
 interface MemberRow { user_id: string; users: { name: string } | null }
@@ -73,6 +74,8 @@ export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
           {members.map(m => <li key={m.user_id}>{m.users?.name}</li>)}
         </ul>
       </div>
+
+      <DataAgentChat subAccount={subAccount} />
     </div>
   )
 }
