@@ -96,8 +96,14 @@ async function processMigratingMigration(serviceClient: SupabaseClient, migratio
   const candidateIds = (candidateRows ?? []).map(r => (r as { id: string }).id)
 
   if (candidateIds.length === 0) {
-    const { count } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
+    // Checking `error` here matters: `count ?? 0` would otherwise treat a
+    // failed count query the same as "genuinely zero pending rows left"
+    // and wrongly transition this migration to 'verifying' — stranding
+    // any rows that are still legitimately pending, since the worker
+    // only ever polls migrations with status = 'migrating'.
+    const { count, error: countErr } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
       .eq('migration_id', migration.id).eq('write_status', 'pending')
+    if (countErr) { console.error(`Data Agent worker: failed to check remaining pending count for migration ${migration.id}:`, countErr); return }
     if ((count ?? 0) === 0) {
       const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'verifying' }).eq('id', migration.id)
       if (error) console.error(`Data Agent worker: failed to transition migration ${migration.id} to verifying:`, error)
