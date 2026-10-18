@@ -4638,11 +4638,13 @@ git commit -m "feat: add the Data Agent write pipeline (migrating phase)"
 **Files:**
 - Create: `supabase/functions/_shared/dataAgentQa.ts`
 - Create: `supabase/functions/_shared/__tests__/dataAgentQa.test.ts`
+- Modify: `supabase/functions/_shared/dataAgentGhlClient.ts` (add `getObjectRecord`)
+- Create: `supabase/migrations/20261018000400_data_agent_verifying_claim.sql`
 - Modify: `supabase/functions/data-agent-worker/index.ts`
 
 **Interfaces:**
-- Consumes: `ConfirmedMapping`, `getFieldValue` (Task 15); `getContact` (Task 5).
-- Produces: `computeSampleSize(total: number): number`, `selectRandomSample<T>(items: T[], size: number, randomFn?: () => number): T[]`, `flattenGhlRecordFields(raw: Record<string, unknown>): Record<string, unknown>`, `compareFields(sourceRow, mappings, flattenedActual): FieldComparison[]`.
+- Consumes: `ConfirmedMapping`, `getFieldValue`, `STALE_CLAIM_MS` (Task 15); `getContact` (Task 5).
+- Produces: `computeSampleSize(total: number): number`, `selectRandomSample<T>(items: T[], size: number, randomFn?: () => number): T[]`, `flattenGhlRecordFields(raw: Record<string, unknown>): Record<string, unknown>`, `compareFields(sourceRow, mappings, flattenedActual): FieldComparison[]`, `getObjectRecord(config, objectKey, recordId): Promise<GhlObjectRecord>`. `data_agent_migrations.claimed_at` column.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4764,75 +4766,9 @@ export function compareFields(sourceRow: Record<string, string>, mappings: Confi
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentQa.test.ts`
 Expected: PASS (14 tests).
 
-- [ ] **Step 4: Add the `verifying`-phase handler to the worker**
+- [ ] **Step 4: Add `getObjectRecord` (custom-object get-by-id) to the GHL client**
 
-In `supabase/functions/data-agent-worker/index.ts`, add the import:
-
-```ts
-import { computeSampleSize, selectRandomSample, flattenGhlRecordFields, compareFields } from '../_shared/dataAgentQa.ts'
-import { getContact } from '../_shared/dataAgentGhlClient.ts'
-```
-
-Add the dispatch call in the main handler, alongside the existing `migrating` loop:
-
-```ts
-  const { data: verifying } = await serviceClient.from('data_agent_migrations').select('*').eq('status', 'verifying').limit(5)
-  for (const migration of (verifying ?? []) as MigratingRow[]) {
-    await processVerifyingMigration(serviceClient, migration)
-  }
-```
-
-Add the handler function:
-
-```ts
-async function processVerifyingMigration(serviceClient: SupabaseClient, migration: MigratingRow) {
-  const { data: mappingRows } = await serviceClient.from('data_agent_column_mappings')
-    .select('source_column_name, target_type, target_field_key, metadata').eq('migration_id', migration.id)
-  const mappings = (mappingRows ?? []) as ConfirmedMapping[]
-
-  const { data: writtenRows } = await serviceClient.from('data_agent_migration_records')
-    .select('id, source_row_data, ghl_record_id').eq('migration_id', migration.id).in('write_status', ['created', 'replaced'])
-  const written = (writtenRows ?? []) as { id: string; source_row_data: Record<string, string>; ghl_record_id: string }[]
-
-  const sampleSize = computeSampleSize(written.length)
-  const sample = selectRandomSample(written, sampleSize)
-
-  if (sample.length > 0) {
-    const config = await loadGhlConfig(serviceClient, migration.sub_account)
-    const matchPcts: number[] = []
-    for (const record of sample) {
-      if (!config) continue
-      try {
-        const fetched = migration.target_object_type === 'contact'
-          ? (await getContact(config, record.ghl_record_id)).contact
-          : flattenGhlRecordFields({}) // Custom Object fetch-by-id uses the same shape as searchObjectRecord's result (Task 5); fetch via a GET on that record in the real implementation
-        const flattened = flattenGhlRecordFields(fetched as Record<string, unknown>)
-        const comparisons = compareFields(record.source_row_data, mappings, flattened)
-        const matchPct = comparisons.length === 0 ? 100 : (comparisons.filter(c => c.match).length / comparisons.length) * 100
-        matchPcts.push(matchPct)
-        await serviceClient.from('data_agent_qa_samples').insert({
-          migration_record_id: record.id, fetched_ghl_data: fetched, field_comparisons: comparisons, match_pct: matchPct,
-        })
-      } catch {
-        // A sample that fails to re-fetch is skipped from the average rather
-        // than crashing the whole verification pass — it is informational,
-        // never a reason to block `completed` (spec §8).
-      }
-    }
-    const accuracyRating = matchPcts.length > 0 ? matchPcts.reduce((a, b) => a + b, 0) / matchPcts.length : null
-    await serviceClient.from('data_agent_migrations').update({ status: 'completed', completed_at: new Date().toISOString(), accuracy_rating: accuracyRating }).eq('id', migration.id)
-    return
-  }
-
-  await serviceClient.from('data_agent_migrations').update({ status: 'completed', completed_at: new Date().toISOString(), accuracy_rating: null }).eq('id', migration.id)
-}
-```
-
-The Custom Object fetch-by-id call above is left as a flagged stub (`flattenGhlRecordFields({})`) rather than invented — `dataAgentGhlClient.ts` (Task 5) only has `searchObjectRecord` (by field value), not get-by-id. Before this task is done, add a `getObjectRecord(config, objectKey, recordId)` function to that module (same shape as `getContact`, hitting `GET /objects/{objectKey}/records/{recordId}`) and use it here instead of the stub — this is a required fix, not an optional improvement, since without it Custom Object verification silently compares against an empty record.
-
-- [ ] **Step 5: Add the missing `getObjectRecord` and wire it in**
-
-Append to `supabase/functions/_shared/dataAgentGhlClient.ts`:
+`dataAgentGhlClient.ts` (Task 5) only has `searchObjectRecord` (by field value), not get-by-id — needed here to re-fetch a custom-object record for comparison. Append:
 
 ```ts
 export async function getObjectRecord(config: GhlClientConfig, objectKey: string, recordId: string): Promise<GhlObjectRecord> {
@@ -4843,17 +4779,132 @@ export async function getObjectRecord(config: GhlClientConfig, objectKey: string
 }
 ```
 
-Replace the stub line in `processVerifyingMigration` with:
+- [ ] **Step 5: Add a claim column so overlapping ticks can't both verify the same migration**
 
-```ts
-        const fetched = migration.target_object_type === 'contact'
-          ? (await getContact(config, record.ghl_record_id)).contact
-          : (await getObjectRecord(config, migration.target_object_type, record.ghl_record_id)).properties
+Same risk class as Task 15's row-claiming fix, at the migration level this time: two overlapping worker ticks could both pick up and process the same `verifying`-status migration (confirmed in this task's review — lower-stakes than Task 15's bug since this phase only reads from GHL and writes to a local audit table, but it produces duplicate `data_agent_qa_samples` rows and a non-deterministic, last-write-wins `accuracy_rating`).
+
+```sql
+-- Migration 20261018000400: Data Agent — claim data_agent_migrations before
+-- the verifying phase processes one, so overlapping worker ticks can't
+-- both pick up and process the same migration (same idiom as Task 15's
+-- claimed_at on data_agent_migration_records, applied here at the
+-- migration level since the verifying phase has no per-record table to
+-- claim against instead).
+alter table public.data_agent_migrations add column claimed_at timestamptz;
 ```
 
-And add `getObjectRecord` to the worker's import from `dataAgentGhlClient.ts`.
+```bash
+git add supabase/migrations/20261018000400_data_agent_verifying_claim.sql
+git commit -m "feat: add a claim column so the Data Agent worker can't double-process a migration across overlapping verifying ticks"
+```
 
-- [ ] **Step 6: Typecheck and commit**
+- [ ] **Step 6: Add the `verifying`-phase handler to the worker**
+
+In `supabase/functions/data-agent-worker/index.ts`, add the import:
+
+```ts
+import { computeSampleSize, selectRandomSample, flattenGhlRecordFields, compareFields } from '../_shared/dataAgentQa.ts'
+import { getContact, getObjectRecord } from '../_shared/dataAgentGhlClient.ts'
+```
+
+Add the dispatch call in the main handler, alongside the existing `migrating` loop. This uses the same claim-via-UPDATE pattern as the `migrating` loop's row-level claim, scoped to the migration row itself and reusing the same `STALE_CLAIM_MS` constant:
+
+```ts
+  const staleThreshold = new Date(Date.now() - STALE_CLAIM_MS).toISOString()
+  const { data: verifyingCandidates, error: verifyingCandErr } = await serviceClient.from('data_agent_migrations')
+    .select('id').eq('status', 'verifying').or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`).limit(5)
+  if (verifyingCandErr) console.error('Data Agent worker: failed to list verifying migrations:', verifyingCandErr)
+  const verifyingCandidateIds = (verifyingCandidates ?? []).map(m => (m as { id: string }).id)
+  if (verifyingCandidateIds.length > 0) {
+    const { data: verifying, error: verifyingClaimErr } = await serviceClient.from('data_agent_migrations')
+      .update({ claimed_at: new Date().toISOString() })
+      .in('id', verifyingCandidateIds).eq('status', 'verifying')
+      .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`)
+      .select('*')
+    if (verifyingClaimErr) console.error('Data Agent worker: failed to claim verifying migrations:', verifyingClaimErr)
+    for (const migration of (verifying ?? []) as MigratingRow[]) {
+      await processVerifyingMigration(serviceClient, migration)
+    }
+  }
+```
+
+Add the handler function. Three corrections from a naive first pass, found in this task's own review: (1) the `written`-records query must go through an explicit count-then-offset-sample against the true total, not an unbounded `.select()` — PostgREST's default page-size cap (commonly 1000 rows) would otherwise silently and non-deterministically truncate the sampling population for any migration with more successfully-written records than that cap, which is a mainline scenario for a bulk migration tool, not an edge case; (2) every DB read needs its error checked — an unchecked `mappingRows` failure would silently make every sample compare against zero mapped fields, which `compareFields` scores as a vacuous 100% match, actively writing a *false* "fully accurate" result rather than a missing one; (3) a missing GHL connection must be visibly distinguished from "nothing to verify" rather than collapsing both into the same `accuracy_rating: null` with no signal — but it must NOT mark the whole migration `failed`, since the actual CRM writes already succeeded; only the verification step itself couldn't run:
+
+```ts
+async function processVerifyingMigration(serviceClient: SupabaseClient, migration: MigratingRow) {
+  const { data: mappingRows, error: mappingErr } = await serviceClient.from('data_agent_column_mappings')
+    .select('source_column_name, target_type, target_field_key, metadata').eq('migration_id', migration.id)
+  if (mappingErr) { console.error(`Data Agent worker: failed to load column mappings for verifying migration ${migration.id}:`, mappingErr); return }
+  const mappings = (mappingRows ?? []) as ConfirmedMapping[]
+
+  const { count: totalWritten, error: countErr } = await serviceClient.from('data_agent_migration_records')
+    .select('id', { count: 'exact', head: true }).eq('migration_id', migration.id).in('write_status', ['created', 'replaced'])
+  if (countErr) { console.error(`Data Agent worker: failed to count written records for migration ${migration.id}:`, countErr); return }
+
+  const sampleSize = computeSampleSize(totalWritten ?? 0)
+  // Sample by picking random OFFSETS into the true total (not by fetching
+  // the whole population) — a plain, unbounded .select() here would be
+  // silently capped at PostgREST's default page size for any migration
+  // with more written rows than that cap, biasing the sample toward an
+  // arbitrary (and, without an explicit order, undefined) subset instead
+  // of being genuinely representative.
+  const offsets = sampleSize > 0 ? selectRandomSample(Array.from({ length: totalWritten ?? 0 }, (_, i) => i), sampleSize) : []
+  const sample: { id: string; source_row_data: Record<string, string>; ghl_record_id: string }[] = []
+  for (const offset of offsets) {
+    const { data: rows, error: rowErr } = await serviceClient.from('data_agent_migration_records')
+      .select('id, source_row_data, ghl_record_id').eq('migration_id', migration.id).in('write_status', ['created', 'replaced'])
+      .order('row_number').range(offset, offset)
+    if (rowErr) { console.error(`Data Agent worker: failed to fetch sample offset ${offset} for migration ${migration.id}:`, rowErr); continue }
+    if (rows?.[0]) sample.push(rows[0] as { id: string; source_row_data: Record<string, string>; ghl_record_id: string })
+  }
+
+  let accuracyRating: number | null = null
+  let verificationNote: string | null = null
+
+  if (sample.length > 0) {
+    const config = await loadGhlConfig(serviceClient, migration.sub_account)
+    if (!config) {
+      // The migration itself already succeeded (it only reaches this
+      // phase after a clean migrating phase) — only the QA step couldn't
+      // run, so this stays `completed`, not `failed`, but must be
+      // distinguishable from "nothing to verify" (both would otherwise
+      // collapse into the same accuracy_rating: null with zero signal).
+      verificationNote = 'Verification skipped: no usable GHL connection'
+      console.error(`Data Agent worker: ${verificationNote} (migration ${migration.id})`)
+    } else {
+      const matchPcts: number[] = []
+      for (const record of sample) {
+        try {
+          const fetched = migration.target_object_type === 'contact'
+            ? (await getContact(config, record.ghl_record_id)).contact
+            : (await getObjectRecord(config, migration.target_object_type, record.ghl_record_id)).properties
+          const flattened = flattenGhlRecordFields(fetched as Record<string, unknown>)
+          const comparisons = compareFields(record.source_row_data, mappings, flattened)
+          const matchPct = comparisons.length === 0 ? 100 : (comparisons.filter(c => c.match).length / comparisons.length) * 100
+          matchPcts.push(matchPct)
+          const { error: insertErr } = await serviceClient.from('data_agent_qa_samples').insert({
+            migration_record_id: record.id, fetched_ghl_data: fetched, field_comparisons: comparisons, match_pct: matchPct,
+          })
+          if (insertErr) console.error(`Data Agent worker: failed to insert QA sample for record ${record.id}:`, insertErr)
+        } catch {
+          // A sample that fails to re-fetch is skipped from the average rather
+          // than crashing the whole verification pass — it is informational,
+          // never a reason to block `completed` (spec §8).
+        }
+      }
+      accuracyRating = matchPcts.length > 0 ? matchPcts.reduce((a, b) => a + b, 0) / matchPcts.length : null
+    }
+  }
+
+  const { error } = await serviceClient.from('data_agent_migrations').update({
+    status: 'completed', completed_at: new Date().toISOString(),
+    accuracy_rating: accuracyRating, error_message: verificationNote, claimed_at: null,
+  }).eq('id', migration.id)
+  if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} completed:`, error)
+}
+```
+
+- [ ] **Step 7: Typecheck and commit**
 
 Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json` (the real check for `dataAgentQa.ts`/`dataAgentGhlClient.ts` — see Task 6's Global Constraint).
 Expected: no errors.
