@@ -40,13 +40,28 @@ Deno.serve(async (req) => {
   if (!migrationId || !columnMappingId || !promptText) return json({ error: 'migrationId, columnMappingId, and promptText are required' })
 
   const serviceClient = createClient(supabaseUrl, serviceKey)
-  const { data: migration } = await serviceClient.from('data_agent_migrations').select('sub_account, target_object_type').eq('id', migrationId).single()
+  const { data: migration } = await serviceClient.from('data_agent_migrations').select('sub_account, target_object_type, status').eq('id', migrationId).single()
   if (!migration) return json({ error: 'Migration not found' })
   const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: (migration as { sub_account: string }).sub_account })
   if (!isMember) return json({ error: 'Not authorized for this migration' })
+  // Mirrors the data_agent_column_mappings_update RLS policy's own
+  // restriction (migration 20261018000100) — this service-role write
+  // bypasses RLS entirely, so the same status gate has to be enforced
+  // here explicitly, or a prompt submitted/replayed after the migration
+  // moved past manual review could still silently apply a change.
+  if (!['mapping', 'awaiting_confirmation'].includes((migration as { status: string }).status)) {
+    return json({ error: 'This migration is no longer open for manual changes' })
+  }
 
+  // Scoped to migrationId, not just columnMappingId — without this, a
+  // caller authorized for migrationId (Sub-Account A) could supply a
+  // columnMappingId belonging to an unrelated migration (Sub-Account B)
+  // and the service-role client below would read and overwrite B's row
+  // with no ownership check at all. Matching on both columns means a
+  // cross-tenant mismatch simply finds no row, falling into the existing
+  // "Column mapping not found" branch.
   const { data: mapping } = await serviceClient.from('data_agent_column_mappings')
-    .select('source_column_name, sample_values, target_field_key, status').eq('id', columnMappingId).single()
+    .select('source_column_name, sample_values, target_field_key, status').eq('id', columnMappingId).eq('migration_id', migrationId).single()
   if (!mapping) return json({ error: 'Column mapping not found' })
 
   const { data: schemaCache } = await serviceClient.from('data_agent_ghl_schema_cache').select('fields')
