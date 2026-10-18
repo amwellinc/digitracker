@@ -22,6 +22,10 @@
 - **Secrets stay server-side.** The GHL PIT is Supabase Vault only, never returned to the browser, read only inside an edge function at the moment of an API call. The Anthropic key is an edge-function secret only — no client-side Claude calls (spec §13, §3).
 - **No live third-party fetches.** Source-system knowledge is the curated `data_agent_source_profiles` table only, built ahead of time — no runtime fetch to any CRM's docs/support site (spec §13, §6.2).
 - **429 ≠ failure.** A GHL `429` triggers backoff and retry on a later worker tick; other rows in the same batch continue regardless of one row's outcome (spec §7.4).
+- **Every edge function invoked from the browser (`supabase.functions.invoke`) returns HTTP 200 for every business outcome, never a 4xx/5xx.** Confirmed by reading the installed `@supabase/functions-js` source: a non-2xx response makes the client throw `FunctionsHttpError`, whose `.message` is always the fixed string `"Edge Function returned a non-2xx status code"` — never the function's own `error` text, which only reaches `error.context` (unread by this plan's UI code). Business failures are communicated via `{ ok: false, error: '...' }` (or `{ error: '...' }` with no success field) in a 200 response body; the calling UI reads `data.error`, not `error.message`. Only true protocol-level cases (CORS preflight, wrong HTTP method) keep a real status code. This does not apply to `data-agent-worker`, which `pg_cron`'s `net.http_post` calls directly, not the browser SDK.
+- **Real typecheck for `supabase/functions/_shared/*.ts` pure modules is `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json`** (created in Task 6), not the root `tsc --noEmit` — the root config's `include: ["src"]` never sees anything under `supabase/functions/`, so running it against that directory is a silent no-op, not a real check. Still run the root `tsc --noEmit` too, to confirm no frontend regression — just don't mistake its silence for having checked the edge-function code.
+- **Never forward an unverified third-party API's raw response text to the browser.** GHL's Custom Objects surface is explicitly flagged elsewhere in this plan as newer/less-documented; an error body from it could echo back some form of a submitted credential. Log the full upstream error server-side (`console.error`) and return a generic client-facing message for any catch block that wraps a GHL call.
+- **Every SECURITY DEFINER boolean helper in this feature must return `true`/`false`, never `null`** — wrap the body in `coalesce(..., false)`. `auth_user_role()`/`auth_user_sub_account()`/`auth_user_app_id()` all resolve to `null` for a suspended or deleted-but-still-logged-in caller, which is harmless in an RLS `USING`/`WITH CHECK` clause (`null` excludes a row exactly like `false`) but silently skips the exception in any PL/pgSQL `if not <helper>(...) then raise exception` — confirmed as a real, repeated bug class in this plan (Task 1's `save_data_agent_connection`, Task 7's discovery that `is_data_agent_member()` itself needed this). Every imperative call site also wraps the check in `coalesce(..., false) is not true` as defense in depth, never relying solely on the helper's own contract.
 - **Only Super-Admin grants a service-provider relationship.** A sub-account gains the right to operate Data Agent for another sub-account only via a `data_agent_provider_clients` row Super-Admin created — never self-granted by either sub-account's own Admin (spec §2.1). The client sub-account must independently be entitled; the grant only extends *who* may act once it is.
 - **A provider never touches a client's connection.** `data_agent_connections` stays scoped to, and owned by, the sub-account whose CRM it is — a provider's Settings page never shows or accepts a client's PIT (spec §2.1, §13).
 - **Associates are categorically excluded.** Every new table gets its own `<table>_deny_associates` restrictive policy in the same migration that creates it (enforced by the existing generic test in `src/__tests__/associateLock.test.ts`: *"every table created after the lock migration gets its own \*_deny_associates policy"*) — Data Agent is not part of the Associate's allowed scope. No new RPC name is added to `associate_request_guard()`'s allow-list, and no bucket is added to `storage_associate_scope`'s allow-list.
@@ -123,12 +127,33 @@ create table public.data_agent_ghl_schema_cache (
 -- Mirrors is_project_member(): one helper, every policy in this feature
 -- uses it. Entitled AND (Super-Admin OR that sub-account's Admin OR a
 -- data_agent_members row for that sub-account).
+--
+-- NOTE on execution history: this task was already implemented and
+-- committed before Task 7's review found that the version below (without
+-- the coalesce wrap) fails open for a suspended/deleted caller. Rather
+-- than edit Task 1's already-applied migration, the fix landed as a
+-- `create or replace` inside Task 7's own migration file, immediately
+-- before `confirm_data_agent_migration` — see that task. The text below
+-- is corrected so a fresh implementation from this plan gets the safe
+-- version on the first pass; it is not what Task 1's commit literally
+-- contains if you're diffing against this plan's execution history.
+-- coalesce(..., false) at the top level is required, not optional style:
+-- auth_user_role()/auth_user_sub_account()/auth_user_app_id() all resolve
+-- to NULL for a suspended or deleted-but-still-logged-in caller (migration
+-- 027), which would otherwise make this whole expression evaluate to NULL
+-- instead of false. That's harmless everywhere this function is used
+-- inside an RLS USING/WITH CHECK clause (NULL and false both exclude the
+-- row) — but a PL/pgSQL caller doing `if not is_data_agent_member(...)
+-- then raise exception` is not RLS: `if NULL then` never executes the
+-- branch, so a NULL return here would silently skip the exception. This
+-- function's contract must be "true or false, never null" for every
+-- caller, imperative or declarative, to be safe.
 create or replace function public.is_data_agent_member(p_sub_account text)
   returns boolean
   language sql security definer stable
   set search_path = public
 as $$
-  select
+  select coalesce(
     exists (select 1 from public.data_agent_entitlements e where e.sub_account = p_sub_account and e.enabled)
     and (
       public.auth_user_role() = 'Super-Admin'
@@ -139,7 +164,9 @@ as $$
           or exists (select 1 from public.data_agent_members m where m.sub_account = p_sub_account and m.user_id = public.auth_user_app_id())
         )
       )
-    )
+    ),
+    false
+  )
 $$;
 revoke execute on function public.is_data_agent_member(text) from public, anon;
 grant execute on function public.is_data_agent_member(text) to authenticated;
@@ -206,8 +233,17 @@ declare
   v_secret_name text := 'data_agent_pit_' || p_sub_account;
   v_existing_id uuid;
 begin
-  if public.auth_user_role() is distinct from 'Super-Admin'
-     and not (public.auth_user_role() = 'Admin' and public.auth_user_sub_account() = p_sub_account) then
+  -- coalesce(..., false) is required here, not optional style: a caller
+  -- whose role/sub_account resolve to NULL (unrecognized or suspended —
+  -- auth_user_role()/auth_user_sub_account() are NULL for both, per
+  -- migration 027) would otherwise make this whole condition evaluate to
+  -- NULL, and `if NULL then` never raises in PL/pgSQL — silently falling
+  -- through to write a Vault secret for an arbitrary entitled sub-account.
+  if not coalesce(
+    public.auth_user_role() = 'Super-Admin'
+    or (public.auth_user_role() = 'Admin' and public.auth_user_sub_account() = p_sub_account),
+    false
+  ) then
     raise exception 'Not authorized to connect this sub-account';
   end if;
   if not exists (select 1 from public.data_agent_entitlements where sub_account = p_sub_account and enabled) then
@@ -451,18 +487,31 @@ export function useDataAgentAccess(): { hasAccess: boolean; entitled: boolean } 
         setEntitled(Boolean((data as { enabled?: boolean } | null)?.enabled))
       })
 
+    // Branches into if/else rather than an early `return` on the
+    // Admin/Super-Admin path — a `return` there would exit the whole
+    // effect callback before the `return () => { cancelled = true }`
+    // cleanup below is ever registered for that run. This app has a live
+    // "View As" / "visit sub-account" impersonation feature
+    // (AuthContext.tsx) that swaps `user.sub_account`/`role`/`id` while
+    // this component stays mounted, re-running this effect — an
+    // unregistered cleanup would let a stale in-flight query from a prior
+    // run overwrite `entitled`/`isMember` with the wrong sub-account's data.
     if (user.role === 'Admin' || user.role === 'Super-Admin') {
       setIsMember(true)
-      return
+    } else {
+      // No .eq('sub_account', ...) filter here — RLS (Task 1's
+      // data_agent_members_select policy) already scopes rows to the
+      // caller's own sub_account, and this hook only gates nav/route
+      // visibility, never actual data access (that's independently
+      // enforced server-side by is_data_agent_member()), so a single
+      // .eq('user_id', ...) is both sufficient and simpler to mock in tests.
+      void supabase
+        .from('data_agent_members')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle()
+        .then(({ data }) => { if (!cancelled) setIsMember(Boolean((data as { user_id?: string } | null)?.user_id)) })
     }
-
-    void supabase
-      .from('data_agent_members')
-      .select('user_id')
-      .eq('sub_account', user.sub_account)
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => { if (!cancelled) setIsMember(Boolean(data)) })
 
     return () => { cancelled = true }
   }, [user?.sub_account, user?.role, user?.id])
@@ -573,6 +622,7 @@ vi.mock('@/lib/supabase', () => ({
     })),
   },
 }))
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'super-1', role: 'Super-Admin' } }) }))
 
 import { DataAgentEntitlementsTab } from '../DataAgentEntitlementsTab'
 
@@ -598,6 +648,16 @@ describe('DataAgentEntitlementsTab', () => {
       expect.objectContaining({ sub_account: 'DERMITAGE', enabled: true }),
     ))
   })
+
+  it('surfaces an upsert error without flipping the checkbox', async () => {
+    upsertMock.mockResolvedValue({ error: { message: 'permission denied' } })
+    render(<DataAgentEntitlementsTab />)
+    await screen.findByText('Dermitage')
+    const toggles = screen.getAllByRole('checkbox')
+    await userEvent.click(toggles[1])
+    expect(await screen.findByRole('alert')).toHaveTextContent(/permission denied/i)
+    expect(toggles[1]).not.toBeChecked()
+  })
 })
 ```
 
@@ -620,6 +680,7 @@ export function DataAgentEntitlementsTab() {
   const [accounts, setAccounts] = useState<SubAccountRow[]>([])
   const [entitled, setEntitled] = useState<Record<string, boolean>>({})
   const [busyCode, setBusyCode] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const [{ data: accs }, { data: ents }] = await Promise.all([
@@ -636,11 +697,13 @@ export function DataAgentEntitlementsTab() {
 
   async function toggle(code: string, next: boolean) {
     setBusyCode(code)
-    await supabase.from('data_agent_entitlements').upsert({
+    setErrorMsg(null)
+    const { error } = await supabase.from('data_agent_entitlements').upsert({
       sub_account: code, enabled: next, enabled_by: user?.id, enabled_at: new Date().toISOString(),
     })
-    setEntitled(prev => ({ ...prev, [code]: next }))
     setBusyCode(null)
+    if (error) { setErrorMsg(`Could not update ${code}: ${error.message}`); return }
+    setEntitled(prev => ({ ...prev, [code]: next }))
   }
 
   return (
@@ -662,6 +725,7 @@ export function DataAgentEntitlementsTab() {
           </label>
         ))}
       </div>
+      {errorMsg && <p role="alert" className="text-sm text-red-600">{errorMsg}</p>}
     </div>
   )
 }
@@ -758,6 +822,51 @@ describe('DataAgentSettingsTab', () => {
     expect(await screen.findByDisplayValue('loc_999')).toBeInTheDocument()
     expect(screen.queryByText(/pit_/)).not.toBeInTheDocument()
   })
+
+  it('enables Test Connection immediately after a successful first-time save, with no reload needed', async () => {
+    render(<DataAgentSettingsTab />)
+    await userEvent.type(await screen.findByLabelText(/GHL Location ID/i), 'loc_123')
+    await userEvent.type(screen.getByLabelText(/Private Integration Token/i), 'pit_abc')
+    const testBtn = screen.getByRole('button', { name: /test connection/i })
+    expect(testBtn).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: /save connection/i }))
+    await waitFor(() => expect(testBtn).toBeEnabled())
+  })
+
+  it('shows named candidates for explicit selection rather than auto-granting a partial-name match', async () => {
+    const ilikeMock = vi.fn().mockResolvedValue({ data: [{ id: 'u1', name: 'Jo Smith' }, { id: 'u2', name: 'Jo Lee' }] })
+    vi.mocked(await import('@/lib/supabase')).supabase.from = vi.fn((table: string) => {
+      if (table === 'data_agent_connections') return { select: () => ({ eq: () => ({ maybeSingle: () => connectionSingle() }) }) }
+      if (table === 'data_agent_members') return { select: () => ({ eq: () => membersData() }), insert: (...args: unknown[]) => insertMock(...args) }
+      return { select: () => ({ eq: () => ({ eq: () => ({ ilike: () => ilikeMock() }) }) }) }
+    }) as never
+
+    render(<DataAgentSettingsTab />)
+    await userEvent.type(await screen.findByLabelText(/search your team/i), 'jo')
+    await userEvent.click(screen.getByRole('button', { name: /^search$/i }))
+
+    expect(await screen.findByRole('button', { name: /jo smith/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /jo lee/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /jo lee/i }))
+    await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ sub_account: 'AM333', user_id: 'u2', added_by: 'admin-1' }))
+  })
+
+  it('surfaces a grant error instead of claiming success', async () => {
+    const ilikeMock = vi.fn().mockResolvedValue({ data: [{ id: 'u1', name: 'Jo Smith' }] })
+    vi.mocked(await import('@/lib/supabase')).supabase.from = vi.fn((table: string) => {
+      if (table === 'data_agent_connections') return { select: () => ({ eq: () => ({ maybeSingle: () => connectionSingle() }) }) }
+      if (table === 'data_agent_members') return { select: () => ({ eq: () => membersData() }), insert: (...args: unknown[]) => insertMock(...args) }
+      return { select: () => ({ eq: () => ({ eq: () => ({ ilike: () => ilikeMock() }) }) }) }
+    }) as never
+    insertMock.mockResolvedValue({ error: { message: 'duplicate key' } })
+
+    render(<DataAgentSettingsTab />)
+    await userEvent.type(await screen.findByLabelText(/search your team/i), 'jo')
+    await userEvent.click(screen.getByRole('button', { name: /^search$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /jo smith/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/duplicate key/i)
+  })
 })
 ```
 
@@ -768,7 +877,7 @@ Expected: FAIL (module not found).
 
 ```tsx
 // src/features/data-agent/settings/DataAgentSettingsTab.tsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -802,8 +911,14 @@ export function DataAgentSettingsTab() {
       p_sub_account: subAccount, p_ghl_location_id: locationId.trim(), p_pit: pit.trim(),
     })
     setSaving(false)
-    setSaveMsg(error ? error.message : 'Connection saved.')
-    if (!error) setPit('')
+    if (error) { setSaveMsg(error.message); return }
+    // Update local state immediately rather than waiting for a reload —
+    // otherwise "Test Connection" (disabled while `!connection`) stays
+    // disabled after a brand-new sub-account's very first save, breaking
+    // the save-then-test happy path in one sitting.
+    setConnection({ ghl_location_id: locationId.trim(), last_verified_at: null })
+    setSaveMsg('Connection saved.')
+    setPit('')
   }
 
   async function testConnection() {
@@ -825,7 +940,7 @@ export function DataAgentSettingsTab() {
         </div>
         <div>
           <label htmlFor="da-pit" className="block text-xs font-medium text-gray-600 mb-1">Private Integration Token</label>
-          <input id="da-pit" type="password" value={pit} onChange={e => setPit(e.target.value)} className="input w-full"
+          <input id="da-pit" type="password" autoComplete="off" value={pit} onChange={e => setPit(e.target.value)} className="input w-full"
             placeholder={connection ? 'Enter a new token to replace the saved one' : ''} />
         </div>
         <div className="flex gap-2">
@@ -849,30 +964,51 @@ export function DataAgentSettingsTab() {
   )
 }
 
+interface CandidateRow { id: string; name: string }
+
+// Deliberately mirrors AddProjectMemberForm's search-then-explicit-grant
+// pattern (src/features/projects/AddProjectMemberForm.tsx) rather than
+// auto-granting the first name match — an access grant to the wrong
+// person (e.g. two teammates both matching a partial "jo") must never
+// happen silently.
 function DataAgentTeamAccess({ subAccount }: { subAccount: string }) {
+  const { user } = useAuth()
   const [members, setMembers] = useState<MemberRow[]>([])
   const [search, setSearch] = useState('')
+  const [candidates, setCandidates] = useState<CandidateRow[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searched, setSearched] = useState(false)
+  const [grantingId, setGrantingId] = useState<string | null>(null)
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  useEffect(() => {
-    if (!subAccount) return
-    void supabase.from('data_agent_members').select('user_id, users(name)').eq('sub_account', subAccount)
-      .then(({ data }) => setMembers((data ?? []) as unknown as MemberRow[]))
-  }, [subAccount])
-
-  async function grant(userId: string) {
-    await supabase.from('data_agent_members').insert({ sub_account: subAccount, user_id: userId })
+  const loadMembers = useCallback(async () => {
     const { data } = await supabase.from('data_agent_members').select('user_id, users(name)').eq('sub_account', subAccount)
     setMembers((data ?? []) as unknown as MemberRow[])
-  }
+  }, [subAccount])
 
-  async function runSearch() {
+  useEffect(() => { if (subAccount) void loadMembers() }, [subAccount, loadMembers])
+
+  async function runSearch(e: React.FormEvent) {
+    e.preventDefault()
     if (!search.trim()) return
+    setSearching(true); setMsg(null)
     const { data } = await supabase.from('users').select('id, name').eq('sub_account', subAccount)
       .eq('status', 'active').ilike('name', `%${search.trim()}%`)
+    setSearching(false); setSearched(true)
     const known = new Set(members.map(m => m.user_id))
-    const candidates = ((data ?? []) as { id: string; name: string }[]).filter(c => !known.has(c.id))
-    if (candidates.length > 0) await grant(candidates[0].id)
-    setSearch('')
+    setCandidates(((data ?? []) as CandidateRow[]).filter(c => !known.has(c.id)))
+  }
+
+  async function grant(candidate: CandidateRow) {
+    setGrantingId(candidate.id); setMsg(null)
+    const { error } = await supabase.from('data_agent_members').insert({
+      sub_account: subAccount, user_id: candidate.id, added_by: user?.id,
+    })
+    setGrantingId(null)
+    if (error) { setMsg({ type: 'error', text: `Could not grant ${candidate.name}: ${error.message}` }); return }
+    setMsg({ type: 'success', text: `${candidate.name} now has Data Agent access.` })
+    setSearch(''); setCandidates([]); setSearched(false)
+    await loadMembers()
   }
 
   return (
@@ -884,13 +1020,33 @@ function DataAgentTeamAccess({ subAccount }: { subAccount: string }) {
       <ul className="space-y-1">
         {members.map(m => <li key={m.user_id} className="text-sm text-gray-700">{m.users?.name}</li>)}
       </ul>
-      <div className="flex gap-2">
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name…"
+      <form onSubmit={e => void runSearch(e)} className="flex gap-2">
+        <input value={search} onChange={e => { setSearch(e.target.value); setSearched(false) }} placeholder="Search by name…"
           aria-label="Search your team to grant access" className="input flex-1" />
-        <button onClick={() => void runSearch()} className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-md px-3 py-2">
-          Grant Access
+        <button type="submit" disabled={searching || !search.trim()}
+          className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 rounded-md px-3 py-2">
+          {searching ? 'Searching…' : 'Search'}
         </button>
-      </div>
+      </form>
+      {searched && candidates.length === 0 && (
+        <p className="text-xs text-gray-400">No one in your workspace matched that name.</p>
+      )}
+      {candidates.length > 0 && (
+        <div className="space-y-1">
+          {candidates.map(c => (
+            <button key={c.id} type="button" onClick={() => void grant(c)} disabled={grantingId === c.id}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-violet-300 text-left disabled:opacity-50">
+              <span className="text-sm text-gray-700">{c.name}</span>
+              <span className="text-xs font-semibold text-violet-600">{grantingId === c.id ? 'Granting…' : '+ Grant'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {msg && (
+        <p role={msg.type === 'error' ? 'alert' : 'status'} className={`text-sm ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+          {msg.text}
+        </p>
+      )}
     </section>
   )
 }
@@ -905,7 +1061,21 @@ import { DataAgentSettingsTab } from '@/features/data-agent/settings/DataAgentSe
 import { useDataAgentAccess } from '@/hooks/useDataAgentAccess'
 ```
 
-Add `'data-agent'` to `TabId`. Inside `SettingsPage`, call `const { entitled } = useDataAgentAccess()` and push `{ id: 'data-agent', label: '🧭 Data Agent' }` onto `businessTabs` only `if (isAdmin && entitled)`. Add `{activeTab === 'data-agent' && <DataAgentSettingsTab />}` beside the other tab renders.
+Add `'data-agent'` to `TabId`. Inside `SettingsPage`, call `const { entitled } = useDataAgentAccess()`. `businessTabs` is declared as `const businessTabs: { id: TabId; label: string }[] = [...]` — do not mutate it with `.push()`; append the new entry immutably instead:
+
+```tsx
+const businessTabs: { id: TabId; label: string }[] = [
+  { id: 'account',      label: 'Account' },
+  { id: 'users',        label: 'Users & Roles' },
+  { id: 'departments',  label: 'Departments' },
+  { id: 'subscription', label: 'Subscription' },
+  { id: 'ghl',          label: '🔗 DIGI5Y-CRM Integration' },
+  ...(isAdmin && entitled ? [{ id: 'data-agent' as const, label: '🧭 Data Agent' }] : []),
+  { id: 'archive',      label: '🗄 Archive' },
+]
+```
+
+Add `{activeTab === 'data-agent' && <DataAgentSettingsTab />}` beside the other tab renders.
 
 - [ ] **Step 4: Run tests and commit**
 
@@ -928,7 +1098,7 @@ git commit -m "feat: add Data Agent connection form and team access to Settings"
 
 **Interfaces:**
 - Consumes: table `data_agent_connections`, SQL `is_data_agent_member` (Task 1); `vault.decrypted_secrets`.
-- Produces: `GhlClientConfig`, `GhlRateLimitError`, `fetchContactCustomFields()`, `fetchCustomObjects()`, `upsertContact()`, `searchObjectRecord()`, `createObjectRecord()`, `updateObjectRecord()`, `deleteObjectRecord()`, `getContact()`, `deleteContact()` — all consumed again by Task 15's worker. `ensureSchemaCacheFresh(serviceClient, subAccount, config, { force }): Promise<void>` — consumed again by Task 8, so an upload is never matched against a schema snapshot older than 24h, per spec §4 ("auto-refreshed at the start of a new migration if the cache is older than a set threshold"). Edge function `data-agent-test-connection` (POST `{ subAccount: string }` → `{ ok: boolean; error?: string }`).
+- Produces: `GhlClientConfig`, `GhlRateLimitError`, `fetchContactCustomFields()`, `fetchCustomObjects()`, `upsertContact()`, `searchObjectRecord()`, `createObjectRecord()`, `updateObjectRecord()`, `deleteObjectRecord()`, `getContact()`, `deleteContact()` — all consumed again by Task 15's worker. `ensureSchemaCacheFresh(serviceClient, subAccount, config, { force }): Promise<boolean>` (returns whether a refresh actually ran) — consumed again by Task 8, so an upload is never matched against a schema snapshot older than 24h, per spec §4 ("auto-refreshed at the start of a new migration if the cache is older than a set threshold"). Edge function `data-agent-test-connection` (POST `{ subAccount: string }` → `{ ok: boolean; error?: string }`).
 
 GHL's Custom Objects API (the `fetchCustomObjects`/`*ObjectRecord` family below) is a newer, less-documented surface than Contacts. The endpoint shapes here follow GHL's published v2 Objects API as of this plan's writing. **Before this task is considered done, run Step 5 (manual verification against a real sandbox GHL location) and fix any endpoint/field-name mismatch it finds** — this mirrors the spec's own §14 requirement and is not optional.
 
@@ -1101,12 +1271,23 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } })
 }
 
+// IMPORTANT: every branch below returns HTTP 200. supabase-js's
+// functions.invoke() throws a generic FunctionsHttpError — whose .message
+// is ALWAYS the fixed string "Edge Function returned a non-2xx status
+// code", never this function's own text — for any non-2xx response; the
+// real body only reaches the caller via `error.context`, which none of
+// this plan's UI callers read. Returning 200 with `{ ok, error }` for
+// every business outcome is what actually lets `data.error` reach the UI
+// as written (verified against the installed @supabase/functions-js
+// source). Only true protocol-level cases (CORS preflight, wrong method)
+// stay as real HTTP status codes, since the UI only ever sends POST and
+// never has to parse those.
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader) return json({ error: 'Missing authorization header' }, 401)
+  if (!authHeader) return json({ ok: false, error: 'Missing authorization header' })
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
@@ -1114,26 +1295,26 @@ Deno.serve(async (req) => {
 
   const callerClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } })
   const { data: { user: callerAuth }, error: callerErr } = await callerClient.auth.getUser()
-  if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' }, 401)
+  if (callerErr || !callerAuth?.email) return json({ ok: false, error: 'Invalid session' })
 
   let body: { subAccount?: unknown }
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
+  try { body = await req.json() } catch { return json({ ok: false, error: 'Invalid JSON body' }) }
   const subAccount = typeof body.subAccount === 'string' ? body.subAccount : ''
-  if (!subAccount) return json({ error: 'subAccount is required' }, 400)
+  if (!subAccount) return json({ ok: false, error: 'subAccount is required' })
 
   const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: subAccount })
-  if (!isMember) return json({ ok: false, error: 'Not authorized for this sub-account' }, 403)
+  if (!isMember) return json({ ok: false, error: 'Not authorized for this sub-account' })
 
   const serviceClient = createClient(supabaseUrl, serviceKey)
   const { data: connection } = await serviceClient.from('data_agent_connections')
     .select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
-  if (!connection) return json({ ok: false, error: 'No connection saved for this sub-account yet' }, 400)
+  if (!connection) return json({ ok: false, error: 'No connection saved for this sub-account yet' })
 
   const { data: secretRow } = await serviceClient
     .schema('vault').from('decrypted_secrets').select('decrypted_secret')
     .eq('name', (connection as { secret_name: string }).secret_name).maybeSingle()
   const pit = (secretRow as { decrypted_secret?: string } | null)?.decrypted_secret
-  if (!pit) return json({ ok: false, error: 'Saved token could not be read from Vault' }, 500)
+  if (!pit) return json({ ok: false, error: 'Saved token could not be read from Vault' })
 
   const config = { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
 
@@ -1142,7 +1323,13 @@ Deno.serve(async (req) => {
     await serviceClient.from('data_agent_connections').update({ last_verified_at: new Date().toISOString() }).eq('sub_account', subAccount)
     return json({ ok: true })
   } catch (err) {
-    return json({ ok: false, error: err instanceof Error ? err.message : String(err) })
+    // GHL's own response text (surfaced via assertOk() in dataAgentGhlClient.ts)
+    // is logged in full server-side only, never forwarded to the browser —
+    // an unverified third-party API (flagged in Task 5's own Step 4-5 notes)
+    // echoing back any form of the submitted token in an error body is a
+    // real secret-leak vector this function must not relay to the client.
+    console.error('data-agent-test-connection: GHL call failed', err)
+    return json({ ok: false, error: 'Could not verify the connection — check the Location ID and token, then try again.' })
   }
 })
 ```
@@ -1174,6 +1361,7 @@ git commit -m "feat: add GHL client module, schema-cache refresher, and Data Age
 **Files:**
 - Create: `supabase/functions/_shared/dataAgentMatching.ts`
 - Create: `supabase/functions/_shared/__tests__/dataAgentMatching.test.ts`
+- Create: `supabase/functions/tsconfig.json`
 
 **Interfaces:**
 - Produces (all pure functions, zero imports in the module itself — this is deliberate: the identical file runs under Deno, imported by `data-agent-upload` in Task 8, and under Node/Vitest, imported directly by its own tests, with no shim): `normalizeColumnName`, `detectCountryCodePresence`, `detectDndChannel`, `detectPhoneEmailSubtype`, `resolveSubtypeTargetField`, `matchTargetSchema`, `matchSourceProfile`, `pickPrimaryPhoneEmailColumn`, `classifyColumn`, plus types `TargetField`, `SourceProfileEntry`, `ColumnClassification`, `ClassifyColumnInput`.
@@ -1219,7 +1407,7 @@ export interface ColumnClassificationMetadata {
 
 export interface ColumnClassification {
   status: 'mapped' | 'uncertain' | 'unmapped'
-  mapped_by: 'rule' | 'source_profile' | null
+  mapped_by: 'rule' | 'source_profile' | 'claude' | null // 'claude' is set only by Task 12's planWithClaude, never by classifyColumn itself — included here since PlannedColumnMapping (Task 8) extends this interface and Task 12 needs the literal
   target_field_key: string | null
   target_type: 'standard_field' | 'custom_field' | 'tag' | 'ignored'
   confidence: number | null
@@ -1272,11 +1460,17 @@ const EMAIL_BASE_KEYWORDS = ['email', 'mail']
 // are equally plausible as address fields and require a base keyword too.
 const UNAMBIGUOUS_PHONE_MODIFIERS = ['mobile', 'cell']
 
+// 'fax' checked first: it's a wholly unambiguous substring (no other
+// subtype's keywords contain "fax" and "fax" contains none of theirs), so
+// checking it first costs nothing and resolves a real collision —
+// "Office Fax" normalizes to "officefax", which contains both "office"
+// (a 'work' keyword) and "fax"; checking 'work' first would wrongly
+// classify it as a work-phone column before 'fax' is ever considered.
 const SUBTYPE_KEYWORDS: Array<[PhoneEmailSubtype, string[]]> = [
+  ['fax', ['fax']],
   ['mobile', ['mobile', 'cell']],
   ['work', ['work', 'office', 'business']],
   ['home', ['home']],
-  ['fax', ['fax']],
 ]
 
 export interface PhoneEmailSubtypeResult { base: 'phone' | 'email'; subtype: PhoneEmailSubtype }
@@ -1300,11 +1494,16 @@ export function detectPhoneEmailSubtype(columnName: string): PhoneEmailSubtypeRe
 // exists in the cached schema, by label. If nothing matches, the caller
 // must leave the column unmapped rather than guess a field key.
 export function resolveSubtypeTargetField(result: PhoneEmailSubtypeResult, targetFields: TargetField[]): TargetField | null {
-  const wantedBaseWords = result.base === 'phone' ? ['phone', 'tel'] : ['email', 'mail']
   const subtypeKeywords = SUBTYPE_KEYWORDS.find(([s]) => s === result.subtype)![1]
+  // "Fax" alone is already unambiguous — unlike mobile/home/work, which
+  // need a phone/email base word on the target field's own label to avoid
+  // matching an unrelated field, a field labeled just "Fax" is definitely
+  // a fax field with no base word required.
+  const wantedBaseWords = result.subtype === 'fax' ? [] : (result.base === 'phone' ? ['phone', 'tel'] : ['email', 'mail'])
   return targetFields.find(f => {
     const normalized = normalizeColumnName(f.label)
-    return hasAnyKeyword(normalized, wantedBaseWords) && hasAnyKeyword(normalized, subtypeKeywords)
+    const hasBase = wantedBaseWords.length === 0 || hasAnyKeyword(normalized, wantedBaseWords)
+    return hasBase && hasAnyKeyword(normalized, subtypeKeywords)
   }) ?? null
 }
 
@@ -1501,6 +1700,10 @@ describe('resolveSubtypeTargetField', () => {
   it('returns null rather than inventing a field when none matches (phone/home has no custom field here)', () => {
     expect(resolveSubtypeTargetField({ base: 'phone', subtype: 'home' }, GHL_CONTACT_FIELDS)).toBeNull()
   })
+  it('resolves a fax-subtype column to a field labeled just "Fax", with no phone/tel base word required on the field label', () => {
+    const field = resolveSubtypeTargetField({ base: 'phone', subtype: 'fax' }, GHL_CONTACT_FIELDS)
+    expect(field?.key).toBe('custom_fax')
+  })
 })
 
 describe('matchTargetSchema', () => {
@@ -1569,6 +1772,16 @@ describe('classifyColumn', () => {
     expect(result.target_field_key).toBe('custom_mobile_phone')
   })
 
+  it('green-maps a non-exact fax-subtype column name (not the literal "Fax") to the existing fax custom field', () => {
+    // "Office Fax" doesn't exact-match the schema's "Fax" label (step 2),
+    // so this only passes through resolveSubtypeTargetField's fax-specific
+    // base-word exemption (step 3) — a regression here would silently
+    // reintroduce the under-mapping bug that exemption fixes.
+    const result = classifyColumn({ ...base, columnName: 'Office Fax' })
+    expect(result.status).toBe('mapped')
+    expect(result.target_field_key).toBe('custom_fax')
+  })
+
   it('routes an ambiguous "Do Not Contact" column to unmapped rather than guessing a channel', () => {
     const result = classifyColumn({ ...base, columnName: 'Do Not Contact' })
     expect(result.status).toBe('unmapped')
@@ -1595,15 +1808,42 @@ describe('classifyColumn', () => {
 - [ ] **Step 3: Run the tests**
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentMatching.test.ts`
-Expected: PASS (26 tests). This file is auto-discovered by the existing Vitest config (`src/test/setup.ts` sets `environment: 'jsdom', globals: true`; the config's `exclude` only drops `node_modules` and `.worktrees` — nothing excludes `supabase/functions`, so this test is picked up without any config change).
+Expected: PASS (35 tests — the `describe` blocks above nest several `it`s each; the actual count is 35, not a round number). This file is auto-discovered by the existing Vitest config (`src/test/setup.ts` sets `environment: 'jsdom', globals: true`; the config's `exclude` only drops `node_modules` and `.worktrees` — nothing excludes `supabase/functions`, so this test is picked up without any config change).
 
-- [ ] **Step 4: Typecheck and commit**
+- [ ] **Step 4: Set up a real typecheck for the `_shared/` pure modules**
+
+The root `tsconfig.json` has `"include": ["src"]` — running `tsc --noEmit` against it never includes any file under `supabase/functions/`, so "no errors" from that command is vacuous for this module (verified directly: `tsc --noEmit --listFiles` includes no file from `supabase/functions/_shared`). The Deno edge-function entry points (`index.ts` files) genuinely can't be checked by vanilla `tsc` anyway — they use `Deno.serve`/`Deno.env` globals and `https://esm.sh/...` URL imports with no local type resolution. But `dataAgentMatching.ts` (and every future zero/local-only-import module under `_shared/`, per this plan's design) has neither problem and deserves a real check. Create a dedicated config scoped to exactly that subset:
+
+```json
+// supabase/functions/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true
+  },
+  "include": ["_shared/**/*.ts"],
+  "exclude": ["_shared/__tests__", "_shared/dataAgentSchemaCache.ts", "_shared/accountEmails.ts", "_shared/inviteEmail.ts", "_shared/projectEmails.ts", "_shared/smtp.ts"]
+}
+```
+
+`dataAgentSchemaCache.ts` (Task 5) is excluded because it imports a type from `https://esm.sh/@supabase/supabase-js@2`, which this config's `moduleResolution` can't resolve — it stays in the already-documented "edge-function files aren't type-checked" bucket. The same reasoning applies to four pre-existing, unrelated files this `include` glob would otherwise also sweep in: `accountEmails.ts`, `inviteEmail.ts`, `projectEmails.ts`, `smtp.ts` (email-sending helpers for other features, predating this plan, each importing from `esm.sh` or `deno.land`) — also excluded, verified directly by reading their actual `import` lines rather than assumed. Every `_shared/*.ts` file this plan itself creates (Tasks 8, 11, 12, 13, 15, 16, 17 — `parseCsv.ts`, `dataAgentUploadPlanner.ts`, `dataAgentClaude.ts`, `dataAgentPrompt.ts`, `dataAgentWriter.ts`, `dataAgentQa.ts`) imports only local relative files with no `esm.sh`/`deno.land` specifiers, so this config's `include: ["_shared/**/*.ts"]` catches them automatically as they're added — no further edit to this file's `include` is needed later, only `exclude` if a future file breaks this pattern.
+
+- [ ] **Step 5: Typecheck and commit**
+
+Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json`
+Expected: no errors — this is the real check for this module (not the root `tsc --noEmit`, which doesn't see it at all).
 
 Run: `corepack pnpm tsc --noEmit`
-Expected: no errors (this module is pure TS with no Deno-specific globals, so it type-checks cleanly even though it physically lives under `supabase/functions/`).
+Expected: no errors (confirms no regression to the frontend itself; this run still doesn't see `_shared/` files, by design — see Step 4).
 
 ```bash
-git add supabase/functions/_shared/dataAgentMatching.ts supabase/functions/_shared/__tests__/dataAgentMatching.test.ts
+git add supabase/functions/_shared/dataAgentMatching.ts supabase/functions/_shared/__tests__/dataAgentMatching.test.ts supabase/functions/tsconfig.json
 git commit -m "feat: add Data Agent pure rules-tier matching engine with full unit coverage"
 ```
 
@@ -1615,7 +1855,7 @@ git commit -m "feat: add Data Agent pure rules-tier matching engine with full un
 - Create: `supabase/migrations/20261018000100_data_agent_migration_pipeline.sql`
 
 **Interfaces:**
-- Produces: tables `data_agent_migrations`, `data_agent_column_mappings`, `data_agent_migration_records`, `data_agent_qa_samples`, `data_agent_source_profiles` (seeded), `data_agent_chat_messages`, `data_agent_prompts`; storage bucket `data-agent-uploads`; RPC `public.confirm_data_agent_migration(p_migration_id uuid) returns void`.
+- Produces: tables `data_agent_migrations`, `data_agent_column_mappings`, `data_agent_migration_records`, `data_agent_qa_samples`, `data_agent_source_profiles` (seeded), `data_agent_chat_messages`, `data_agent_prompts`; storage bucket `data-agent-uploads`; RPC `public.confirm_data_agent_migration(p_migration_id uuid, p_default_country_code text default null) returns void`; redefines `public.is_data_agent_member()` (Task 1) to guarantee it never returns `null` — fixing every caller, including Task 17's later RPC and any RLS policy, without touching Task 1's already-applied migration.
 - Consumes: `is_data_agent_member` (Task 1).
 
 - [ ] **Step 1: Write the migration**
@@ -1756,11 +1996,55 @@ insert into public.data_agent_source_profiles (source_system, pattern, target_fi
   -- portals (spec §6.2) — deliberately no hubspot DND-call row here; such a
   -- column is routed to the Claude tier rather than guessed.
 
+-- ── Fix: is_data_agent_member() must never return null ──────────────────────
+-- Found during this task's own review: auth_user_role()/auth_user_sub_account()/
+-- auth_user_app_id() all resolve to NULL for a suspended or deleted-but-
+-- still-logged-in caller (migration 027), which made Task 1's original
+-- definition of this function (below, unchanged otherwise) evaluate to
+-- NULL instead of false in that case. Harmless in every RLS USING/WITH
+-- CHECK usage (NULL excludes a row exactly like false does) — but
+-- `confirm_data_agent_migration` just below calls this imperatively via
+-- `if not ... then raise exception`, and PL/pgSQL's `if null then` never
+-- executes the branch, so a NULL return silently skipped the
+-- authorization check entirely. Redefining here (never edit Task 1's
+-- already-applied migration) with a top-level coalesce fixes every
+-- caller, RLS or imperative, present or future.
+create or replace function public.is_data_agent_member(p_sub_account text)
+  returns boolean
+  language sql security definer stable
+  set search_path = public
+as $$
+  select coalesce(
+    exists (select 1 from public.data_agent_entitlements e where e.sub_account = p_sub_account and e.enabled)
+    and (
+      public.auth_user_role() = 'Super-Admin'
+      or (
+        public.auth_user_sub_account() = p_sub_account
+        and (
+          public.auth_user_role() = 'Admin'
+          or exists (select 1 from public.data_agent_members m where m.sub_account = p_sub_account and m.user_id = public.auth_user_app_id())
+        )
+      )
+    ),
+    false
+  )
+$$;
+revoke execute on function public.is_data_agent_member(text) from public, anon;
+grant execute on function public.is_data_agent_member(text) to authenticated;
+
 -- ── Gate enforcement: the one place a migration can leave `mapping` ──────────
 -- Re-validates server-side, never trusting a client-only check, that every
 -- column is green (confirmed rule/profile/user match) or explicitly
 -- ignored before flipping status (spec §6.4's hard gate).
-create or replace function public.confirm_data_agent_migration(p_migration_id uuid)
+-- p_default_country_code: there is deliberately no client UPDATE policy
+-- on data_agent_migrations (see this table's RLS comment below) — this
+-- SECURITY DEFINER function is the only write path into that table from
+-- the browser, so it accepts the value as a parameter here rather than
+-- requiring a separate prior write the client has no privilege to make
+-- (found during Task 10's review: a direct client-side
+-- `.update({ default_country_code })` call is a guaranteed silent RLS
+-- no-op — 0 rows matched, no exception).
+create or replace function public.confirm_data_agent_migration(p_migration_id uuid, p_default_country_code text default null)
   returns void
   language plpgsql security definer
   set search_path = public
@@ -1776,8 +2060,17 @@ begin
   if v_sub_account is null then
     raise exception 'Migration not found';
   end if;
-  if not public.is_data_agent_member(v_sub_account) then
+  -- is_data_agent_member() always returns true/false, never null (see its
+  -- own definition) — the explicit "is not true" here is defense in
+  -- depth, not a workaround: this is the single authorization gate before
+  -- a real CRM write, and must stay correct even if a future edit to that
+  -- function's body ever reintroduced a NULL path.
+  if coalesce(public.is_data_agent_member(v_sub_account), false) is not true then
     raise exception 'Not authorized for this migration';
+  end if;
+
+  if p_default_country_code is not null and trim(p_default_country_code) <> '' then
+    v_default_country_code := trim(p_default_country_code);
   end if;
 
   -- Blocking is purely a function of status, never target_type: a column
@@ -1807,16 +2100,26 @@ begin
     raise exception 'Cannot confirm: a default country code is required for at least one phone column';
   end if;
 
+  -- Accepts either pre-migration status. 'awaiting_confirmation' is the
+  -- lucky case: every column was already green at upload time, per Task
+  -- 8's computeMigrationStatus. 'mapping' is the common case this page
+  -- (Task 10) exists for: a migration that needed manual review and
+  -- reaches this RPC only once every column is resolved HERE — nothing
+  -- else ever transitions it to 'awaiting_confirmation' first (found
+  -- during Task 10's review: requiring that status alone made this RPC
+  -- unreachable for exactly the workflow it's built to serve). The
+  -- blocking-count and country-code checks above are the real gate;
+  -- requiring one specific status string on top of them was redundant.
   update public.data_agent_migrations
-    set status = 'migrating', started_at = now()
-    where id = p_migration_id and status = 'awaiting_confirmation';
+    set status = 'migrating', started_at = now(), default_country_code = v_default_country_code
+    where id = p_migration_id and status in ('mapping', 'awaiting_confirmation');
   if not found then
     raise exception 'Migration is not awaiting confirmation';
   end if;
 end;
 $$;
-revoke execute on function public.confirm_data_agent_migration(uuid) from public, anon;
-grant execute on function public.confirm_data_agent_migration(uuid) to authenticated;
+revoke execute on function public.confirm_data_agent_migration(uuid, text) from public, anon;
+grant execute on function public.confirm_data_agent_migration(uuid, text) to authenticated;
 
 -- ── RLS ───────────────────────────────────────────────────────────────────
 alter table public.data_agent_migrations enable row level security;
@@ -1912,9 +2215,13 @@ Expected: PASS — all seven new tables are covered by their own `_deny_associat
 - [ ] **Step 3: Verify live via the Supabase Management API**
 
 ```sql
-select count(*) from public.data_agent_source_profiles; -- expect 33
+select count(*) from public.data_agent_source_profiles; -- expect 34 (18 salesforce + 16 hubspot)
 select proname from pg_proc where proname = 'confirm_data_agent_migration';
 select id, public from storage.buckets where id = 'data-agent-uploads'; -- expect public = false
+-- is_data_agent_member() must never return null — the whole point of this
+-- task's redefinition. A sub_account that doesn't exist/isn't entitled
+-- must come back false, never null:
+select public.is_data_agent_member('a-sub-account-that-does-not-exist') is false as returns_false_not_null;
 ```
 
 - [ ] **Step 4: Commit**
@@ -1937,7 +2244,9 @@ git commit -m "feat: add Data Agent migration-pipeline tables, upload bucket, an
 
 **Interfaces:**
 - Consumes: `classifyColumn`, `pickPrimaryPhoneEmailColumn`, `TargetField`, `SourceProfileEntry`, `ColumnClassification` (Task 6); `ensureSchemaCacheFresh` (Task 5); tables `data_agent_ghl_schema_cache`, `data_agent_connections`, `data_agent_source_profiles`, `data_agent_migrations`, `data_agent_column_mappings` (Tasks 1, 7); `vault.decrypted_secrets`; bucket `data-agent-uploads` (Task 7).
-- Produces: `parseCsvWithHeaders(text: string): { headers: string[]; rows: Record<string, string>[] }`; `planColumnMappings(...)`, `computeMigrationStatus(...)` (consumed again by Task 12). Edge function `data-agent-upload` (POST `{ subAccount, targetObjectType, sourceSystem, storagePath, originalFilename }` → `{ migrationId: string }`).
+- Produces: `parseCsvWithHeaders(text: string): { headers: string[]; rows: Record<string, string>[] }`; `planColumnMappings(...)`, `computeMigrationStatus(...)`, `buildTargetFields(objectType: string, cachedFields: CachedGhlField[]): TargetField[]` (all consumed again by Task 12). Edge function `data-agent-upload` (POST `{ subAccount, targetObjectType, sourceSystem, storagePath, originalFilename }` → `{ migrationId: string }`).
+
+**Known, flagged, out-of-scope-for-this-task limitation:** `data_agent_source_profiles`' curated `target_field_hint` values for custom fields (e.g. `custom_mobile_phone`, `custom_fax`) are symbolic placeholder keys, not real GHL custom-field IDs — `buildTargetFields` only ever produces real IDs (from the live schema cache) as custom-field keys. A source-profile match today writes that symbolic string directly into `target_field_key`, which Task 15's write pipeline would send to GHL as a literal (and wrong) custom-field ID. This doesn't crash or corrupt data — GHL's API would simply reject that ID with a clear error at write time — but it means a source-profile match's green/"mapped" status is not yet backed by a field that's guaranteed to exist. Resolving this (fuzzy-matching the symbolic hint against the real cached custom fields, the same way `resolveSubtypeTargetField` does for pattern-detected subtypes) is flagged for whichever of Task 12 (Claude tier) or Task 15 (write pipeline) ends up owning it — not fixed here, to avoid rushing a design decision under this task's own fix round.
 
 - [ ] **Step 1: Write the CSV parser test (RED), then the parser**
 
@@ -2041,7 +2350,7 @@ Expected: PASS (9 tests).
 ```ts
 // supabase/functions/_shared/__tests__/dataAgentUploadPlanner.test.ts
 import { describe, it, expect } from 'vitest'
-import { planColumnMappings, computeMigrationStatus } from '../dataAgentUploadPlanner'
+import { planColumnMappings, computeMigrationStatus, buildTargetFields } from '../dataAgentUploadPlanner'
 import type { TargetField } from '../dataAgentMatching'
 
 const FIELDS: TargetField[] = [
@@ -2081,6 +2390,42 @@ describe('planColumnMappings', () => {
     expect(plan[0].sample_values).toEqual([])
     expect(plan[0].status).toBe('mapped')
   })
+
+  it('does not mix an email-subtype column into the phone primary-candidate grouping', () => {
+    // "Work Email" matches subtype 'work' same as "Work Phone" would —
+    // metadata.subtype alone can't tell them apart; without re-deriving
+    // base from the column name, this would wrongly flag the email
+    // column as a phone primary candidate (or wrongly count 2 "phone"
+    // columns when there's really only one).
+    const fieldsWithWorkEmail: TargetField[] = [...FIELDS, { key: 'custom_work_email', label: 'Work Email', type: 'custom' }]
+    const rows = [{ Phone: '+14155550001', 'Work Email': 'jane@x.com' }]
+    const plan = planColumnMappings(['Phone', 'Work Email'], rows, null, fieldsWithWorkEmail, [])
+    const phone = plan.find(p => p.source_column_name === 'Phone')!
+    const workEmail = plan.find(p => p.source_column_name === 'Work Email')!
+    expect(workEmail.target_field_key).toBe('custom_work_email')
+    expect(workEmail.metadata.is_primary_candidate).toBeUndefined()
+    // Only one real phone-like column exists, so no primary flag at all.
+    expect(phone.metadata.is_primary_candidate).toBeUndefined()
+  })
+})
+
+describe('buildTargetFields', () => {
+  it('bridges the real cached custom-field shape ({id, fieldKey, name}) into TargetField ({key, label, type}), using the GHL field id as the key', () => {
+    const fields = buildTargetFields('contact', [{ id: 'abc123', fieldKey: 'mobile_phone', name: 'Mobile Phone' }])
+    expect(fields).toContainEqual({ key: 'abc123', label: 'Mobile Phone', type: 'custom' })
+  })
+
+  it('includes the hardcoded standard contact fields for object type "contact"', () => {
+    const fields = buildTargetFields('contact', [])
+    expect(fields.map(f => f.key)).toContain('email')
+    expect(fields.map(f => f.key)).toContain('phone')
+    expect(fields.find(f => f.key === 'email')?.type).toBe('standard')
+  })
+
+  it('excludes standard contact fields for a Custom Object target (they do not apply)', () => {
+    const fields = buildTargetFields('orders', [{ id: 'xyz789', fieldKey: 'order_number', name: 'Order Number' }])
+    expect(fields).toEqual([{ key: 'xyz789', label: 'Order Number', type: 'custom' }])
+  })
 })
 
 describe('computeMigrationStatus', () => {
@@ -2103,12 +2448,50 @@ Expected: FAIL (module not found).
 
 ```ts
 // supabase/functions/_shared/dataAgentUploadPlanner.ts
-import { classifyColumn, pickPrimaryPhoneEmailColumn, type TargetField, type SourceProfileEntry, type ColumnClassification } from './dataAgentMatching.ts'
+import { classifyColumn, pickPrimaryPhoneEmailColumn, detectPhoneEmailSubtype, type TargetField, type SourceProfileEntry, type ColumnClassification } from './dataAgentMatching.ts'
 
 export interface PlannedColumnMapping extends ColumnClassification {
   source_column_name: string
   sample_values: string[]
   reasoning?: string // set by Task 12's Claude-tier pass; absent for a rules/profile match
+}
+
+// What's actually cached in data_agent_ghl_schema_cache.fields (Task 5's
+// fetchContactCustomFields/fetchCustomObjects): GHL's raw custom-field
+// shape, never GHL's standard fields (phone/email/name/etc. — GHL's
+// customFields endpoint only ever returns custom fields, by definition).
+export interface CachedGhlField { id: string; fieldKey: string; name: string }
+
+// GHL's standard contact fields are never returned by any API call this
+// app makes (there is no "list standard fields" endpoint — they're fixed,
+// documented field names on the Contact object) — hardcoded here because
+// that's the only way they can exist at all. Every key here must match
+// what upsertContact()/the write pipeline (Task 15) actually sends.
+const STANDARD_CONTACT_FIELDS: TargetField[] = [
+  { key: 'firstName', label: 'First Name', type: 'standard' },
+  { key: 'lastName', label: 'Last Name', type: 'standard' },
+  { key: 'email', label: 'Email', type: 'standard' },
+  { key: 'phone', label: 'Phone', type: 'standard' },
+  { key: 'companyName', label: 'Company Name', type: 'standard' },
+  { key: 'address1', label: 'Address', type: 'standard' },
+  { key: 'city', label: 'City', type: 'standard' },
+  { key: 'state', label: 'State', type: 'standard' },
+  { key: 'postalCode', label: 'Postal Code', type: 'standard' },
+  { key: 'country', label: 'Country', type: 'standard' },
+  { key: 'website', label: 'Website', type: 'standard' },
+]
+
+// Bridges the real cached data into the shape classifyColumn/matchTargetSchema
+// actually expects ({key, label, type}) — the cache's raw {id, fieldKey,
+// name} objects are NOT interchangeable with TargetField (different
+// property names entirely), and GHL's standard fields need to be supplied
+// from the hardcoded list above since nothing ever caches them. A custom
+// field's TargetField.key is its GHL field `id` specifically (not
+// `fieldKey` or `name`) because that's what the write pipeline's
+// customFields payload (Task 15) needs to send back to GHL.
+export function buildTargetFields(objectType: string, cachedFields: CachedGhlField[]): TargetField[] {
+  const customFields: TargetField[] = cachedFields.map(f => ({ key: f.id, label: f.name, type: 'custom' }))
+  return objectType === 'contact' ? [...STANDARD_CONTACT_FIELDS, ...customFields] : customFields
 }
 
 const SAMPLE_ROWS = 10
@@ -2128,9 +2511,16 @@ export function planColumnMappings(
   })
 
   // Flag which of several green phone-mapped columns is the primary
-  // candidate — informational only (spec §6.1 step 4); never changes status.
+  // candidate — informational only (spec §6.1 step 4); never changes
+  // status. Re-derives the column's base (phone vs. email) directly from
+  // its name via detectPhoneEmailSubtype rather than trusting
+  // metadata.subtype alone — a subtype like 'work'/'home' applies
+  // ambiguously to both bases, so metadata.subtype's mere presence can't
+  // tell a "Work Email" column apart from a "Work Phone" column; mixing
+  // them into one priority-ranked group could wrongly flag an email
+  // column as the phone primary (or vice versa).
   const phoneColumns = classifications
-    .filter(c => c.status === 'mapped' && (c.target_field_key === 'phone' || c.metadata.subtype))
+    .filter(c => c.status === 'mapped' && (c.target_field_key === 'phone' || detectPhoneEmailSubtype(c.source_column_name)?.base === 'phone'))
     .map(c => ({ columnName: c.source_column_name, subtype: c.metadata.subtype ?? null }))
   if (phoneColumns.length > 1) {
     const primary = pickPrimaryPhoneEmailColumn(phoneColumns)
@@ -2153,7 +2543,7 @@ export function computeMigrationStatus(mappings: { status: ColumnClassification[
 ```
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentUploadPlanner.test.ts`
-Expected: PASS (6 tests).
+Expected: PASS (11 tests — 5 under `planColumnMappings`, 3 under `computeMigrationStatus`, 3 under `buildTargetFields`).
 
 - [ ] **Step 3: Write the upload edge function**
 
@@ -2163,8 +2553,8 @@ The client (Task 9) uploads the raw file to storage first, then calls this funct
 // supabase/functions/data-agent-upload/index.ts
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { parseCsvWithHeaders } from '../_shared/parseCsv.ts'
-import { planColumnMappings, computeMigrationStatus } from '../_shared/dataAgentUploadPlanner.ts'
-import type { TargetField, SourceProfileEntry } from '../_shared/dataAgentMatching.ts'
+import { planColumnMappings, computeMigrationStatus, buildTargetFields, type CachedGhlField } from '../_shared/dataAgentUploadPlanner.ts'
+import type { SourceProfileEntry } from '../_shared/dataAgentMatching.ts'
 import { ensureSchemaCacheFresh } from '../_shared/dataAgentSchemaCache.ts'
 
 const CORS_HEADERS = {
@@ -2176,12 +2566,19 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } })
 }
 
+// Every business-outcome branch below returns HTTP 200 (see Task 5's
+// data-agent-test-connection for why: supabase-js's functions.invoke()
+// throws a generic FunctionsHttpError for any non-2xx response, whose
+// .message is always the fixed string "Edge Function returned a non-2xx
+// status code" — never this function's own `error` text. Only true
+// protocol-level cases (CORS preflight, wrong method) keep a real status
+// code, since the UI never has to parse those.
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader) return json({ error: 'Missing authorization header' }, 401)
+  if (!authHeader) return json({ error: 'Missing authorization header' })
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
@@ -2189,21 +2586,31 @@ Deno.serve(async (req) => {
 
   const callerClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } })
   const { data: { user: callerAuth }, error: callerErr } = await callerClient.auth.getUser()
-  if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' }, 401)
+  if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' })
 
   let body: { subAccount?: unknown; targetObjectType?: unknown; sourceSystem?: unknown; storagePath?: unknown; originalFilename?: unknown }
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
+  try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }) }
   const subAccount = typeof body.subAccount === 'string' ? body.subAccount : ''
   const targetObjectType = typeof body.targetObjectType === 'string' ? body.targetObjectType : ''
   const sourceSystem = body.sourceSystem === 'salesforce' || body.sourceSystem === 'hubspot' ? body.sourceSystem : null
   const storagePath = typeof body.storagePath === 'string' ? body.storagePath : ''
   const originalFilename = typeof body.originalFilename === 'string' ? body.originalFilename : ''
   if (!subAccount || !targetObjectType || !storagePath || !originalFilename) {
-    return json({ error: 'subAccount, targetObjectType, storagePath, and originalFilename are required' }, 400)
+    return json({ error: 'subAccount, targetObjectType, storagePath, and originalFilename are required' })
+  }
+  // The storage bucket's own RLS (Task 7) already enforces this for a
+  // direct client upload, but this function downloads via the
+  // service-role client, which bypasses that RLS entirely — without this
+  // check, an authorized member of subAccount A could pass a storagePath
+  // belonging to subAccount B (protected only by the migration's path
+  // being hard to guess, not by an actual authorization check) and have
+  // B's file ingested under A.
+  if (!storagePath.startsWith(`${subAccount}/`)) {
+    return json({ error: 'storagePath does not belong to the given subAccount' })
   }
 
   const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: subAccount })
-  if (!isMember) return json({ error: 'Not authorized for this sub-account' }, 403)
+  if (!isMember) return json({ error: 'Not authorized for this sub-account' })
 
   const { data: appUser } = await callerClient.from('users').select('id').eq('email', callerAuth.email).single()
   const createdBy = (appUser as { id: string } | null)?.id ?? null
@@ -2211,33 +2618,42 @@ Deno.serve(async (req) => {
   const serviceClient = createClient(supabaseUrl, serviceKey)
 
   const { data: fileBlob, error: downloadErr } = await serviceClient.storage.from('data-agent-uploads').download(storagePath)
-  if (downloadErr || !fileBlob) return json({ error: `Could not read uploaded file: ${downloadErr?.message ?? 'not found'}` }, 400)
+  if (downloadErr || !fileBlob) return json({ error: `Could not read uploaded file: ${downloadErr?.message ?? 'not found'}` })
   const csvText = await fileBlob.text()
   const { headers, rows } = parseCsvWithHeaders(csvText)
-  if (headers.length === 0) return json({ error: 'The uploaded file has no columns' }, 400)
+  if (headers.length === 0) return json({ error: 'The uploaded file has no columns' })
 
   // Analysis must never run against a schema snapshot older than 24h (spec
   // §4) — refresh it now if stale, before any classification happens, so
   // the user's review (Task 10) reflects the CRM's real current structure.
   const { data: connection } = await serviceClient.from('data_agent_connections')
     .select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
-  if (!connection) return json({ error: 'No GHL connection configured for this sub-account yet' }, 400)
+  if (!connection) return json({ error: 'No GHL connection configured for this sub-account yet' })
   const { data: secretRow } = await serviceClient.schema('vault').from('decrypted_secrets')
     .select('decrypted_secret').eq('name', (connection as { secret_name: string }).secret_name).maybeSingle()
   const pit = (secretRow as { decrypted_secret?: string } | null)?.decrypted_secret
-  if (!pit) return json({ error: 'Could not read the saved connection token' }, 500)
+  if (!pit) return json({ error: 'Could not read the saved connection token' })
   const ghlConfig = { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
 
   try {
     await ensureSchemaCacheFresh(serviceClient, subAccount, ghlConfig, { force: false })
   } catch (err) {
-    return json({ error: `Could not refresh the CRM schema before analysis: ${err instanceof Error ? err.message : String(err)}` }, 502)
+    return json({ error: `Could not refresh the CRM schema before analysis: ${err instanceof Error ? err.message : String(err)}` })
   }
 
   const { data: schemaCache } = await serviceClient.from('data_agent_ghl_schema_cache')
     .select('fields').eq('sub_account', subAccount).eq('object_type', targetObjectType).maybeSingle()
-  if (!schemaCache) return json({ error: `No schema cached for target object "${targetObjectType}" — run Test Connection in Settings first` }, 400)
-  const targetFields = ((schemaCache as { fields: TargetField[] } | null)?.fields ?? [])
+  if (!schemaCache) return json({ error: `No schema cached for target object "${targetObjectType}" — run Test Connection in Settings first` })
+  // buildTargetFields bridges the cache's real shape ({id, fieldKey,
+  // name} per Task 5's fetchContactCustomFields/fetchCustomObjects) into
+  // what classifyColumn actually expects ({key, label, type}) — these
+  // are NOT the same shape, and GHL's standard fields (phone/email/etc.)
+  // are never cached at all, so casting the raw cache data directly as
+  // TargetField[] (as an earlier version of this function did) either
+  // silently fails to match any standard field or throws on the first
+  // real custom field, since `.label` doesn't exist on the raw shape.
+  const cachedFields = ((schemaCache as { fields: CachedGhlField[] } | null)?.fields ?? [])
+  const targetFields = buildTargetFields(targetObjectType, cachedFields)
 
   const { data: profileRows } = sourceSystem
     ? await serviceClient.from('data_agent_source_profiles').select('source_system, pattern, target_field_hint, subtype_hint').eq('source_system', sourceSystem)
@@ -2252,7 +2668,7 @@ Deno.serve(async (req) => {
     source_system: sourceSystem, original_filename: originalFilename, storage_path: storagePath,
     row_count: rows.length, status,
   }).select('id').single()
-  if (migrationErr || !migration) return json({ error: `Could not create migration: ${migrationErr?.message}` }, 500)
+  if (migrationErr || !migration) return json({ error: `Could not create migration: ${migrationErr?.message}` })
   const migrationId = (migration as { id: string }).id
 
   const { error: mappingsErr } = await serviceClient.from('data_agent_column_mappings').insert(
@@ -2262,12 +2678,25 @@ Deno.serve(async (req) => {
       confidence: p.confidence, mapped_by: p.mapped_by, metadata: p.metadata,
     }))
   )
-  if (mappingsErr) return json({ error: `Could not create column mappings: ${mappingsErr.message}` }, 500)
+  // A failure here leaves the migration row with zero column_mappings —
+  // confirm_data_agent_migration's blocking check (Task 7) counts rows
+  // with status in ('uncertain','unmapped'), which is vacuously 0 against
+  // an empty set, so an unmarked migration could later pass that gate
+  // despite having nothing actually confirmed. Mark it failed explicitly
+  // rather than leaving it stuck in 'mapping'/'awaiting_confirmation'
+  // looking like a normal in-progress upload.
+  if (mappingsErr) {
+    await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: mappingsErr.message }).eq('id', migrationId)
+    return json({ error: `Could not create column mappings: ${mappingsErr.message}` })
+  }
 
   const { error: recordsErr } = await serviceClient.from('data_agent_migration_records').insert(
     rows.map((row, idx) => ({ migration_id: migrationId, row_number: idx + 1, source_row_data: row }))
   )
-  if (recordsErr) return json({ error: `Could not store source rows: ${recordsErr.message}` }, 500)
+  if (recordsErr) {
+    await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: recordsErr.message }).eq('id', migrationId)
+    return json({ error: `Could not store source rows: ${recordsErr.message}` })
+  }
 
   return json({ migrationId })
 })
@@ -2278,8 +2707,11 @@ Deno.serve(async (req) => {
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/`
 Expected: PASS (all matching/parser/planner tests green together).
 
-Run: `corepack pnpm tsc --noEmit`
+Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json` (the real check for `parseCsv.ts`/`dataAgentUploadPlanner.ts` — see Task 6's Global Constraint on why the root `tsc --noEmit` below doesn't see these files at all).
 Expected: no errors.
+
+Run: `corepack pnpm tsc --noEmit`
+Expected: no errors (confirms no frontend regression only).
 
 Against the same sandbox GHL location used in Task 5's verification: upload a small CSV, then confirm (a) `data_agent_migrations`/`data_agent_column_mappings` rows were created with no corresponding write to GHL itself (the sandbox location's contact/object counts are unchanged), and (b) if `data_agent_ghl_schema_cache.fetched_at` for that sub-account is forced older than 24h first (e.g. by backdating it in a test query), this upload refreshes it before classifying — confirm `fetched_at` moves forward.
 
@@ -2355,7 +2787,10 @@ describe('NewMigrationModal', () => {
   })
 
   it('surfaces an upload-function error instead of claiming success', async () => {
-    invokeMock.mockResolvedValue({ data: null, error: { message: 'No schema cached yet' } })
+    // The edge function returns HTTP 200 with { error } for a business
+    // failure, not a thrown error — see data-agent-upload's own comment
+    // on why (supabase-js discards a non-2xx response's real body).
+    invokeMock.mockResolvedValue({ data: { error: 'No schema cached yet' }, error: null })
     render(<NewMigrationModal subAccount="AM333" onCreated={vi.fn()} onClose={vi.fn()} />)
     await screen.findByRole('option', { name: /orders/i })
     const file = new File(['Email\njane@x.com\n'], 'contacts.csv', { type: 'text/csv' })
@@ -2406,8 +2841,14 @@ export function NewMigrationModal({ subAccount, onCreated, onClose }: Props) {
       body: { subAccount, targetObjectType: target, sourceSystem: sourceSystem || null, storagePath, originalFilename: file.name },
     })
     setUploading(false)
-    if (fnErr) { setError(fnErr.message); return }
-    onCreated((data as { migrationId: string }).migrationId)
+    // data-agent-upload returns HTTP 200 for every business outcome (see
+    // its own comment) so a real failure shows up as `data.error`, not a
+    // thrown `fnErr` — `fnErr` only fires for a genuine network/relay
+    // failure, which has no useful `.message` of its own either.
+    if (fnErr) { setError('Could not reach the upload service — check your connection and try again.'); return }
+    const result = data as { migrationId?: string; error?: string }
+    if (!result.migrationId) { setError(result.error ?? 'Upload failed for an unknown reason.'); return }
+    onCreated(result.migrationId)
   }
 
   return (
@@ -2557,6 +2998,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 const migrationRow = { id: 'mig-1', sub_account: 'AM333', target_object_type: 'contact', status: 'mapping', original_filename: 'contacts.csv', row_count: 2 }
 let mappingRows: Record<string, unknown>[] = []
+// Lets a test inject a write failure — the mock's own .eq() resolution
+// reads this, rather than always resolving { error: null }, so a test can
+// actually exercise the "surface a remap write error" path.
+let mappingUpdateError: { message: string } | null = null
 const updateMock = vi.fn()
 const rpcMock = vi.fn()
 
@@ -2574,10 +3019,13 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'data_agent_column_mappings') {
         return {
           select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: mappingRows }) }) }),
-          update: (...args: unknown[]) => { updateMock(...args); return { eq: () => Promise.resolve({ error: null }) } },
+          update: (...args: unknown[]) => { updateMock(...args); return { eq: () => Promise.resolve({ error: mappingUpdateError }) } },
         }
       }
-      return { select: () => ({ eq: () => Promise.resolve({ data: [{ fields: [{ key: 'email', label: 'Email', type: 'standard' }] }] }) }) }
+      // data_agent_ghl_schema_cache: the component chains two .eq() calls
+      // (.eq('sub_account',...).eq('object_type',...)) — this must
+      // resolve after the SECOND .eq(), not the first.
+      return { select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ fields: [{ key: 'email', label: 'Email', type: 'standard' }] }] }) }) }) }
     }),
   },
 }))
@@ -2595,6 +3043,7 @@ function renderAt(id: string) {
 describe('MappingReviewPage', () => {
   beforeEach(() => {
     updateMock.mockReset()
+    mappingUpdateError = null
     rpcMock.mockReset().mockResolvedValue({ error: null })
     mappingRows = [
       { id: 'cm-1', source_column_name: 'Email', status: 'mapped', target_field_key: 'email', target_type: 'standard_field', mapped_by: 'rule', metadata: {} },
@@ -2624,23 +3073,38 @@ describe('MappingReviewPage', () => {
     })))
   })
 
-  it('calls confirm_data_agent_migration when every column is resolved', async () => {
+  it('calls confirm_data_agent_migration when every column is resolved, with a null country code when none is needed', async () => {
     mappingRows = [{ id: 'cm-1', source_column_name: 'Email', status: 'mapped', target_field_key: 'email', target_type: 'standard_field', mapped_by: 'rule', metadata: {} }]
     renderAt('mig-1')
     const confirmBtn = await screen.findByRole('button', { name: /confirm & migrate/i })
     expect(confirmBtn).toBeEnabled()
     await userEvent.click(confirmBtn)
-    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1' }))
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1', p_default_country_code: null }))
   })
 
-  it('shows a default-country-code input when a mapped phone column has absent/mixed country codes, and saves it before confirming', async () => {
+  it('shows a default-country-code input when a mapped phone column has absent/mixed country codes, and passes it to the confirm RPC directly (never a separate client-side table update, which RLS would silently no-op)', async () => {
     mappingRows = [{ id: 'cm-1', source_column_name: 'Phone', status: 'mapped', target_field_key: 'phone', target_type: 'standard_field', mapped_by: 'rule', metadata: { country_code_presence: 'mixed' } }]
     renderAt('mig-1')
     const input = await screen.findByLabelText(/default country code/i)
     await userEvent.type(input, '+65')
     await userEvent.click(screen.getByRole('button', { name: /confirm & migrate/i }))
-    await waitFor(() => expect(updateMock).toHaveBeenCalledWith({ default_country_code: '+65' }))
-    expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1' })
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('confirm_data_agent_migration', { p_migration_id: 'mig-1', p_default_country_code: '+65' }))
+    expect(updateMock).not.toHaveBeenCalledWith({ default_country_code: '+65' })
+  })
+
+  it('does not pre-select "Ignore this column" for a genuinely unmapped column, even though classifyColumn also sets target_type "ignored" on its own no-match default', async () => {
+    mappingRows = [{ id: 'cm-2', source_column_name: 'Mystery', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} }]
+    renderAt('mig-1')
+    const select = await screen.findByLabelText(/map "Mystery" to/i) as HTMLSelectElement
+    expect(select.value).toBe('')
+  })
+
+  it('surfaces a remap write error instead of silently leaving the column unchanged', async () => {
+    mappingRows = [{ id: 'cm-2', source_column_name: 'Mystery', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} }]
+    mappingUpdateError = { message: 'row-level security violation' }
+    renderAt('mig-1')
+    await userEvent.selectOptions(await screen.findByLabelText(/map "Mystery" to/i), 'ignore')
+    expect(await screen.findByRole('alert')).toHaveTextContent(/row-level security violation/i)
   })
 })
 ```
@@ -2671,7 +3135,7 @@ export function MappingReviewPage() {
   const [migration, setMigration] = useState<DataAgentMigration | null>(null)
   const [mappings, setMappings] = useState<DataAgentColumnMapping[]>([])
   const [targetFields, setTargetFields] = useState<TargetFieldOption[]>([])
-  const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [pageError, setPageError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [defaultCountryCode, setDefaultCountryCode] = useState('')
 
@@ -2711,7 +3175,8 @@ export function MappingReviewPage() {
             target_field_key: choice, mapped_by: 'user' as const, confirmed_by_user: true,
           }
         })()
-    await supabase.from('data_agent_column_mappings').update(update).eq('id', mapping.id)
+    const { error } = await supabase.from('data_agent_column_mappings').update(update).eq('id', mapping.id)
+    if (error) { setPageError(`Could not update "${mapping.source_column_name}": ${error.message}`); return }
     await loadMappings()
   }
 
@@ -2719,14 +3184,19 @@ export function MappingReviewPage() {
 
   async function confirmMigration() {
     if (!migrationId) return
-    setConfirming(true); setConfirmError(null)
-    if (needsCountryCode) {
-      if (!defaultCountryCode.trim()) { setConfirming(false); setConfirmError('A default country code is required for at least one phone column.'); return }
-      await supabase.from('data_agent_migrations').update({ default_country_code: defaultCountryCode.trim() }).eq('id', migrationId)
+    setConfirming(true); setPageError(null)
+    if (needsCountryCode && !defaultCountryCode.trim()) {
+      setConfirming(false); setPageError('A default country code is required for at least one phone column.'); return
     }
-    const { error } = await supabase.rpc('confirm_data_agent_migration', { p_migration_id: migrationId })
+    // There is no client UPDATE policy on data_agent_migrations (Task 7) —
+    // the default country code is passed as an RPC parameter instead of a
+    // separate prior write, which would silently no-op under RLS (0 rows
+    // matched, no error) rather than actually persisting.
+    const { error } = await supabase.rpc('confirm_data_agent_migration', {
+      p_migration_id: migrationId, p_default_country_code: needsCountryCode ? defaultCountryCode.trim() : null,
+    })
     setConfirming(false)
-    if (error) setConfirmError(error.message)
+    if (error) setPageError(error.message)
   }
 
   const allResolved = mappings.length > 0 && mappings.every(m => m.status === 'mapped')
@@ -2750,7 +3220,15 @@ export function MappingReviewPage() {
             </span>
             <select
               aria-label={`Map "${m.source_column_name}" to`}
-              value={m.target_field_key ?? (m.target_type === 'ignored' ? 'ignore' : '')}
+              // target_type === 'ignored' alone does NOT mean the user
+              // chose to ignore this column — classifyColumn's no-match
+              // default (Task 6) also sets target_type: 'ignored' on a
+              // genuinely unmapped/red column, which still has
+              // status !== 'mapped'. Pre-selecting "Ignore this column"
+              // for that case would misleadingly suggest it's already
+              // resolved. Only a column BOTH mapped AND typed 'ignored'
+              // was actually ignored by a human.
+              value={m.target_field_key ?? (m.status === 'mapped' && m.target_type === 'ignored' ? 'ignore' : '')}
               onChange={e => void remap(m, e.target.value)}
               className="input text-xs"
             >
@@ -2772,7 +3250,7 @@ export function MappingReviewPage() {
         </div>
       )}
 
-      {confirmError && <p role="alert" className="text-sm text-red-600">{confirmError}</p>}
+      {pageError && <p role="alert" className="text-sm text-red-600">{pageError}</p>}
       <button onClick={() => void confirmMigration()} disabled={!allResolved || confirming}
         className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 rounded-md px-4 py-2">
         {confirming ? 'Starting…' : 'Confirm & Migrate'}
@@ -2785,7 +3263,7 @@ export function MappingReviewPage() {
 - [ ] **Step 3: Run tests, typecheck, and commit**
 
 Run: `corepack pnpm vitest run src/features/data-agent/mapping-review/__tests__/MappingReviewPage.test.tsx`
-Expected: PASS (4 tests).
+Expected: PASS (7 tests).
 
 Run: `corepack pnpm tsc --noEmit`
 Expected: no errors.
@@ -2855,6 +3333,36 @@ describe('proposeMappingsWithClaude', () => {
     }), { status: 200 }))
     const result = await proposeMappingsWithClaude([{ columnName: 'X', sampleValues: [] }], [], null, 'key', fetchImpl)
     expect(result[0].target_field_key).toBeNull()
+  })
+
+  it('throws a clear error when the response text is not valid JSON (LLM output isn\'t guaranteed to follow instructions exactly)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      content: [{ type: 'text', text: 'Sure, here is the mapping: not actually JSON' }],
+    }), { status: 200 }))
+    await expect(proposeMappingsWithClaude([{ columnName: 'X', sampleValues: [] }], [], null, 'key', fetchImpl))
+      .rejects.toThrow(/not valid JSON/)
+  })
+
+  it('throws a clear error when the response has no text content block at all', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: [] }), { status: 200 }))
+    await expect(proposeMappingsWithClaude([{ columnName: 'X', sampleValues: [] }], [], null, 'key', fetchImpl))
+      .rejects.toThrow(/no text content/)
+  })
+
+  it('fills in a safe "no proposal" entry for any input column the model silently dropped, rather than returning a mismatched array', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      content: [{ type: 'text', text: JSON.stringify([
+        { source_column_name: 'Notes', target_field_key: 'custom_notes', confidence: 0.9, reasoning: 'ok', metadata: {} },
+      ]) }],
+    }), { status: 200 }))
+    const result = await proposeMappingsWithClaude(
+      [{ columnName: 'Notes', sampleValues: [] }, { columnName: 'Dropped', sampleValues: [] }],
+      [], null, 'key', fetchImpl,
+    )
+    expect(result).toHaveLength(2)
+    expect(result.find(r => r.source_column_name === 'Dropped')).toEqual({
+      source_column_name: 'Dropped', target_field_key: null, confidence: 0, reasoning: 'No proposal returned for this column', metadata: {},
+    })
   })
 })
 ```
@@ -2926,18 +3434,46 @@ export async function proposeMappingsWithClaude(
   if (!res.ok) throw new Error(`Claude mapping request failed: ${res.status} ${await res.text()}`)
 
   const body = await res.json() as { content: { type: string; text: string }[] }
-  const text = body.content.find(c => c.type === 'text')?.text ?? '[]'
-  return JSON.parse(text) as ClaudeProposal[]
+  const textBlock = body.content?.find(c => c.type === 'text')?.text
+  if (!textBlock) throw new Error('Claude mapping response had no text content block')
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(textBlock)
+  } catch (err) {
+    // A clear, specific error — LLM output isn't guaranteed to strictly
+    // follow "respond with ONLY a JSON array" despite the prompt asking
+    // for it, and a bare SyntaxError here would give Task 12 (and anyone
+    // debugging a production failure) nothing actionable.
+    throw new Error(`Claude mapping response was not valid JSON: ${err instanceof Error ? err.message : String(err)} — raw text: ${textBlock.slice(0, 500)}`)
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Claude mapping response was not a JSON array — raw text: ${textBlock.slice(0, 500)}`)
+  }
+  const proposals = parsed as ClaudeProposal[]
+
+  // Guarantee exactly one proposal per input column, regardless of model
+  // output quality — accuracy matters more than trusting the model to
+  // follow instructions exactly. A column Claude silently dropped,
+  // renamed, or duplicated gets a safe "no proposal" entry here rather
+  // than a mismatched array silently reaching the caller (Task 12).
+  return columns.map(col => {
+    const match = proposals.find(p => p.source_column_name === col.columnName)
+    return match ?? { source_column_name: col.columnName, target_field_key: null, confidence: 0, reasoning: 'No proposal returned for this column', metadata: {} }
+  })
 }
 ```
 
 - [ ] **Step 3: Run the test, typecheck, and commit**
 
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentClaude.test.ts`
-Expected: PASS (4 tests).
+Expected: PASS (7 tests).
+
+Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json` (the real check for `dataAgentClaude.ts` — see Task 6's Global Constraint).
+Expected: no errors.
 
 Run: `corepack pnpm tsc --noEmit`
-Expected: no errors.
+Expected: no errors (confirms no frontend regression only).
 
 ```bash
 git add supabase/functions/_shared/dataAgentClaude.ts supabase/functions/_shared/__tests__/dataAgentClaude.test.ts
@@ -2949,8 +3485,10 @@ git commit -m "feat: add the Data Agent Claude-tier mapping module"
 ### Task 12: Wire the Claude tier into the upload pipeline
 
 **Files:**
-- Modify: `supabase/functions/data-agent-upload/index.ts`
+- Create: `supabase/functions/data-agent-upload/planWithClaude.ts`
 - Create: `supabase/functions/data-agent-upload/__tests__/planWithClaude.test.ts`
+- Modify: `supabase/functions/data-agent-upload/index.ts`
+- Modify: `supabase/functions/tsconfig.json`
 
 **Interfaces:**
 - Consumes: `proposeMappingsWithClaude` (Task 11).
@@ -2970,9 +3508,9 @@ describe('planWithClaude', () => {
     const rulesPlan: PlannedColumnMapping[] = [
       { status: 'mapped', mapped_by: 'rule', target_field_key: 'email', target_type: 'standard_field', confidence: 1, metadata: {}, source_column_name: 'Email', sample_values: ['a@x.com'] },
     ]
-    const proposeFn = vi.fn()
-    const result = await planWithClaude(rulesPlan, [], null, 'key', proposeFn)
-    expect(proposeFn).not.toHaveBeenCalled()
+    const fetchImpl = vi.fn()
+    const result = await planWithClaude(rulesPlan, [], null, 'key', fetchImpl)
+    expect(fetchImpl).not.toHaveBeenCalled()
     expect(result).toEqual(rulesPlan)
   })
 
@@ -2981,12 +3519,23 @@ describe('planWithClaude', () => {
       { status: 'mapped', mapped_by: 'rule', target_field_key: 'email', target_type: 'standard_field', confidence: 1, metadata: {}, source_column_name: 'Email', sample_values: ['a@x.com'] },
       { status: 'unmapped', mapped_by: null, target_field_key: null, target_type: 'ignored', confidence: null, metadata: {}, source_column_name: 'Notes', sample_values: ['hi'] },
     ]
-    const proposeFn = vi.fn().mockResolvedValue([
-      { source_column_name: 'Notes', target_field_key: 'custom_notes', confidence: 0.95, reasoning: 'Free text', metadata: {} },
-    ])
-    const result = await planWithClaude(rulesPlan, [{ key: 'custom_notes', label: 'Notes', type: 'custom' }], null, 'key', proposeFn)
+    // planWithClaude's only injection point is the same AnthropicFetch
+    // fetchImpl that proposeMappingsWithClaude (Task 11) itself takes —
+    // this module never replaces proposeMappingsWithClaude wholesale, it
+    // calls the real thing, matching this plan's one DI convention used
+    // consistently by dataAgentGhlClient.ts and dataAgentClaude.ts.
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      content: [{ type: 'text', text: JSON.stringify([
+        { source_column_name: 'Notes', target_field_key: 'custom_notes', confidence: 0.95, reasoning: 'Free text', metadata: {} },
+      ]) }],
+    }), { status: 200 }))
+    const result = await planWithClaude(rulesPlan, [{ key: 'custom_notes', label: 'Notes', type: 'custom' }], null, 'key', fetchImpl)
 
-    expect(proposeFn).toHaveBeenCalledWith([{ columnName: 'Notes', sampleValues: ['hi'] }], expect.anything(), null, 'key', undefined)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const sentBody = JSON.parse(fetchImpl.mock.calls[0][1].body as string)
+    expect(sentBody.messages[0].content).toContain('"columnName":"Notes"')
+    expect(sentBody.messages[0].content).not.toContain('"columnName":"Email"')
+
     const notes = result.find(r => r.source_column_name === 'Notes')!
     expect(notes.status).toBe('uncertain')
     expect(notes.mapped_by).toBe('claude')
@@ -2998,10 +3547,12 @@ describe('planWithClaude', () => {
     const rulesPlan: PlannedColumnMapping[] = [
       { status: 'unmapped', mapped_by: null, target_field_key: null, target_type: 'ignored', confidence: null, metadata: {}, source_column_name: 'Weird', sample_values: [] },
     ]
-    const proposeFn = vi.fn().mockResolvedValue([
-      { source_column_name: 'Weird', target_field_key: null, confidence: 0, reasoning: 'No match', metadata: {} },
-    ])
-    const result = await planWithClaude(rulesPlan, [], null, 'key', proposeFn)
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      content: [{ type: 'text', text: JSON.stringify([
+        { source_column_name: 'Weird', target_field_key: null, confidence: 0, reasoning: 'No match', metadata: {} },
+      ]) }],
+    }), { status: 200 }))
+    const result = await planWithClaude(rulesPlan, [], null, 'key', fetchImpl)
     expect(result[0].status).toBe('unmapped')
     expect(result[0].reasoning).toBe('No match')
   })
@@ -3017,7 +3568,7 @@ Expected: FAIL (module not found).
 // supabase/functions/data-agent-upload/planWithClaude.ts
 import type { PlannedColumnMapping } from '../_shared/dataAgentUploadPlanner.ts'
 import { proposeMappingsWithClaude, type AnthropicFetch } from '../_shared/dataAgentClaude.ts'
-import type { TargetField } from '../_shared/dataAgentMatching.ts'
+import type { TargetField, ColumnClassificationMetadata } from '../_shared/dataAgentMatching.ts'
 
 export async function planWithClaude(
   rulesPlan: PlannedColumnMapping[],
@@ -3049,7 +3600,11 @@ export async function planWithClaude(
       target_field_key: proposal.target_field_key,
       target_type: field?.type === 'standard' ? 'standard_field' : 'custom_field',
       confidence: proposal.confidence, reasoning: proposal.reasoning,
-      metadata: { ...p.metadata, ...proposal.metadata },
+      // proposal.metadata's fields are typed as plain `string` in
+      // dataAgentClaude.ts (Task 11) since Claude's output is never
+      // statically guaranteed, but the prompt there constrains Claude to
+      // the same literal values ColumnClassificationMetadata expects.
+      metadata: { ...p.metadata, ...proposal.metadata } as ColumnClassificationMetadata,
     }
   })
 }
@@ -3090,13 +3645,29 @@ And in the `data_agent_column_mappings` insert, add `reasoning: p.reasoning ?? n
 
 (No `ANTHROPIC_API_KEY` secret means the Claude tier is simply skipped and every rules-unmapped column stays red — safe by construction, never silently treated as resolved.)
 
-- [ ] **Step 5: Typecheck and commit**
+- [ ] **Step 5: Extend the shared edge-function tsconfig to cover this file**
 
-Run: `corepack pnpm tsc --noEmit`
+`planWithClaude.ts` lives at `supabase/functions/data-agent-upload/planWithClaude.ts` — outside the `_shared/**/*.ts` glob Task 6's `supabase/functions/tsconfig.json` covers — but it imports only local relative files (`../_shared/dataAgentUploadPlanner.ts`, `../_shared/dataAgentClaude.ts`, `../_shared/dataAgentMatching.ts`), no `esm.sh` specifiers, so it's equally checkable. Add it explicitly:
+
+```json
+// supabase/functions/tsconfig.json — add "data-agent-upload/planWithClaude.ts" to "include"
+{
+  "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "strict": true, "noEmit": true, "skipLibCheck": true, "allowImportingTsExtensions": true, "isolatedModules": true },
+  "include": ["_shared/**/*.ts", "data-agent-upload/planWithClaude.ts"],
+  "exclude": ["_shared/__tests__", "_shared/dataAgentSchemaCache.ts", "_shared/accountEmails.ts", "_shared/inviteEmail.ts", "_shared/projectEmails.ts", "_shared/smtp.ts"]
+}
+```
+
+- [ ] **Step 6: Typecheck and commit**
+
+Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json`
 Expected: no errors.
 
+Run: `corepack pnpm tsc --noEmit`
+Expected: no errors (confirms no frontend regression only).
+
 ```bash
-git add supabase/functions/data-agent-upload/planWithClaude.ts supabase/functions/data-agent-upload/__tests__/planWithClaude.test.ts supabase/functions/data-agent-upload/index.ts supabase/functions/_shared/dataAgentUploadPlanner.ts
+git add supabase/functions/data-agent-upload/planWithClaude.ts supabase/functions/data-agent-upload/__tests__/planWithClaude.test.ts supabase/functions/data-agent-upload/index.ts supabase/functions/_shared/dataAgentUploadPlanner.ts supabase/functions/tsconfig.json
 git commit -m "feat: wire the Claude tier into the Data Agent upload pipeline"
 ```
 
@@ -3245,39 +3816,43 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } })
 }
 
+// Every business-outcome branch below returns HTTP 200 — see Task 5's
+// data-agent-test-connection for why (supabase-js's functions.invoke()
+// discards a non-2xx response's real body, always reporting a fixed
+// generic message instead).
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader) return json({ error: 'Missing authorization header' }, 401)
+  if (!authHeader) return json({ error: 'Missing authorization header' })
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!anthropicKey) return json({ error: 'The prompt feature is not configured on this server' }, 500)
+  if (!anthropicKey) return json({ error: 'The prompt feature is not configured on this server' })
 
   const callerClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } })
   const { data: { user: callerAuth }, error: callerErr } = await callerClient.auth.getUser()
-  if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' }, 401)
+  if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' })
 
   let body: { migrationId?: unknown; columnMappingId?: unknown; promptText?: unknown }
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
+  try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }) }
   const migrationId = typeof body.migrationId === 'string' ? body.migrationId : ''
   const columnMappingId = typeof body.columnMappingId === 'string' ? body.columnMappingId : ''
   const promptText = typeof body.promptText === 'string' ? body.promptText.trim() : ''
-  if (!migrationId || !columnMappingId || !promptText) return json({ error: 'migrationId, columnMappingId, and promptText are required' }, 400)
+  if (!migrationId || !columnMappingId || !promptText) return json({ error: 'migrationId, columnMappingId, and promptText are required' })
 
   const serviceClient = createClient(supabaseUrl, serviceKey)
   const { data: migration } = await serviceClient.from('data_agent_migrations').select('sub_account, target_object_type').eq('id', migrationId).single()
-  if (!migration) return json({ error: 'Migration not found' }, 404)
+  if (!migration) return json({ error: 'Migration not found' })
   const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: (migration as { sub_account: string }).sub_account })
-  if (!isMember) return json({ error: 'Not authorized for this migration' }, 403)
+  if (!isMember) return json({ error: 'Not authorized for this migration' })
 
   const { data: mapping } = await serviceClient.from('data_agent_column_mappings')
     .select('source_column_name, sample_values, target_field_key, status').eq('id', columnMappingId).single()
-  if (!mapping) return json({ error: 'Column mapping not found' }, 404)
+  if (!mapping) return json({ error: 'Column mapping not found' })
 
   const { data: schemaCache } = await serviceClient.from('data_agent_ghl_schema_cache').select('fields')
     .eq('sub_account', (migration as { sub_account: string }).sub_account)
@@ -3294,7 +3869,7 @@ Deno.serve(async (req) => {
       targetFields, promptText, anthropicKey,
     )
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : String(err) }, 502)
+    return json({ error: err instanceof Error ? err.message : String(err) })
   }
 
   if (result.action) {
@@ -3349,8 +3924,13 @@ In `src/features/data-agent/mapping-review/MappingReviewPage.tsx`, add per-row p
       body: { migrationId, columnMappingId: mapping.id, promptText: promptText[mapping.id].trim() },
     })
     setPromptBusy(null)
-    if (error) { setPromptReply(prev => ({ ...prev, [mapping.id]: `Error: ${error.message}` })); return }
-    setPromptReply(prev => ({ ...prev, [mapping.id]: (data as { responseText: string }).responseText }))
+    // data-agent-prompt returns HTTP 200 for every business outcome (see
+    // its own comment) so a real failure shows up as `data.error`, not a
+    // thrown `error` — `error` only fires for a genuine network/relay
+    // failure, which carries no useful message of its own either.
+    if (error) { setPromptReply(prev => ({ ...prev, [mapping.id]: 'Error: could not reach the prompt service.' })); return }
+    const result = data as { responseText?: string; error?: string }
+    setPromptReply(prev => ({ ...prev, [mapping.id]: result.responseText ?? `Error: ${result.error ?? 'unknown failure'}` }))
     await loadMappings()
   }
 ```
@@ -3381,8 +3961,11 @@ Inside the row `<div>` for each mapping, after the `<select>`, add:
 Run: `corepack pnpm vitest run src/features/data-agent/mapping-review/__tests__/MappingReviewPage.test.tsx supabase/functions/_shared/__tests__/dataAgentPrompt.test.ts`
 Expected: PASS (5 + 4 tests).
 
-Run: `corepack pnpm tsc --noEmit`
+Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json` (the real check for `dataAgentPrompt.ts` — see Task 6's Global Constraint).
 Expected: no errors.
+
+Run: `corepack pnpm tsc --noEmit`
+Expected: no errors (confirms no frontend regression only).
 
 ```bash
 git add supabase/functions/_shared/dataAgentPrompt.ts supabase/functions/_shared/__tests__/dataAgentPrompt.test.ts supabase/functions/data-agent-prompt/index.ts src/features/data-agent/mapping-review/MappingReviewPage.tsx src/features/data-agent/mapping-review/__tests__/MappingReviewPage.test.tsx
@@ -3880,8 +4463,11 @@ async function processMigratingMigration(serviceClient: SupabaseClient, migratio
 Run: `corepack pnpm vitest run supabase/functions/_shared/__tests__/dataAgentWriter.test.ts`
 Expected: PASS (14 tests).
 
-Run: `corepack pnpm tsc --noEmit`
+Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json` (the real check for `dataAgentGhlClient.ts`/`dataAgentWriter.ts` — see Task 6's Global Constraint).
 Expected: no errors.
+
+Run: `corepack pnpm tsc --noEmit`
+Expected: no errors (confirms no frontend regression only).
 
 ```bash
 git add supabase/functions/_shared/dataAgentGhlClient.ts supabase/functions/_shared/dataAgentWriter.ts supabase/functions/_shared/__tests__/dataAgentWriter.test.ts supabase/functions/data-agent-worker/index.ts
@@ -4112,8 +4698,11 @@ And add `getObjectRecord` to the worker's import from `dataAgentGhlClient.ts`.
 
 - [ ] **Step 6: Typecheck and commit**
 
-Run: `corepack pnpm tsc --noEmit`
+Run: `node_modules/.bin/tsc --noEmit -p supabase/functions/tsconfig.json` (the real check for `dataAgentQa.ts`/`dataAgentGhlClient.ts` — see Task 6's Global Constraint).
 Expected: no errors.
+
+Run: `corepack pnpm tsc --noEmit`
+Expected: no errors (confirms no frontend regression only).
 
 ```bash
 git add supabase/functions/_shared/dataAgentQa.ts supabase/functions/_shared/__tests__/dataAgentQa.test.ts supabase/functions/_shared/dataAgentGhlClient.ts supabase/functions/data-agent-worker/index.ts
@@ -4158,7 +4747,12 @@ begin
   if v_sub_account is null then
     raise exception 'Migration not found';
   end if;
-  if not public.is_data_agent_member(v_sub_account) then
+  -- is_data_agent_member() always returns true/false, never null (see its
+  -- own definition) — the explicit "is not true" here is defense in
+  -- depth, not a workaround: this is the single authorization gate before
+  -- a real CRM write, and must stay correct even if a future edit to that
+  -- function's body ever reintroduced a NULL path.
+  if coalesce(public.is_data_agent_member(v_sub_account), false) is not true then
     raise exception 'Not authorized for this migration';
   end if;
   if v_status <> 'completed' then
@@ -4774,12 +5368,17 @@ create policy data_agent_provider_clients_deny_associates on public.data_agent_p
   using (not (select public.is_associate())) with check (not (select public.is_associate()));
 
 -- ── Extend the access gate ───────────────────────────────────────────────────
+-- coalesce(..., false) at the top level, same as Task 1's original
+-- definition this replaces — this redefinition must independently
+-- preserve the "always true or false, never null" contract (see Task 1's
+-- comment on this function for why); a redefinition that dropped it would
+-- silently reopen the exact fail-open hole Task 7's review found.
 create or replace function public.is_data_agent_member(p_sub_account text)
   returns boolean
   language sql security definer stable
   set search_path = public
 as $$
-  select
+  select coalesce(
     exists (select 1 from public.data_agent_entitlements e where e.sub_account = p_sub_account and e.enabled)
     and (
       public.auth_user_role() = 'Super-Admin'
@@ -4803,7 +5402,9 @@ as $$
             or exists (select 1 from public.data_agent_members m2 where m2.sub_account = pc.provider_sub_account and m2.user_id = public.auth_user_app_id())
           )
       )
-    )
+    ),
+    false
+  )
 $$;
 revoke execute on function public.is_data_agent_member(text) from public, anon;
 grant execute on function public.is_data_agent_member(text) to authenticated;
@@ -5159,6 +5760,8 @@ git commit -m "feat: add the Data Agent workspace switcher for service providers
 **Placeholder scan:** no task leaves a step without real code; the two spots where this plan explicitly names an endpoint shape as uncertain (Task 5's Custom Objects API, Task 15's contact-search endpoint) are flagged with a concrete, required manual-verification step and a fallback of "fix the client module now" — not a vague TODO.
 
 **Type consistency:** `ColumnClassification`/`ColumnClassificationMetadata` (Task 6) flow unchanged through `PlannedColumnMapping` (Task 8) into `DataAgentColumnMapping`/`DataAgentColumnMappingMetadata` (Task 2); `is_primary_candidate` was added to Task 6's metadata type to match Task 2's frontend type before Task 8 relied on it. `ConfirmedMapping` (Task 15) is reused unchanged by Tasks 16–17. The `status`/`target_type` "ignored vs. unmapped" ambiguity found while drafting Task 10 was fixed retroactively in Tasks 7 and 8 (blocking is now purely `status`-based) before Task 10 was written against it. Task 20's `is_data_agent_member()` redefinition keeps the exact same signature and every existing caller (Tasks 5, 8, 10, 13, 15–17) works unchanged, since the function's contract — "true or false for this sub-account" — never changed, only what can make it true.
+
+**Edge-function response contract (found during execution, not during this self-review pass):** Task 5's implementation review caught that every edge function's non-2xx status codes were silently discarded by `supabase.functions.invoke()`'s generic `FunctionsHttpError` (verified against the installed `@supabase/functions-js` source) — the same bug existed in Tasks 8 and 13. Tasks 5, 8, and 13's functions were changed to return HTTP 200 for every business outcome; Task 9's UI (the only already-built UI caller affected) was corrected to read `data.error`; Task 4's UI needed no change since it already did. Documented as a new Global Constraint so no later task repeats it.
 
 **File-structure consistency:** mid-plan, Tasks 2–19's frontend files were reorganized from a flat `src/features/data-agent/` into per-area subfolders (`settings/`, `entitlements/`, `upload/`, `mapping-review/`, `dashboard/`, `chat/`, `workspace/`) to match this codebase's "organize by feature, not by file type" convention — every `Create`/`Modify` path, `git add` line, and relative import across those tasks was updated to match (including correcting two tabs, `DataAgentSettingsTab`/`DataAgentEntitlementsTab`, that had initially been placed under the *consuming* page's own folder — `src/features/settings/` / `src/features/super-admin/` — rather than their own feature's folder, inconsistent with this codebase's existing `GHLIntegrationTab` precedent of living in `src/features/ghl/` and being imported into Settings from there).
 
