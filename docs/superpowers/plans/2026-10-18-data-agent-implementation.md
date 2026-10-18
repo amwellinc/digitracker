@@ -65,7 +65,7 @@
 | `supabase/functions/data-agent-worker/index.ts` | Cron-polled: migrating / verifying / undoing phases |
 | `src/features/data-agent/dashboard/DataAgentDashboard.tsx` | Aggregate stats, latest migration, accuracy, members |
 | `src/features/data-agent/chat/DataAgentChat.tsx` | Realtime sub-account-wide chat panel |
-| `supabase/migrations/20261018000400_data_agent_provider_clients.sql` | Service-provider grants; redefines `is_data_agent_member()` to recognize them |
+| `supabase/migrations/20261018000700_data_agent_provider_clients.sql` | Service-provider grants; redefines `is_data_agent_member()` to recognize them |
 | `src/features/data-agent/entitlements/ProviderClientsPanel.tsx` | Super-Admin UI to grant/revoke which sub-account services which |
 | `src/features/data-agent/workspace/DataAgentWorkspaceSwitcher.tsx` | Lets a provider's user pick which workspace (own, or a client's) to operate in |
 
@@ -5706,7 +5706,7 @@ git commit -m "feat: add the Data Agent team chat panel"
 ### Task 20: Service providers (agency model) and the workspace switcher
 
 **Files:**
-- Create: `supabase/migrations/20261018000400_data_agent_provider_clients.sql`
+- Create: `supabase/migrations/20261018000700_data_agent_provider_clients.sql`
 - Create: `src/features/data-agent/entitlements/ProviderClientsPanel.tsx`
 - Create: `src/features/data-agent/entitlements/__tests__/ProviderClientsPanel.test.tsx`
 - Modify: `src/features/data-agent/entitlements/DataAgentEntitlementsTab.tsx`
@@ -5724,7 +5724,7 @@ Per the amended spec §2.1: a provider sub-account (e.g. AM333) can run Data Age
 - [ ] **Step 1: Write the migration**
 
 ```sql
--- Migration 20261018000400: Data Agent — service-provider (agency) grants
+-- Migration 20261018000700: Data Agent — service-provider (agency) grants
 -- (spec §2.1). Redefines is_data_agent_member() from migration
 -- 20261018000000, the same way migration 027 redefined auth_user_app_id()
 -- from migration 025 — this codebase's established pattern for extending
@@ -5780,11 +5780,23 @@ as $$
       -- A member/Admin of a sub-account Super-Admin has authorized to act
       -- as a provider for p_sub_account (spec §2.1). The client sub-account
       -- must still be entitled (the first exists() above) — this clause
-      -- only extends *who* qualifies once it is.
+      -- only extends *who* qualifies once it is. The provider's OWN
+      -- entitlement is checked too, independently of the client's — without
+      -- this, revoking a provider's data_agent_entitlements row (e.g. its
+      -- subscription lapsed, or Super-Admin is locking it out during an
+      -- incident) would do nothing to a provider grant it already holds:
+      -- the client's entitlement alone would keep letting it through. The
+      -- two pre-existing OR-branches above never hit this gap because for
+      -- both of them the caller's own sub_account IS p_sub_account, so
+      -- "the target is entitled" and "the caller's sub_account is entitled"
+      -- were always the same fact — this is the one branch where they can
+      -- genuinely diverge, since the caller (provider) and the target
+      -- (client) are different sub-accounts.
       or exists (
         select 1 from public.data_agent_provider_clients pc
         where pc.client_sub_account = p_sub_account
           and pc.provider_sub_account = public.auth_user_sub_account()
+          and exists (select 1 from public.data_agent_entitlements pe where pe.sub_account = pc.provider_sub_account and pe.enabled)
           and (
             public.auth_user_role() = 'Admin'
             or exists (select 1 from public.data_agent_members m2 where m2.sub_account = pc.provider_sub_account and m2.user_id = public.auth_user_app_id())
@@ -5814,7 +5826,7 @@ select policyname from pg_policies where tablename = 'data_agent_provider_client
 - [ ] **Step 4: Commit the migration**
 
 ```bash
-git add supabase/migrations/20261018000400_data_agent_provider_clients.sql
+git add supabase/migrations/20261018000700_data_agent_provider_clients.sql
 git commit -m "feat: add Data Agent service-provider grants and extend the access gate"
 ```
 
@@ -5830,6 +5842,7 @@ const subAccountsData = [{ code: 'AM333', company_name: 'AM333 Wellness' }, { co
 let relationships: { provider_sub_account: string; client_sub_account: string }[] = []
 const insertMock = vi.fn()
 const deleteMock = vi.fn()
+let insertShouldFail = false
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
@@ -5837,7 +5850,10 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'sub_accounts') return { select: () => ({ order: () => Promise.resolve({ data: subAccountsData }) }) }
       return {
         select: () => ({ order: () => Promise.resolve({ data: relationships }) }),
-        insert: (...args: unknown[]) => { insertMock(...args); return Promise.resolve({ error: null }) },
+        insert: (...args: unknown[]) => {
+          insertMock(...args)
+          return Promise.resolve({ error: insertShouldFail ? { message: 'duplicate key' } : null })
+        },
         delete: () => ({ eq: () => ({ eq: () => { deleteMock(); return Promise.resolve({ error: null }) } }) }),
       }
     }),
@@ -5847,7 +5863,7 @@ vi.mock('@/lib/supabase', () => ({
 import { ProviderClientsPanel } from '../ProviderClientsPanel'
 
 describe('ProviderClientsPanel', () => {
-  beforeEach(() => { insertMock.mockReset(); deleteMock.mockReset(); relationships = [] })
+  beforeEach(() => { insertMock.mockReset(); deleteMock.mockReset(); relationships = []; insertShouldFail = false })
 
   it('grants AM333 as a provider for JOY, inserting the relationship', async () => {
     render(<ProviderClientsPanel />)
@@ -5863,6 +5879,15 @@ describe('ProviderClientsPanel', () => {
     expect(await screen.findByText(/AM333.*JOY/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /revoke/i }))
     await waitFor(() => expect(deleteMock).toHaveBeenCalled())
+  })
+
+  it('REVIEW FINDING: surfaces an error when granting a cross-tenant relationship fails, rather than looking identical to success', async () => {
+    insertShouldFail = true
+    render(<ProviderClientsPanel />)
+    await userEvent.selectOptions(await screen.findByLabelText(/provider/i), 'AM333')
+    await userEvent.selectOptions(screen.getByLabelText(/client/i), 'JOY')
+    await userEvent.click(screen.getByRole('button', { name: /grant/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
   })
 })
 ```
@@ -5885,26 +5910,39 @@ export function ProviderClientsPanel() {
   const [relationships, setRelationships] = useState<RelationshipRow[]>([])
   const [provider, setProvider] = useState('')
   const [client, setClient] = useState('')
+  const [panelError, setPanelError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('data_agent_provider_clients').select('provider_sub_account, client_sub_account').order('provider_sub_account')
+    const { data, error } = await supabase.from('data_agent_provider_clients').select('provider_sub_account, client_sub_account').order('provider_sub_account')
+    if (error) { setPanelError('Could not load existing service-provider relationships.'); return }
     setRelationships((data ?? []) as RelationshipRow[])
   }, [])
 
   useEffect(() => {
     void supabase.from('sub_accounts').select('code, company_name').order('company_name')
-      .then(({ data }) => setAccounts((data ?? []) as SubAccountRow[]))
+      .then(({ data, error }) => {
+        if (error) { setPanelError('Could not load sub-accounts.'); return }
+        setAccounts((data ?? []) as SubAccountRow[])
+      })
     void load()
   }, [load])
 
+  // This grants cross-tenant CRM access — a silent failure here (e.g. the
+  // acting user somehow isn't actually Super-Admin, caught by RLS; or the
+  // relationship already exists, caught by the primary key) must surface,
+  // not look identical to a successful grant with nothing to show for it.
   async function grant() {
     if (!provider || !client || provider === client) return
-    await supabase.from('data_agent_provider_clients').insert({ provider_sub_account: provider, client_sub_account: client })
+    setPanelError(null)
+    const { error } = await supabase.from('data_agent_provider_clients').insert({ provider_sub_account: provider, client_sub_account: client })
+    if (error) { setPanelError('Could not grant this relationship — it may already exist.'); return }
     await load()
   }
 
   async function revoke(r: RelationshipRow) {
-    await supabase.from('data_agent_provider_clients').delete().eq('provider_sub_account', r.provider_sub_account).eq('client_sub_account', r.client_sub_account)
+    setPanelError(null)
+    const { error } = await supabase.from('data_agent_provider_clients').delete().eq('provider_sub_account', r.provider_sub_account).eq('client_sub_account', r.client_sub_account)
+    if (error) { setPanelError('Could not revoke this relationship.'); return }
     await load()
   }
 
@@ -5913,6 +5951,7 @@ export function ProviderClientsPanel() {
       <p className="text-sm text-gray-500">
         Let one sub-account run Data Agent migrations for another's CRM, as a managed service. The client keeps owning its own GHL connection.
       </p>
+      {panelError && <p role="alert" className="text-sm text-red-600">{panelError}</p>}
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label htmlFor="pc-provider" className="block text-xs font-medium text-gray-600 mb-1">Provider</label>
@@ -5963,7 +6002,7 @@ import { ProviderClientsPanel } from './ProviderClientsPanel'
 - [ ] **Step 8: Run the test**
 
 Run: `corepack pnpm vitest run src/features/data-agent/entitlements/__tests__/ProviderClientsPanel.test.tsx`
-Expected: PASS (2 tests).
+Expected: PASS (3 tests).
 
 - [ ] **Step 9: Write the failing test for the workspace switcher**
 
@@ -6017,7 +6056,14 @@ export function DataAgentWorkspaceSwitcher({ ownSubAccount, selected, onChange }
 
   useEffect(() => {
     void supabase.from('data_agent_provider_clients').select('client_sub_account').eq('provider_sub_account', ownSubAccount)
-      .then(({ data }) => setClients(((data ?? []) as { client_sub_account: string }[]).map(c => c.client_sub_account)))
+      .then(({ data, error }) => {
+        // A failed fetch degrades safely either way (no switcher shown,
+        // same as "no clients" — never a misleading success signal), but
+        // logging it keeps a real outage from looking identical to a
+        // provider simply having no clients.
+        if (error) { console.error('Could not load Data Agent workspace clients:', error); return }
+        setClients(((data ?? []) as { client_sub_account: string }[]).map(c => c.client_sub_account))
+      })
   }, [ownSubAccount])
 
   if (clients.length === 0) return null
@@ -6124,7 +6170,7 @@ export function DataAgentPage() {
 - [ ] **Step 14: Run every Data Agent test and typecheck**
 
 Run: `corepack pnpm vitest run src/features/data-agent/__tests__/DataAgentPage.test.tsx src/features/data-agent/workspace/__tests__/DataAgentWorkspaceSwitcher.test.tsx src/features/data-agent/entitlements/__tests__/ProviderClientsPanel.test.tsx`
-Expected: PASS (2 + 2 + 2 tests).
+Expected: PASS (2 + 2 + 3 tests).
 
 Run: `corepack pnpm vitest run src/features/data-agent supabase/functions/_shared src/hooks/__tests__/useDataAgentAccess.test.ts src/features/settings src/features/super-admin src/__tests__/associateLock.test.ts`
 Expected: PASS — the full Data Agent surface together, including every path/import touched by this task's reorg and this task's new grant model.
