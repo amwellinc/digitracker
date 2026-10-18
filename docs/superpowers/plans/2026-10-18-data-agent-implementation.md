@@ -5031,13 +5031,36 @@ git commit -m "feat: add Data Agent undo tracking and the undo-request gate"
 
 - [ ] **Step 4: Add the `undoing`-phase handler to the worker**
 
-In `supabase/functions/data-agent-worker/index.ts`, add the dispatch call:
+In `supabase/functions/data-agent-worker/index.ts`, add the dispatch call. This reuses the `staleThreshold` constant already declared earlier in `Deno.serve` by the `verifying` dispatch loop (Task 16) — do not redeclare it:
 
 ```ts
-  const { data: undoing, error: undoingErr } = await serviceClient.from('data_agent_migrations').select('*').eq('status', 'undoing').limit(5)
-  if (undoingErr) console.error('Data Agent worker: failed to load undoing migrations:', undoingErr)
-  for (const migration of (undoing ?? []) as MigratingRow[]) {
-    await processUndoingMigration(serviceClient, migration)
+  // Claimed exactly like the verifying dispatch loop above — two
+  // overlapping ticks must not both process the same undoing migration.
+  // The GHL-side operations here (delete-by-id, update-by-id with the
+  // same snapshot) are naturally idempotent on their own, so this isn't
+  // about preventing a duplicate CRM record the way Task 15's claim is —
+  // it's about the per-record/per-migration undo_status bookkeeping
+  // itself, which has no such self-healing: two overlapping ticks racing
+  // to write different results (success vs. a transient failure) for the
+  // same record can leave it permanently stuck in a wrong terminal state,
+  // since nothing ever revisits a 'done'/'failed' row (found in this
+  // task's review). Reuses data_agent_migrations.claimed_at (added for
+  // the verifying phase) — the two phases' claims never overlap in time
+  // since a migration is never 'verifying' and 'undoing' at once.
+  const { data: undoingCandidates, error: undoingCandErr } = await serviceClient.from('data_agent_migrations')
+    .select('id').eq('status', 'undoing').or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`).limit(5)
+  if (undoingCandErr) console.error('Data Agent worker: failed to list undoing migrations:', undoingCandErr)
+  const undoingCandidateIds = (undoingCandidates ?? []).map(m => (m as { id: string }).id)
+  if (undoingCandidateIds.length > 0) {
+    const { data: undoing, error: undoingClaimErr } = await serviceClient.from('data_agent_migrations')
+      .update({ claimed_at: new Date().toISOString() })
+      .in('id', undoingCandidateIds).eq('status', 'undoing')
+      .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`)
+      .select('*')
+    if (undoingClaimErr) console.error('Data Agent worker: failed to claim undoing migrations:', undoingClaimErr)
+    for (const migration of (undoing ?? []) as MigratingRow[]) {
+      await processUndoingMigration(serviceClient, migration)
+    }
   }
 ```
 
@@ -5049,26 +5072,41 @@ async function processUndoingMigration(serviceClient: SupabaseClient, migration:
   // has since changed, undo uses whatever is current now (Review Focus #5).
   const config = await loadGhlConfig(serviceClient, migration.sub_account)
   if (!config) {
-    const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: 'No usable GHL connection for undo' }).eq('id', migration.id)
+    const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: 'No usable GHL connection for undo', claimed_at: null }).eq('id', migration.id)
     if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} failed (no connection for undo):`, error)
     return
   }
 
-  const { data: pendingRows, error: pendingErr } = await serviceClient.from('data_agent_migration_records')
-    .select('id, write_status, ghl_record_id, pre_replace_snapshot').eq('migration_id', migration.id).eq('undo_status', 'pending').order('row_number').limit(BATCH_SIZE)
-  if (pendingErr) { console.error(`Data Agent worker: failed to load pending undo records for migration ${migration.id}:`, pendingErr); return }
-  const pending = (pendingRows ?? []) as { id: string; write_status: string; ghl_record_id: string; pre_replace_snapshot: Record<string, unknown> | null }[]
+  const staleThreshold = new Date(Date.now() - STALE_CLAIM_MS).toISOString()
+  const { data: candidateRows, error: candidateErr } = await serviceClient.from('data_agent_migration_records')
+    .select('id').eq('migration_id', migration.id).eq('undo_status', 'pending')
+    .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`).order('row_number').limit(BATCH_SIZE)
+  if (candidateErr) { console.error(`Data Agent worker: failed to list pending undo records for migration ${migration.id}:`, candidateErr); return }
+  const candidateIds = (candidateRows ?? []).map(r => (r as { id: string }).id)
 
-  if (pending.length === 0) {
+  if (candidateIds.length === 0) {
     const { count, error: countErr } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
       .eq('migration_id', migration.id).eq('undo_status', 'pending')
     if (countErr) { console.error(`Data Agent worker: failed to check remaining undo count for migration ${migration.id}:`, countErr); return }
     if ((count ?? 0) === 0) {
-      const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'undone' }).eq('id', migration.id)
+      const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'undone', claimed_at: null }).eq('id', migration.id)
       if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} undone:`, error)
     }
     return
   }
+
+  // Same atomic claim-via-UPDATE pattern as the migrating phase's record
+  // claim: the WHERE clause re-checks undo_status/claimed_at in the same
+  // statement, so a row another tick already claimed between the SELECT
+  // above and this UPDATE simply won't come back from .select() here.
+  const { data: claimedRows, error: claimErr } = await serviceClient.from('data_agent_migration_records')
+    .update({ claimed_at: new Date().toISOString() })
+    .in('id', candidateIds).eq('undo_status', 'pending')
+    .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`)
+    .select('id, write_status, ghl_record_id, pre_replace_snapshot')
+  if (claimErr) { console.error(`Data Agent worker: failed to claim undo records for migration ${migration.id}:`, claimErr); return }
+  const pending = (claimedRows ?? []) as { id: string; write_status: string; ghl_record_id: string; pre_replace_snapshot: Record<string, unknown> | null }[]
+  if (pending.length === 0) return // everything was claimed by a concurrent tick between our select and update
 
   const isContact = migration.target_object_type === 'contact'
   for (const record of pending) {
@@ -5087,11 +5125,17 @@ async function processUndoingMigration(serviceClient: SupabaseClient, migration:
         if (isContact) await upsertContact(config, { locationId: config.locationId, ...record.pre_replace_snapshot } as never)
         else await updateObjectRecord(config, migration.target_object_type, record.ghl_record_id, record.pre_replace_snapshot)
       }
-      const { error } = await serviceClient.from('data_agent_migration_records').update({ undo_status: 'done' }).eq('id', record.id)
+      const { error } = await serviceClient.from('data_agent_migration_records').update({ undo_status: 'done', claimed_at: null }).eq('id', record.id)
       if (error) console.error(`Data Agent worker: failed to mark record ${record.id} undo done:`, error)
     } catch (err) {
-      if (err instanceof GhlRateLimitError) continue // left pending, retried next tick
-      const { error } = await serviceClient.from('data_agent_migration_records').update({ undo_status: 'failed', error_message: err instanceof Error ? err.message : String(err) }).eq('id', record.id)
+      if (err instanceof GhlRateLimitError) {
+        // Left pending — release the claim so the very next tick can
+        // retry immediately rather than waiting out the stale window.
+        const { error } = await serviceClient.from('data_agent_migration_records').update({ claimed_at: null }).eq('id', record.id)
+        if (error) console.error(`Data Agent worker: failed to release claim on undo record ${record.id}:`, error)
+        continue
+      }
+      const { error } = await serviceClient.from('data_agent_migration_records').update({ undo_status: 'failed', error_message: err instanceof Error ? err.message : String(err), claimed_at: null }).eq('id', record.id)
       if (error) console.error(`Data Agent worker: failed to mark record ${record.id} undo failed:`, error)
     }
   }
@@ -5120,6 +5164,12 @@ it('does not show Undo while the migration is still in progress', async () => {
   await screen.findByText('Mystery')
   expect(screen.queryByRole('button', { name: /undo migration/i })).not.toBeInTheDocument()
 })
+```
+
+This page already has a `useRealtime` subscription on `data_agent_column_mappings` so mapping-row changes show up live, but `migration` itself is only ever fetched once, on mount — the worker drives `migrating → verifying → completed → undoing → undone` entirely asynchronously after that, so without this subscription the page never reflects any of it without a manual refresh. This matters specifically for Undo: the Undo button's own gate (`migration?.status === 'completed'`) would otherwise stay true after a successful undo request (server-side status moves to `'undoing'`, but the client never learns that), leaving the button visually enabled with no success feedback — a real, if non-destructive, UX defect found in this task's review (the RPC's own precondition still blocks an actual double-undo, but a confused user clicking it again gets a raw, destructive-sounding Postgres error instead of any indication their first click worked). Add this subscription below the existing one (`data_agent_column_mappings`):
+
+```tsx
+  useRealtime({ table: 'data_agent_migrations', filter: migrationId ? `id=eq.${migrationId}` : undefined, onUpdate: row => setMigration(row as DataAgentMigration) })
 ```
 
 In `src/features/data-agent/mapping-review/MappingReviewPage.tsx`, add below the existing `confirmMigration` function:
