@@ -1,0 +1,110 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { parseCsvWithHeaders } from '../_shared/parseCsv.ts'
+import { planColumnMappings, computeMigrationStatus } from '../_shared/dataAgentUploadPlanner.ts'
+import type { TargetField, SourceProfileEntry } from '../_shared/dataAgentMatching.ts'
+import { ensureSchemaCacheFresh } from '../_shared/dataAgentSchemaCache.ts'
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } })
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader) return json({ error: 'Missing authorization header' }, 401)
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+
+  const callerClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } })
+  const { data: { user: callerAuth }, error: callerErr } = await callerClient.auth.getUser()
+  if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' }, 401)
+
+  let body: { subAccount?: unknown; targetObjectType?: unknown; sourceSystem?: unknown; storagePath?: unknown; originalFilename?: unknown }
+  try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
+  const subAccount = typeof body.subAccount === 'string' ? body.subAccount : ''
+  const targetObjectType = typeof body.targetObjectType === 'string' ? body.targetObjectType : ''
+  const sourceSystem = body.sourceSystem === 'salesforce' || body.sourceSystem === 'hubspot' ? body.sourceSystem : null
+  const storagePath = typeof body.storagePath === 'string' ? body.storagePath : ''
+  const originalFilename = typeof body.originalFilename === 'string' ? body.originalFilename : ''
+  if (!subAccount || !targetObjectType || !storagePath || !originalFilename) {
+    return json({ error: 'subAccount, targetObjectType, storagePath, and originalFilename are required' }, 400)
+  }
+
+  const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: subAccount })
+  if (!isMember) return json({ error: 'Not authorized for this sub-account' }, 403)
+
+  const { data: appUser } = await callerClient.from('users').select('id').eq('email', callerAuth.email).single()
+  const createdBy = (appUser as { id: string } | null)?.id ?? null
+
+  const serviceClient = createClient(supabaseUrl, serviceKey)
+
+  const { data: fileBlob, error: downloadErr } = await serviceClient.storage.from('data-agent-uploads').download(storagePath)
+  if (downloadErr || !fileBlob) return json({ error: `Could not read uploaded file: ${downloadErr?.message ?? 'not found'}` }, 400)
+  const csvText = await fileBlob.text()
+  const { headers, rows } = parseCsvWithHeaders(csvText)
+  if (headers.length === 0) return json({ error: 'The uploaded file has no columns' }, 400)
+
+  // Analysis must never run against a schema snapshot older than 24h (spec
+  // §4) — refresh it now if stale, before any classification happens, so
+  // the user's review (Task 10) reflects the CRM's real current structure.
+  const { data: connection } = await serviceClient.from('data_agent_connections')
+    .select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
+  if (!connection) return json({ error: 'No GHL connection configured for this sub-account yet' }, 400)
+  const { data: secretRow } = await serviceClient.schema('vault').from('decrypted_secrets')
+    .select('decrypted_secret').eq('name', (connection as { secret_name: string }).secret_name).maybeSingle()
+  const pit = (secretRow as { decrypted_secret?: string } | null)?.decrypted_secret
+  if (!pit) return json({ error: 'Could not read the saved connection token' }, 500)
+  const ghlConfig = { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
+
+  try {
+    await ensureSchemaCacheFresh(serviceClient, subAccount, ghlConfig, { force: false })
+  } catch (err) {
+    return json({ error: `Could not refresh the CRM schema before analysis: ${err instanceof Error ? err.message : String(err)}` }, 502)
+  }
+
+  const { data: schemaCache } = await serviceClient.from('data_agent_ghl_schema_cache')
+    .select('fields').eq('sub_account', subAccount).eq('object_type', targetObjectType).maybeSingle()
+  if (!schemaCache) return json({ error: `No schema cached for target object "${targetObjectType}" — run Test Connection in Settings first` }, 400)
+  const targetFields = ((schemaCache as { fields: TargetField[] } | null)?.fields ?? [])
+
+  const { data: profileRows } = sourceSystem
+    ? await serviceClient.from('data_agent_source_profiles').select('source_system, pattern, target_field_hint, subtype_hint').eq('source_system', sourceSystem)
+    : { data: [] as SourceProfileEntry[] }
+  const sourceProfiles = (profileRows ?? []) as SourceProfileEntry[]
+
+  const plan = planColumnMappings(headers, rows, sourceSystem, targetFields, sourceProfiles)
+  const status = computeMigrationStatus(plan)
+
+  const { data: migration, error: migrationErr } = await serviceClient.from('data_agent_migrations').insert({
+    sub_account: subAccount, created_by: createdBy, target_object_type: targetObjectType,
+    source_system: sourceSystem, original_filename: originalFilename, storage_path: storagePath,
+    row_count: rows.length, status,
+  }).select('id').single()
+  if (migrationErr || !migration) return json({ error: `Could not create migration: ${migrationErr?.message}` }, 500)
+  const migrationId = (migration as { id: string }).id
+
+  const { error: mappingsErr } = await serviceClient.from('data_agent_column_mappings').insert(
+    plan.map(p => ({
+      migration_id: migrationId, source_column_name: p.source_column_name, sample_values: p.sample_values,
+      target_type: p.target_type, target_field_key: p.target_field_key, status: p.status,
+      confidence: p.confidence, mapped_by: p.mapped_by, metadata: p.metadata,
+    }))
+  )
+  if (mappingsErr) return json({ error: `Could not create column mappings: ${mappingsErr.message}` }, 500)
+
+  const { error: recordsErr } = await serviceClient.from('data_agent_migration_records').insert(
+    rows.map((row, idx) => ({ migration_id: migrationId, row_number: idx + 1, source_row_data: row }))
+  )
+  if (recordsErr) return json({ error: `Could not store source rows: ${recordsErr.message}` }, 500)
+
+  return json({ migrationId })
+})
