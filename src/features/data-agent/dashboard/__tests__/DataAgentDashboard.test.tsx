@@ -32,4 +32,10 @@ describe('DataAgentDashboard', () => {
     render(<MemoryRouter><DataAgentDashboard subAccount="AM333" /></MemoryRouter>)
     expect(await screen.findByText('Jane')).toBeInTheDocument()
   })
+
+  it('REVIEW FINDING: the latest migration stays clickable through to its detail page — the Migration History list excludes it (to avoid rendering its filename twice), so its own callout is the only remaining route there', async () => {
+    render(<MemoryRouter><DataAgentDashboard subAccount="AM333" /></MemoryRouter>)
+    const link = await screen.findByRole('link', { name: 'orders.csv' })
+    expect(link).toHaveAttribute('href', '/data-agent/migrations/mig-2')
+  })
 })

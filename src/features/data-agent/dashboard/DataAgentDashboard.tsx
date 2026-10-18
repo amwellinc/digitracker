@@ -9,18 +9,19 @@ interface MemberRow { user_id: string; users: { name: string } | null }
 export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
   const [migrations, setMigrations] = useState<MigrationRow[]>([])
   const [members, setMembers] = useState<MemberRow[]>([])
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [migrationsError, setMigrationsError] = useState<string | null>(null)
+  const [membersError, setMembersError] = useState<string | null>(null)
 
   useEffect(() => {
     void supabase.from('data_agent_migrations').select('id, status, row_count, accuracy_rating, created_at, original_filename')
       .eq('sub_account', subAccount).order('created_at', { ascending: false })
       .then(({ data, error }) => {
-        if (error) { setLoadError('Could not load migration history.'); return }
+        if (error) { setMigrationsError('Could not load migration history.'); return }
         setMigrations((data ?? []) as MigrationRow[])
       })
     void supabase.from('data_agent_members').select('user_id, users(name)').eq('sub_account', subAccount)
       .then(({ data, error }) => {
-        if (error) { setLoadError('Could not load team members.'); return }
+        if (error) { setMembersError('Could not load team members.'); return }
         setMembers((data ?? []) as unknown as MemberRow[])
       })
   }, [subAccount])
@@ -29,7 +30,8 @@ export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
 
   return (
     <div className="space-y-5">
-      {loadError && <p role="alert" className="text-sm text-red-600">{loadError}</p>}
+      {migrationsError && <p role="alert" className="text-sm text-red-600">{migrationsError}</p>}
+      {membersError && <p role="alert" className="text-sm text-red-600">{membersError}</p>}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Migrations Completed" value={stats.completedCount} testId="completed-count" />
         <StatCard label="Records Processed" value={stats.recordsProcessed} testId="records-processed" />
@@ -40,8 +42,16 @@ export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
       {stats.latest && (
         <div className="border border-gray-200 rounded-lg p-4">
           <p className="text-xs text-gray-400">Most recent</p>
-          <p className="text-sm font-medium text-gray-900">{stats.latest.original_filename}</p>
-          <span data-testid="latest-status" className="text-xs font-semibold text-gray-600">{stats.latest.status}</span>
+          {/* Must stay a Link — the Migration History list below excludes
+              stats.latest (it's already shown here), so this is the only
+              click-through path to the latest migration's detail page.
+              A plain-text callout here would be a navigation dead-end,
+              exactly for the abandoned-mid-mapping case (Review Focus #4)
+              where clicking through to resume mapping matters most. */}
+          <Link to={`/data-agent/migrations/${stats.latest.id}`} className="text-sm font-medium text-violet-700 hover:underline">
+            {stats.latest.original_filename}
+          </Link>
+          <span data-testid="latest-status" className="text-xs font-semibold text-gray-600 ml-2">{stats.latest.status}</span>
         </div>
       )}
 
