@@ -20,7 +20,11 @@ export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
         if (error) { setMigrationsError('Could not load migration history.'); return }
         setMigrations((data ?? []) as MigrationRow[])
       })
-    void supabase.from('data_agent_members').select('user_id, users(name)').eq('sub_account', subAccount)
+    // data_agent_members has TWO foreign keys into users (user_id and
+    // added_by) — a bare `users(name)` embed is ambiguous to PostgREST
+    // (it can't tell which relationship to follow) and errors out. The
+    // `!user_id` hint picks the right one explicitly.
+    void supabase.from('data_agent_members').select('user_id, users!user_id(name)').eq('sub_account', subAccount)
       .then(({ data, error }) => {
         if (error) { setMembersError('Could not load team members.'); return }
         setMembers((data ?? []) as unknown as MemberRow[])
@@ -69,8 +73,19 @@ export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Team</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-gray-900">Team</h3>
+          {/* The GHL connection and team-access management both live in
+              Settings, not here — this page only ever displays them. With
+              no link, a user looking at an empty Team list (or wanting to
+              connect GHL before their first migration) had no way to find
+              where to actually do either. */}
+          <Link to="/settings?tab=data-agent" className="text-xs font-semibold text-violet-700 hover:underline">
+            GHL connection &amp; team access →
+          </Link>
+        </div>
         <ul className="text-sm text-gray-700 space-y-1">
+          {members.length === 0 && <li className="text-gray-400">No team members yet — add them in Settings.</li>}
           {members.map(m => <li key={m.user_id}>{m.users?.name}</li>)}
         </ul>
       </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { ProfileTab } from './ProfileTab'
 import { AccountTab } from './AccountTab'
@@ -16,10 +17,21 @@ import { useDataAgentAccess } from '@/hooks/useDataAgentAccess'
 
 type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'departments' | 'subscription' | 'ghl' | 'archive' | 'data-agent'
 
+const VALID_TAB_IDS: readonly TabId[] = ['profile', 'account', 'appearance', 'security', 'bank', 'payroll', 'users', 'departments', 'subscription', 'ghl', 'archive', 'data-agent']
+
+function isTabId(value: string | null): value is TabId {
+  return VALID_TAB_IDS.includes(value as TabId)
+}
+
 export function SettingsPage() {
   const { user } = useAuth()
   const { entitled } = useDataAgentAccess()
-  const [activeTab, setActiveTab] = useState<TabId>('profile')
+  // Lets other pages deep-link here, e.g. the Data Agent dashboard's
+  // "GHL connection & team access" link to /settings?tab=data-agent —
+  // without this, that link always landed on the default 'profile' tab.
+  const [searchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState<TabId>(isTabId(requestedTab) ? requestedTab : 'profile')
 
   const isAdmin = user?.role === 'Admin'
 

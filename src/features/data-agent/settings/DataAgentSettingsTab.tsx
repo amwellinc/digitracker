@@ -99,7 +99,11 @@ function DataAgentTeamAccess({ subAccount }: { subAccount: string }) {
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const loadMembers = useCallback(async () => {
-    const { data } = await supabase.from('data_agent_members').select('user_id, users(name)').eq('sub_account', subAccount)
+    // data_agent_members has TWO foreign keys into users (user_id and
+    // added_by) — a bare `users(name)` embed is ambiguous to PostgREST
+    // and errors out. The `!user_id` hint picks the right relationship.
+    const { data, error } = await supabase.from('data_agent_members').select('user_id, users!user_id(name)').eq('sub_account', subAccount)
+    if (error) { setMsg({ type: 'error', text: 'Could not load team members.' }); return }
     setMembers((data ?? []) as unknown as MemberRow[])
   }, [subAccount])
 
