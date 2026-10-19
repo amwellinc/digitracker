@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useRealtime } from '@/hooks/useRealtime'
 import type { DataAgentColumnMapping, DataAgentMigration, DataAgentMigrationStatus, DataAgentWriteStatus } from '@/types/dataAgent'
@@ -194,6 +194,11 @@ export function MappingReviewPage() {
 
   return (
     <div className="space-y-4">
+      {migration?.connection_id && (
+        <Link to={`/data-agent/connections/${migration.connection_id}`} className="text-xs font-semibold text-violet-700 hover:underline">
+          ← Back to project
+        </Link>
+      )}
       <div>
         <h1 className="text-lg font-bold text-gray-900">{migration?.original_filename}</h1>
         <p className="text-sm text-gray-500">{migration?.row_count} rows → {migration?.target_object_type}</p>

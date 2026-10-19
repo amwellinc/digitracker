@@ -5,7 +5,11 @@ import { useRealtime } from '@/hooks/useRealtime'
 
 interface MessageRow { id: string; user_id: string; message: string; created_at: string; users: { name: string } | null }
 
-export function DataAgentChat({ subAccount }: { subAccount: string }) {
+// Scoped to one connection ("folder"), not the whole sub-account — a
+// sub-account can run several GHL connections/projects in parallel, and a
+// single shared thread blended messages about unrelated projects
+// together with no way to tell them apart.
+export function DataAgentChat({ subAccount, connectionId }: { subAccount: string; connectionId: string }) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<MessageRow[]>([])
   const [draft, setDraft] = useState('')
@@ -14,18 +18,18 @@ export function DataAgentChat({ subAccount }: { subAccount: string }) {
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.from('data_agent_chat_messages').select('id, user_id, message, created_at, users(name)')
-      .eq('sub_account', subAccount).order('created_at')
+      .eq('connection_id', connectionId).order('created_at')
     if (error) { setChatError('Could not load team chat.'); return }
     setMessages((data ?? []) as unknown as MessageRow[])
-  }, [subAccount])
+  }, [connectionId])
 
   useEffect(() => { void load() }, [load])
-  useRealtime({ table: 'data_agent_chat_messages', filter: `sub_account=eq.${subAccount}`, onInsert: () => void load() })
+  useRealtime({ table: 'data_agent_chat_messages', filter: `connection_id=eq.${connectionId}`, onInsert: () => void load() })
 
   async function send() {
     if (!draft.trim() || !user?.id) return
     setSending(true); setChatError(null)
-    const { error } = await supabase.from('data_agent_chat_messages').insert({ sub_account: subAccount, user_id: user.id, message: draft.trim() })
+    const { error } = await supabase.from('data_agent_chat_messages').insert({ sub_account: subAccount, connection_id: connectionId, user_id: user.id, message: draft.trim() })
     setSending(false)
     // Keep the draft on failure — clearing it regardless of outcome would
     // silently drop the user's message with no way to retry it short of

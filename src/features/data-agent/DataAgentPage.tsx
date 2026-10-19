@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { NewMigrationModal } from './upload/NewMigrationModal'
-import { DataAgentDashboard } from './dashboard/DataAgentDashboard'
+import { DataAgentFolderList } from './folders/DataAgentFolderList'
 import { DataAgentWorkspaceSwitcher } from './workspace/DataAgentWorkspaceSwitcher'
 
 export function DataAgentPage() {
@@ -26,7 +26,10 @@ export function DataAgentPage() {
           </button>
         </div>
       </div>
-      <DataAgentDashboard subAccount={workspace} />
+      {/* Each GHL connection is its own project folder — see
+          DataAgentFolderList's own comment for why this replaced a single
+          shared dashboard. */}
+      <DataAgentFolderList subAccount={workspace} />
       {showNew && (
         <NewMigrationModal
           subAccount={workspace}

@@ -26,21 +26,21 @@ describe('DataAgentChat', () => {
   beforeEach(() => { insertMock.mockReset(); insertShouldFail = false })
 
   it('shows existing messages with the sender\'s name', async () => {
-    render(<DataAgentChat subAccount="AM333" />)
+    render(<DataAgentChat subAccount="AM333" connectionId="conn-1" />)
     expect(await screen.findByText('Started the contacts upload')).toBeInTheDocument()
     expect(screen.getByText('Jane')).toBeInTheDocument()
   })
 
-  it('sends a new message scoped to the sub-account', async () => {
-    render(<DataAgentChat subAccount="AM333" />)
+  it('sends a new message scoped to the connection (folder), not the whole sub-account', async () => {
+    render(<DataAgentChat subAccount="AM333" connectionId="conn-1" />)
     await userEvent.type(await screen.findByLabelText(/message/i), 'Mapping looks good')
     await userEvent.click(screen.getByRole('button', { name: /send/i }))
-    await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ sub_account: 'AM333', user_id: 'u2', message: 'Mapping looks good' }))
+    await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ sub_account: 'AM333', connection_id: 'conn-1', user_id: 'u2', message: 'Mapping looks good' }))
   })
 
   it('REVIEW FINDING: keeps the draft and shows an error when sending fails, instead of silently clearing it', async () => {
     insertShouldFail = true
-    render(<DataAgentChat subAccount="AM333" />)
+    render(<DataAgentChat subAccount="AM333" connectionId="conn-1" />)
     const input = await screen.findByLabelText(/message/i)
     await userEvent.type(input, 'Mapping looks good')
     await userEvent.click(screen.getByRole('button', { name: /send/i }))

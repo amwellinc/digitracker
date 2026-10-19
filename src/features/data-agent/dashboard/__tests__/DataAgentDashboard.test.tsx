@@ -24,7 +24,7 @@ import { DataAgentDashboard } from '../DataAgentDashboard'
 
 describe('DataAgentDashboard', () => {
   it('shows the latest migration with its real status, not implied success, and excludes it from the completed count', async () => {
-    render(<MemoryRouter><DataAgentDashboard subAccount="AM333" /></MemoryRouter>)
+    render(<MemoryRouter><DataAgentDashboard subAccount="AM333" connectionId="conn-1" /></MemoryRouter>)
     expect(await screen.findByText('orders.csv')).toBeInTheDocument()
     expect(screen.getByTestId('latest-status')).toHaveTextContent(/mapping/i)
     expect(screen.getByTestId('completed-count')).toHaveTextContent('1')
@@ -32,12 +32,12 @@ describe('DataAgentDashboard', () => {
   })
 
   it('lists team members by name', async () => {
-    render(<MemoryRouter><DataAgentDashboard subAccount="AM333" /></MemoryRouter>)
+    render(<MemoryRouter><DataAgentDashboard subAccount="AM333" connectionId="conn-1" /></MemoryRouter>)
     expect(await screen.findByText('Jane')).toBeInTheDocument()
   })
 
   it('REVIEW FINDING: the latest migration stays clickable through to its detail page — the Migration History list excludes it (to avoid rendering its filename twice), so its own callout is the only remaining route there', async () => {
-    render(<MemoryRouter><DataAgentDashboard subAccount="AM333" /></MemoryRouter>)
+    render(<MemoryRouter><DataAgentDashboard subAccount="AM333" connectionId="conn-1" /></MemoryRouter>)
     const link = await screen.findByRole('link', { name: 'orders.csv' })
     expect(link).toHaveAttribute('href', '/data-agent/migrations/mig-2')
   })

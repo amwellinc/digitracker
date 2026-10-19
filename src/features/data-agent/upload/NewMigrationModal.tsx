@@ -5,17 +5,22 @@ import type { DataAgentConnection } from '@/types/dataAgent'
 
 interface Props {
   subAccount: string
+  // When opened from inside a connection's own folder page, this pins the
+  // picker to that connection instead of defaulting to the first one in
+  // the list — starting a migration from within a folder should target
+  // that folder, not whichever connection happens to be oldest.
+  initialConnectionId?: string
   onCreated: (migrationId: string) => void
   onClose: () => void
 }
 
-export function NewMigrationModal({ subAccount, onCreated, onClose }: Props) {
+export function NewMigrationModal({ subAccount, initialConnectionId, onCreated, onClose }: Props) {
   // null = still loading connections. A sub-account can have several now
   // (e.g. one per end-client GHL account) — without a picker here, there
   // was no way to choose which one a migration targets, and nothing told
   // the user which account a migration would even go to.
   const [connections, setConnections] = useState<DataAgentConnection[] | null>(null)
-  const [connectionId, setConnectionId] = useState('')
+  const [connectionId, setConnectionId] = useState(initialConnectionId ?? '')
   const [objectTypes, setObjectTypes] = useState<string[]>([])
   const [target, setTarget] = useState('contact')
   const [sourceSystem, setSourceSystem] = useState<'' | 'salesforce' | 'hubspot'>('')
@@ -29,9 +34,11 @@ export function NewMigrationModal({ subAccount, onCreated, onClose }: Props) {
       .then(({ data }) => {
         const rows = (data ?? []) as DataAgentConnection[]
         setConnections(rows)
-        if (rows.length > 0) setConnectionId(rows[0].id)
+        if (rows.length === 0) return
+        const initialStillValid = initialConnectionId && rows.some(r => r.id === initialConnectionId)
+        setConnectionId(initialStillValid ? initialConnectionId! : rows[0].id)
       })
-  }, [subAccount])
+  }, [subAccount, initialConnectionId])
 
   useEffect(() => {
     if (!connectionId) { setObjectTypes([]); return }

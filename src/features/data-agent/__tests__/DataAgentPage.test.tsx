@@ -9,22 +9,22 @@ vi.mock('../workspace/DataAgentWorkspaceSwitcher', () => ({
     <button onClick={() => onChange('JOY')}>switch-to-joy</button>
   ),
 }))
-vi.mock('../dashboard/DataAgentDashboard', () => ({
-  DataAgentDashboard: ({ subAccount }: { subAccount: string }) => <div data-testid="dashboard-for">{subAccount}</div>,
+vi.mock('../folders/DataAgentFolderList', () => ({
+  DataAgentFolderList: ({ subAccount }: { subAccount: string }) => <div data-testid="folders-for">{subAccount}</div>,
 }))
 vi.mock('../upload/NewMigrationModal', () => ({ NewMigrationModal: () => null }))
 
 import { DataAgentPage } from '../DataAgentPage'
 
 describe('DataAgentPage', () => {
-  it('defaults the dashboard to the signed-in user\'s own sub-account', () => {
+  it('defaults the folder list to the signed-in user\'s own sub-account', () => {
     render(<DataAgentPage />, { wrapper: MemoryRouter })
-    expect(screen.getByTestId('dashboard-for')).toHaveTextContent('AM333')
+    expect(screen.getByTestId('folders-for')).toHaveTextContent('AM333')
   })
 
-  it('switching workspace re-points the dashboard at the chosen client sub-account', async () => {
+  it('switching workspace re-points the folder list at the chosen client sub-account', async () => {
     render(<DataAgentPage />, { wrapper: MemoryRouter })
     await userEvent.click(screen.getByText('switch-to-joy'))
-    expect(screen.getByTestId('dashboard-for')).toHaveTextContent('JOY')
+    expect(screen.getByTestId('folders-for')).toHaveTextContent('JOY')
   })
 })

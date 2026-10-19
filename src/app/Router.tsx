@@ -66,6 +66,9 @@ const DataAgentPage = lazy(() =>
 const MappingReviewPage = lazy(() =>
   import('@/features/data-agent/mapping-review/MappingReviewPage').then(m => ({ default: m.MappingReviewPage }))
 )
+const DataAgentFolderPage = lazy(() =>
+  import('@/features/data-agent/folders/DataAgentFolderPage').then(m => ({ default: m.DataAgentFolderPage }))
+)
 
 function Spinner() {
   return (
@@ -203,6 +206,7 @@ export function AppRouter() {
           />
           <Route path="reports" element={<ReportsRoute />} />
           <Route path="data-agent" element={<DataAgentRoute />} />
+          <Route path="data-agent/connections/:connectionId" element={<DataAgentRoute><DataAgentFolderPage /></DataAgentRoute>} />
           <Route path="data-agent/migrations/:migrationId" element={<DataAgentRoute><MappingReviewPage /></DataAgentRoute>} />
           <Route
             path="settings"

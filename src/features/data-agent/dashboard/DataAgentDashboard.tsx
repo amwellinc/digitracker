@@ -7,7 +7,12 @@ import { DataAgentChat } from '../chat/DataAgentChat'
 interface MigrationRow extends DashboardMigrationLike { id: string; original_filename: string }
 interface MemberRow { user_id: string; users: { name: string } | null }
 
-export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
+// One per connection ("folder") — migrations are scoped to connectionId
+// since a sub-account can run several GHL connections/projects in
+// parallel now, and this dashboard shows only the one folder's work.
+// Team stays scoped to the whole sub-account by design: team access is
+// granted per sub-account (Settings), not per individual connection.
+export function DataAgentDashboard({ subAccount, connectionId }: { subAccount: string; connectionId: string }) {
   const [migrations, setMigrations] = useState<MigrationRow[]>([])
   const [members, setMembers] = useState<MemberRow[]>([])
   const [migrationsError, setMigrationsError] = useState<string | null>(null)
@@ -15,11 +20,14 @@ export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
 
   useEffect(() => {
     void supabase.from('data_agent_migrations').select('id, status, row_count, accuracy_rating, created_at, original_filename')
-      .eq('sub_account', subAccount).order('created_at', { ascending: false })
+      .eq('connection_id', connectionId).order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) { setMigrationsError('Could not load migration history.'); return }
         setMigrations((data ?? []) as MigrationRow[])
       })
+  }, [connectionId])
+
+  useEffect(() => {
     // data_agent_members has TWO foreign keys into users (user_id and
     // added_by) — a bare `users(name)` embed is ambiguous to PostgREST
     // (it can't tell which relationship to follow) and errors out. The
@@ -90,7 +98,7 @@ export function DataAgentDashboard({ subAccount }: { subAccount: string }) {
         </ul>
       </div>
 
-      <DataAgentChat subAccount={subAccount} />
+      <DataAgentChat subAccount={subAccount} connectionId={connectionId} />
     </div>
   )
 }
