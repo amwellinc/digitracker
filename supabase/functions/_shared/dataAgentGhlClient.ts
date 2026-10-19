@@ -118,12 +118,18 @@ export async function getObjectRecord(config: GhlClientConfig, objectKey: string
   return body.record
 }
 
-export async function searchContactByEmail(config: GhlClientConfig, email: string): Promise<{ id: string; fields: Record<string, unknown> } | null> {
-  const res = await ghlFetch(config, `/contacts/?locationId=${config.locationId}&query=${encodeURIComponent(email)}`)
+export async function searchContactByEmail(config: GhlClientConfig, value: string): Promise<{ id: string; fields: Record<string, unknown> } | null> {
+  const res = await ghlFetch(config, `/contacts/?locationId=${config.locationId}&query=${encodeURIComponent(value)}`)
   await assertOk(res, 'GHL contact search')
-  const body = await res.json() as { contacts?: { id: string }[] }
-  const first = body.contacts?.[0]
-  if (!first) return null
-  const detail = await getContact(config, first.id)
-  return { id: first.id, fields: detail.contact }
+  const body = await res.json() as { contacts?: { id: string; email?: string; phone?: string }[] }
+  // Only trust an EXACT match on the value actually being searched for
+  // (this function is called with either an email or a phone number) —
+  // GHL's query search can return multiple or near-matching results, and
+  // blindly taking contacts[0] risked treating a DIFFERENT real contact
+  // as the one being migrated, which later made undo delete or overwrite
+  // that unrelated contact instead of the one this row actually touched.
+  const matched = body.contacts?.find(c => c.email === value || c.phone === value)
+  if (!matched) return null
+  const detail = await getContact(config, matched.id)
+  return { id: matched.id, fields: detail.contact }
 }

@@ -111,9 +111,31 @@ function buildWriter(isContact: boolean, config: GhlClientConfig, objectKey: str
       },
       async create(fields) {
         const result = await upsertContact(config, { locationId: config.locationId, ...fields } as never)
+        if (!result.new) {
+          // GHL's own upsert dedupe matched an EXISTING contact that our
+          // pre-flight search (findExisting) didn't find — e.g. it
+          // matched on phone when we only checked email. Treating this
+          // as a genuine creation would record write_status: 'created'
+          // with no snapshot, so a later undo would DELETE a real
+          // contact that existed before this migration touched it.
+          // Failing this row loudly (captured by writeRecordBatch's own
+          // try/catch as 'failed') is far safer than silently
+          // mis-recording it.
+          throw new Error(`GHL upsert matched an existing contact (id ${result.contact.id}) when none was expected — refusing to record this as a new creation, since no pre-replace snapshot was captured for it`)
+        }
         return { id: result.contact.id }
       },
-      async replace(_id, fields) { await upsertContact(config, { locationId: config.locationId, ...fields } as never) },
+      async replace(_id, fields) {
+        const result = await upsertContact(config, { locationId: config.locationId, ...fields } as never)
+        if (result.contact.id !== _id) {
+          // GHL's upsert matched a DIFFERENT contact than the one our
+          // pre-flight search found and snapshotted — the snapshot
+          // captured may not correspond to whatever record was actually
+          // just overwritten, so undo could restore the wrong contact
+          // entirely. Fail loudly rather than record a mismatched undo.
+          throw new Error(`GHL upsert matched a different contact (id ${result.contact.id}) than the one expected to be replaced (id ${_id}) — refusing to proceed, since the captured snapshot may not correspond to the record actually overwritten`)
+        }
+      },
     }
   }
   return {
@@ -316,16 +338,37 @@ async function processUndoingMigration(serviceClient: SupabaseClient, migration:
   const staleThreshold = new Date(Date.now() - STALE_CLAIM_MS).toISOString()
   const { data: candidateRows, error: candidateErr } = await serviceClient.from('data_agent_migration_records')
     .select('id').eq('migration_id', migration.id).eq('undo_status', 'pending')
-    .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`).order('row_number').limit(BATCH_SIZE)
+    // Undo must reverse rows in REVERSE order: if two rows in the original
+    // migration both touched the same real contact (duplicate emails are
+    // common in CRM exports — e.g. row 1 created contact X, row 2 later
+    // replaced X with new values, snapshotting row 1's values), undoing in
+    // forward (ascending) order would restore row 1's original values
+    // first, then immediately overwrite them again with row 2's restore
+    // step, leaving the contact in the WRONG final state. Reversing the
+    // order (undo the most recent write first) unwinds the chain of
+    // overwrites correctly, the same way a text editor's undo stack works.
+    .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`).order('row_number', { ascending: false }).limit(BATCH_SIZE)
   if (candidateErr) { console.error(`Data Agent worker: failed to list pending undo records for migration ${migration.id}:`, candidateErr); return }
   const candidateIds = (candidateRows ?? []).map(r => (r as { id: string }).id)
 
   if (candidateIds.length === 0) {
-    const { count, error: countErr } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
+    const { count: pendingCount, error: pendingErr } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
       .eq('migration_id', migration.id).eq('undo_status', 'pending')
-    if (countErr) { console.error(`Data Agent worker: failed to check remaining undo count for migration ${migration.id}:`, countErr); return }
-    if ((count ?? 0) === 0) {
-      const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'undone', claimed_at: null }).eq('id', migration.id)
+    if (pendingErr) { console.error(`Data Agent worker: failed to check remaining undo count for migration ${migration.id}:`, pendingErr); return }
+    if ((pendingCount ?? 0) === 0) {
+      // Nothing is pending anymore, but that includes rows that ended up
+      // 'failed' — reporting 'undone' when some rows were never actually
+      // reversed would be a false "this is fully undone" signal, exactly
+      // as misleading as reporting a migration 'completed' when some
+      // rows failed to write in the first place.
+      const { count: failedCount, error: failedErr } = await serviceClient.from('data_agent_migration_records').select('id', { count: 'exact', head: true })
+        .eq('migration_id', migration.id).eq('undo_status', 'failed')
+      if (failedErr) { console.error(`Data Agent worker: failed to check failed-undo count for migration ${migration.id}:`, failedErr); return }
+      const { error } = await serviceClient.from('data_agent_migrations').update({
+        status: (failedCount ?? 0) > 0 ? 'failed' : 'undone',
+        error_message: (failedCount ?? 0) > 0 ? `${failedCount} record(s) could not be undone — see their individual error_message for details` : null,
+        claimed_at: null,
+      }).eq('id', migration.id)
       if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} undone:`, error)
     }
     return
