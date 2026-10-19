@@ -39,6 +39,7 @@ export interface DataAgentMigration {
   row_count: number
   match_key_column: string | null
   default_country_code: string | null
+  instructions: string | null
   status: DataAgentMigrationStatus
   accuracy_rating: number | null
   started_at: string | null

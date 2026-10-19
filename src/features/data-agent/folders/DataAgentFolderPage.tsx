@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { DataAgentConnection } from '@/types/dataAgent'
 import { DataAgentDashboard } from '../dashboard/DataAgentDashboard'
 import { NewMigrationModal } from '../upload/NewMigrationModal'
+import { DataAgentConnectionPanel } from './DataAgentConnectionPanel'
 
 // One folder per GHL connection — its own name, migration history
 // ("files"), team view, and chat, instead of everything for a
@@ -15,16 +16,16 @@ export function DataAgentFolderPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
 
-  useEffect(() => {
+  const loadConnection = useCallback(async () => {
     if (!connectionId) return
-    void supabase.from('data_agent_connections').select('id, sub_account, label, ghl_location_id, last_verified_at')
+    const { data, error } = await supabase.from('data_agent_connections').select('id, sub_account, label, ghl_location_id, last_verified_at')
       .eq('id', connectionId).maybeSingle()
-      .then(({ data, error }) => {
-        if (error) { setLoadError('Could not load this connection.'); return }
-        if (!data) { setLoadError('Connection not found.'); return }
-        setConnection(data as DataAgentConnection)
-      })
+    if (error) { setLoadError('Could not load this connection.'); return }
+    if (!data) { setLoadError('Connection not found.'); return }
+    setConnection(data as DataAgentConnection)
   }, [connectionId])
+
+  useEffect(() => { void loadConnection() }, [loadConnection])
 
   if (loadError) return <p role="alert" className="text-sm text-red-600">{loadError}</p>
   if (!connection || !connectionId) return null
@@ -45,6 +46,7 @@ export function DataAgentFolderPage() {
           New Migration
         </button>
       </div>
+      <DataAgentConnectionPanel connection={connection} onChanged={() => void loadConnection()} />
       <DataAgentDashboard subAccount={connection.sub_account} connectionId={connectionId} />
       {showNew && (
         <NewMigrationModal

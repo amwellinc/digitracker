@@ -14,6 +14,7 @@ export function notifIcon(type: string): string {
     case 'project_task_comment':  return '💬'
     case 'project_task_created':  return '🆕'
     case 'project_task_status':   return '🔄'
+    case 'data_agent_added':      return '🧭'
     default:                      return '🔔'
   }
 }

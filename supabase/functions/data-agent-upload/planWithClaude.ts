@@ -8,13 +8,14 @@ export async function planWithClaude(
   sourceSystem: 'salesforce' | 'hubspot' | null,
   apiKey: string,
   fetchImpl?: AnthropicFetch,
+  instructions: string | null = null,
 ): Promise<PlannedColumnMapping[]> {
   const unmapped = rulesPlan.filter(p => p.status === 'unmapped')
   if (unmapped.length === 0) return rulesPlan
 
   const proposals = await proposeMappingsWithClaude(
     unmapped.map(p => ({ columnName: p.source_column_name, sampleValues: p.sample_values })),
-    targetFields, sourceSystem, apiKey, fetchImpl,
+    targetFields, sourceSystem, apiKey, fetchImpl, instructions,
   )
   const proposalByColumn = new Map(proposals.map(p => [p.source_column_name, p]))
 

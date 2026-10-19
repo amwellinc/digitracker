@@ -264,7 +264,7 @@ export interface Notification {
   id: string
   user_id: string
   type: 'task_assigned' | 'task_reply' | 'task_completed' | 'task_closed' | 'leave_request' | 'leave_approved' | 'leave_rejected' | 'holiday_added' | 'new_subscription'
-    | 'project_added' | 'project_task_assigned' | 'project_task_comment' | 'project_task_created' | 'project_task_status'
+    | 'project_added' | 'project_task_assigned' | 'project_task_comment' | 'project_task_created' | 'project_task_status' | 'data_agent_added'
   message: string
   read: boolean
   created_at: string

@@ -211,6 +211,13 @@ export function MappingReviewPage() {
         {migration?.error_message && <p role="alert" className="text-sm text-red-600 mt-1">{migration.error_message}</p>}
       </div>
 
+      {migration?.instructions && (
+        <div className="border border-gray-200 rounded-lg p-3">
+          <p className="text-xs font-semibold text-gray-500 mb-1">Instructions given to the agent</p>
+          <p className="text-sm text-gray-700 whitespace-pre-wrap">{migration.instructions}</p>
+        </div>
+      )}
+
       {recordCounts && (recordCounts.created + recordCounts.replaced + recordCounts.failed + recordCounts.skipped + recordCounts.pending > 0) && (
         <div data-testid="record-counts" className="flex flex-wrap gap-4 text-sm text-gray-700">
           <span>Created: {recordCounts.created}</span>

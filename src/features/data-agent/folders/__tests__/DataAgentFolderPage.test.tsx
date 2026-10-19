@@ -8,6 +8,7 @@ let connectionRow: Record<string, unknown> | null = {
 }
 let loadErrorRow: { message: string } | null = null
 
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'admin-1', sub_account: 'AM333', role: 'Admin' } }) }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: vi.fn(() => ({
@@ -17,6 +18,7 @@ vi.mock('@/lib/supabase', () => ({
 }))
 
 const newMigrationModalProps = vi.fn()
+const connectionPanelProps = vi.fn()
 vi.mock('../../dashboard/DataAgentDashboard', () => ({
   DataAgentDashboard: ({ subAccount, connectionId }: { subAccount: string; connectionId: string }) => (
     <div data-testid="dashboard" data-sub-account={subAccount} data-connection-id={connectionId} />
@@ -24,6 +26,9 @@ vi.mock('../../dashboard/DataAgentDashboard', () => ({
 }))
 vi.mock('../../upload/NewMigrationModal', () => ({
   NewMigrationModal: (props: Record<string, unknown>) => { newMigrationModalProps(props); return <div data-testid="new-migration-modal" /> },
+}))
+vi.mock('../DataAgentConnectionPanel', () => ({
+  DataAgentConnectionPanel: (props: Record<string, unknown>) => { connectionPanelProps(props); return <div data-testid="connection-panel" /> },
 }))
 
 import { DataAgentFolderPage } from '../DataAgentFolderPage'
@@ -39,6 +44,7 @@ function renderAt(connectionId: string) {
 describe('DataAgentFolderPage', () => {
   beforeEach(() => {
     newMigrationModalProps.mockReset()
+    connectionPanelProps.mockReset()
     connectionRow = { id: 'conn-1', sub_account: 'AM333', label: 'Client A', ghl_location_id: 'loc_a', last_verified_at: null }
     loadErrorRow = null
   })
@@ -59,6 +65,14 @@ describe('DataAgentFolderPage', () => {
     const dashboard = await screen.findByTestId('dashboard')
     expect(dashboard).toHaveAttribute('data-sub-account', 'AM333')
     expect(dashboard).toHaveAttribute('data-connection-id', 'conn-1')
+  })
+
+  it('REGRESSION: renders the connection management panel for this folder\'s own connection — setup moved out of Settings', async () => {
+    renderAt('conn-1')
+    await waitFor(() => expect(screen.getByTestId('connection-panel')).toBeInTheDocument())
+    expect(connectionPanelProps).toHaveBeenCalledWith(expect.objectContaining({
+      connection: expect.objectContaining({ id: 'conn-1', label: 'Client A' }),
+    }))
   })
 
   it('opens New Migration pre-selected to this folder\'s connection', async () => {

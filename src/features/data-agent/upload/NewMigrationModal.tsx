@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth'
 import type { DataAgentConnection } from '@/types/dataAgent'
 
 interface Props {
@@ -15,6 +15,8 @@ interface Props {
 }
 
 export function NewMigrationModal({ subAccount, initialConnectionId, onCreated, onClose }: Props) {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'Admin' || user?.role === 'Super-Admin'
   // null = still loading connections. A sub-account can have several now
   // (e.g. one per end-client GHL account) — without a picker here, there
   // was no way to choose which one a migration targets, and nothing told
@@ -24,6 +26,7 @@ export function NewMigrationModal({ subAccount, initialConnectionId, onCreated, 
   const [objectTypes, setObjectTypes] = useState<string[]>([])
   const [target, setTarget] = useState('contact')
   const [sourceSystem, setSourceSystem] = useState<'' | 'salesforce' | 'hubspot'>('')
+  const [instructions, setInstructions] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,7 +64,10 @@ export function NewMigrationModal({ subAccount, initialConnectionId, onCreated, 
     if (uploadErr) { setUploading(false); setError(uploadErr.message); return }
 
     const { data, error: fnErr } = await supabase.functions.invoke('data-agent-upload', {
-      body: { subAccount, connectionId, targetObjectType: target, sourceSystem: sourceSystem || null, storagePath, originalFilename: file.name },
+      body: {
+        subAccount, connectionId, targetObjectType: target, sourceSystem: sourceSystem || null, storagePath, originalFilename: file.name,
+        instructions: instructions.trim() || null,
+      },
     })
     setUploading(false)
     // data-agent-upload returns HTTP 200 for every business outcome (see
@@ -82,15 +88,15 @@ export function NewMigrationModal({ subAccount, initialConnectionId, onCreated, 
         {connections?.length === 0 ? (
           <div className="space-y-3">
             <p className="text-sm text-gray-600">
-              This workspace isn&apos;t connected to a GHL CRM account yet. Set up a connection
-              in Settings before starting a migration — otherwise there&apos;s nothing to map or write to.
+              This workspace isn&apos;t connected to a GHL CRM account yet.{' '}
+              {isAdmin
+                ? 'Close this and use "+ New Project" to set one up — otherwise there\'s nothing to map or write to.'
+                : 'Ask an Admin to set one up — otherwise there\'s nothing to map or write to.'}
             </p>
-            <div className="flex justify-end gap-2">
-              <button onClick={onClose} className="text-sm text-gray-500 px-3 py-2">Cancel</button>
-              <Link to="/settings?tab=data-agent" onClick={onClose}
-                className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-md px-4 py-2">
-                Go to Settings
-              </Link>
+            <div className="flex justify-end">
+              <button onClick={onClose} className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-md px-4 py-2">
+                Close
+              </button>
             </div>
           </div>
         ) : (
@@ -117,6 +123,14 @@ export function NewMigrationModal({ subAccount, initialConnectionId, onCreated, 
                 <option value="salesforce">Salesforce</option>
                 <option value="hubspot">HubSpot</option>
               </select>
+            </div>
+
+            <div>
+              <label htmlFor="da-instructions" className="block text-xs font-medium text-gray-600 mb-1">Instructions for the agent (optional)</label>
+              <textarea id="da-instructions" value={instructions} onChange={e => setInstructions(e.target.value)} rows={2}
+                placeholder={'e.g. "Analyze this file, map accordingly, and report any errors or issues" or "Tag these as the Spring Promo list"'}
+                className="input w-full text-sm" />
+              <p className="text-xs text-gray-400 mt-1">Guides the AI&apos;s column mapping — it won&apos;t perform actions outside mapping (e.g. it can&apos;t create a GHL Smart List for you).</p>
             </div>
 
             <div>

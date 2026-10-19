@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
   const { data: { user: callerAuth }, error: callerErr } = await callerClient.auth.getUser()
   if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' })
 
-  let body: { subAccount?: unknown; connectionId?: unknown; targetObjectType?: unknown; sourceSystem?: unknown; storagePath?: unknown; originalFilename?: unknown }
+  let body: { subAccount?: unknown; connectionId?: unknown; targetObjectType?: unknown; sourceSystem?: unknown; storagePath?: unknown; originalFilename?: unknown; instructions?: unknown }
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }) }
   const subAccount = typeof body.subAccount === 'string' ? body.subAccount : ''
   const connectionId = typeof body.connectionId === 'string' ? body.connectionId : ''
@@ -38,6 +38,10 @@ Deno.serve(async (req) => {
   const sourceSystem = body.sourceSystem === 'salesforce' || body.sourceSystem === 'hubspot' ? body.sourceSystem : null
   const storagePath = typeof body.storagePath === 'string' ? body.storagePath : ''
   const originalFilename = typeof body.originalFilename === 'string' ? body.originalFilename : ''
+  // Free text from the upload form, guiding Claude's mapping decisions —
+  // never trusted as anything beyond that (see buildPrompt's own comment
+  // on why it's delimited and explicitly scoped there).
+  const instructions = typeof body.instructions === 'string' && body.instructions.trim() ? body.instructions.trim() : null
   if (!subAccount || !connectionId || !targetObjectType || !storagePath || !originalFilename) {
     return json({ error: 'subAccount, connectionId, targetObjectType, storagePath, and originalFilename are required' })
   }
@@ -93,7 +97,7 @@ Deno.serve(async (req) => {
 
   const { data: schemaCache } = await serviceClient.from('data_agent_ghl_schema_cache')
     .select('fields').eq('connection_id', connectionId).eq('object_type', targetObjectType).maybeSingle()
-  if (!schemaCache) return json({ error: `No schema cached for target object "${targetObjectType}" — run Test Connection in Settings first` })
+  if (!schemaCache) return json({ error: `No schema cached for target object "${targetObjectType}" — run Test on this project's connection first` })
   const cachedFields = ((schemaCache as { fields: CachedGhlField[] } | null)?.fields ?? [])
   const targetFields = buildTargetFields(targetObjectType, cachedFields)
 
@@ -107,7 +111,7 @@ Deno.serve(async (req) => {
   let plan = rulesPlan
   if (anthropicKey) {
     try {
-      plan = await planWithClaude(rulesPlan, targetFields, sourceSystem, anthropicKey)
+      plan = await planWithClaude(rulesPlan, targetFields, sourceSystem, anthropicKey, undefined, instructions)
     } catch (err) {
       // A Claude failure (outage, malformed/truncated output, rate limit)
       // must not crash the whole upload and orphan the uploaded file —
@@ -123,7 +127,7 @@ Deno.serve(async (req) => {
   const { data: migration, error: migrationErr } = await serviceClient.from('data_agent_migrations').insert({
     sub_account: subAccount, connection_id: connectionId, created_by: createdBy, target_object_type: targetObjectType,
     source_system: sourceSystem, original_filename: originalFilename, storage_path: storagePath,
-    row_count: rows.length, status,
+    row_count: rows.length, status, instructions,
   }).select('id').single()
   if (migrationErr || !migration) return json({ error: `Could not create migration: ${migrationErr?.message}` })
   const migrationId = (migration as { id: string }).id

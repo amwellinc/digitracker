@@ -12,6 +12,7 @@ const schemaCacheData = [{ object_type: 'contact' }, { object_type: 'orders' }]
 let connectionRows: { id: string; sub_account: string; label: string; ghl_location_id: string; last_verified_at: string | null }[] =
   [{ id: 'conn-1', sub_account: 'AM333', label: 'Acme Corp', ghl_location_id: 'loc_999', last_verified_at: null }]
 
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'admin-1', sub_account: 'AM333', role: 'Admin' } }) }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     storage: { from: () => ({ upload: (...args: unknown[]) => uploadMock(...args) }) },
@@ -47,7 +48,10 @@ describe('NewMigrationModal', () => {
     connectionRows = []
     render(<MemoryRouter><NewMigrationModal subAccount="AM333" onCreated={vi.fn()} onClose={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText(/isn.t connected to a GHL CRM/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /go to settings/i })).toHaveAttribute('href', '/settings?tab=data-agent')
+    // Connection setup now lives in Data Agent itself ("+ New Project" on
+    // the folder list), not Settings — the modal just points an Admin
+    // there instead of offering a dead /settings?tab=data-agent link.
+    expect(screen.getByText(/\+ new project/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/csv file/i)).not.toBeInTheDocument()
   })
 
@@ -94,6 +98,19 @@ describe('NewMigrationModal', () => {
       body: expect.objectContaining({ subAccount: 'AM333', connectionId: 'conn-1', targetObjectType: 'orders', originalFilename: 'contacts.csv' }),
     })))
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('mig-1'))
+  })
+
+  it('REGRESSION: passes free-text instructions to the agent through to data-agent-upload, trimmed, or null when left blank', async () => {
+    const onCreated = vi.fn()
+    render(<MemoryRouter><NewMigrationModal subAccount="AM333" onCreated={onCreated} onClose={vi.fn()} /></MemoryRouter>)
+    await screen.findByRole('option', { name: /orders/i })
+    await userEvent.type(screen.getByLabelText(/instructions for the agent/i), '  Tag these as the Spring Promo list  ')
+    const file = new File(['Email\njane@x.com\n'], 'contacts.csv', { type: 'text/csv' })
+    await userEvent.upload(screen.getByLabelText(/csv file/i), file)
+    await userEvent.click(screen.getByRole('button', { name: /upload/i }))
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('data-agent-upload', expect.objectContaining({
+      body: expect.objectContaining({ instructions: 'Tag these as the Spring Promo list' }),
+    })))
   })
 
   it('surfaces an upload-function error instead of claiming success', async () => {

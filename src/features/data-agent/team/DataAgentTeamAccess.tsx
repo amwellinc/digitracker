@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useAuth } from '@/hooks/useAuth'
 
 interface MemberRow { user_id: string; users: { name: string } | null }
 interface CandidateRow { id: string; name: string }
@@ -11,14 +10,11 @@ interface CandidateRow { id: string; name: string }
 // person (e.g. two teammates both matching a partial "jo") must never
 // happen silently.
 //
-// Extracted out of DataAgentSettingsTab.tsx (where it still lives, under
-// Settings) so DataAgentDashboard can also render it directly inside each
-// project folder — this is purely "select an existing user, no invite
-// email" by design: it only ever searches this workspace's own active
-// users and writes a data_agent_members row, never touching auth/invite
-// flows.
+// Rendered in each folder's own Team section (DataAgentDashboard) — this
+// is purely "select an existing user, no invite email" by design: it
+// only ever searches this workspace's own active users and grants access
+// via add_data_agent_member, which also notifies the granted user in-app.
 export function DataAgentTeamAccess({ subAccount }: { subAccount: string }) {
-  const { user } = useAuth()
   const [members, setMembers] = useState<MemberRow[]>([])
   const [search, setSearch] = useState('')
   const [candidates, setCandidates] = useState<CandidateRow[]>([])
@@ -51,12 +47,15 @@ export function DataAgentTeamAccess({ subAccount }: { subAccount: string }) {
 
   async function grant(candidate: CandidateRow) {
     setGrantingId(candidate.id); setMsg(null)
-    const { error } = await supabase.from('data_agent_members').insert({
-      sub_account: subAccount, user_id: candidate.id, added_by: user?.id,
-    })
+    // Via RPC, not a direct table insert — add_data_agent_member writes
+    // the membership row AND an in-app notification to the granted user
+    // in the same server-side transaction, so every caller gets the
+    // notification automatically (a direct client insert here never
+    // would have).
+    const { error } = await supabase.rpc('add_data_agent_member', { p_sub_account: subAccount, p_user_id: candidate.id })
     setGrantingId(null)
     if (error) { setMsg({ type: 'error', text: `Could not grant ${candidate.name}: ${error.message}` }); return }
-    setMsg({ type: 'success', text: `${candidate.name} now has Data Agent access.` })
+    setMsg({ type: 'success', text: `${candidate.name} now has Data Agent access and has been notified.` })
     setSearch(''); setCandidates([]); setSearched(false)
     await loadMembers()
   }

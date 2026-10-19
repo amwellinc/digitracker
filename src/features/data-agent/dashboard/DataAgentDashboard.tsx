@@ -82,17 +82,7 @@ export function DataAgentDashboard({ subAccount, connectionId }: { subAccount: s
       </div>
 
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-900">Team</h3>
-          {/* GHL connection management (add/rotate/remove connections)
-              still lives in Settings — that part isn't per-folder. Team
-              access itself is now fully self-contained right here (see
-              DataAgentTeamAccess) so adding someone no longer requires
-              leaving Data Agent at all. */}
-          <Link to="/settings?tab=data-agent" className="text-xs font-semibold text-violet-700 hover:underline">
-            Manage GHL connections →
-          </Link>
-        </div>
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">Team</h3>
         <DataAgentTeamAccess subAccount={subAccount} />
       </div>
 

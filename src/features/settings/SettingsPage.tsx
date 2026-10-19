@@ -12,12 +12,14 @@ import { BankDetailsTab } from './BankDetailsTab'
 import { PayrollTab } from './PayrollTab'
 import { ArchiveTab } from './ArchiveTab'
 import { GHLIntegrationTab } from '@/features/ghl/GHLIntegrationTab'
-import { DataAgentSettingsTab } from '@/features/data-agent/settings/DataAgentSettingsTab'
-import { useDataAgentAccess } from '@/hooks/useDataAgentAccess'
 
-type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'departments' | 'subscription' | 'ghl' | 'archive' | 'data-agent'
+// Data Agent connection setup and team access both live inside Data Agent
+// itself now (folder list / folder page), not here — Admin-only project
+// creation and token management belong next to the projects they
+// configure, not tucked away in a general Settings tab.
+type TabId = 'profile' | 'account' | 'appearance' | 'security' | 'bank' | 'payroll' | 'users' | 'departments' | 'subscription' | 'ghl' | 'archive'
 
-const VALID_TAB_IDS: readonly TabId[] = ['profile', 'account', 'appearance', 'security', 'bank', 'payroll', 'users', 'departments', 'subscription', 'ghl', 'archive', 'data-agent']
+const VALID_TAB_IDS: readonly TabId[] = ['profile', 'account', 'appearance', 'security', 'bank', 'payroll', 'users', 'departments', 'subscription', 'ghl', 'archive']
 
 function isTabId(value: string | null): value is TabId {
   return VALID_TAB_IDS.includes(value as TabId)
@@ -25,10 +27,6 @@ function isTabId(value: string | null): value is TabId {
 
 export function SettingsPage() {
   const { user } = useAuth()
-  const { entitled } = useDataAgentAccess()
-  // Lets other pages deep-link here, e.g. the Data Agent dashboard's
-  // "GHL connection & team access" link to /settings?tab=data-agent —
-  // without this, that link always landed on the default 'profile' tab.
   const [searchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState<TabId>(isTabId(requestedTab) ? requestedTab : 'profile')
@@ -49,7 +47,6 @@ export function SettingsPage() {
     { id: 'departments',  label: 'Departments' },
     { id: 'subscription', label: 'Subscription' },
     { id: 'ghl',          label: '🔗 DIGI5Y-CRM Integration' },
-    ...(isAdmin && entitled ? [{ id: 'data-agent' as const, label: '🧭 Data Agent' }] : []),
     { id: 'archive',      label: '🗄 Archive' },
   ]
 
@@ -117,7 +114,6 @@ export function SettingsPage() {
       {activeTab === 'subscription' && isAdmin && <SubscriptionTab />}
       {activeTab === 'ghl'          && isAdmin && <GHLIntegrationTab />}
       {activeTab === 'archive'      && isAdmin && <ArchiveTab />}
-      {activeTab === 'data-agent'   && isAdmin && entitled && <DataAgentSettingsTab />}
     </div>
   )
 }
