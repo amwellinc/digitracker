@@ -62,11 +62,15 @@ Deno.serve(async (req) => {
   // §4) — refresh it now if stale, before any classification happens, so
   // the user's review (Task 10) reflects the CRM's real current structure.
   const { data: connection } = await serviceClient.from('data_agent_connections')
-    .select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
+    .select('ghl_location_id').eq('sub_account', subAccount).maybeSingle()
   if (!connection) return json({ error: 'No GHL connection configured for this sub-account yet' })
-  const { data: secretRow } = await serviceClient.schema('vault').from('decrypted_secrets')
-    .select('decrypted_secret').eq('name', (connection as { secret_name: string }).secret_name).maybeSingle()
-  const pit = (secretRow as { decrypted_secret?: string } | null)?.decrypted_secret
+  // Reads via a SECURITY DEFINER RPC, not PostgREST's vault schema route
+  // (serviceClient.schema('vault')...) — that route only works if 'vault'
+  // is explicitly exposed in the project's API settings, which it isn't
+  // here by default, and silently returned no row instead of the real
+  // token.
+  const { data: pit, error: pitErr } = await serviceClient.rpc('get_data_agent_pit', { p_sub_account: subAccount })
+  if (pitErr) return json({ error: `Could not read the saved connection token: ${pitErr.message}` })
   if (!pit) return json({ error: 'Could not read the saved connection token' })
   const ghlConfig = { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
 

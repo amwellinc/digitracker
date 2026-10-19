@@ -91,13 +91,17 @@ Deno.serve(async (req) => {
 interface MigratingRow { id: string; sub_account: string; target_object_type: string; match_key_column: string | null; default_country_code: string | null; row_count: number }
 
 async function loadGhlConfig(serviceClient: SupabaseClient, subAccount: string): Promise<GhlClientConfig | null> {
-  const { data: connection, error: connErr } = await serviceClient.from('data_agent_connections').select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
+  const { data: connection, error: connErr } = await serviceClient.from('data_agent_connections').select('ghl_location_id').eq('sub_account', subAccount).maybeSingle()
   if (connErr) { console.error(`Data Agent worker: failed to load connection for ${subAccount}:`, connErr); return null }
   if (!connection) return null
-  const { data: secretRow, error: secretErr } = await serviceClient.schema('vault').from('decrypted_secrets').select('decrypted_secret')
-    .eq('name', (connection as { secret_name: string }).secret_name).maybeSingle()
-  if (secretErr) { console.error(`Data Agent worker: failed to load Vault secret for ${subAccount}:`, secretErr); return null }
-  const pit = (secretRow as { decrypted_secret?: string } | null)?.decrypted_secret
+  // Reads via a SECURITY DEFINER RPC, not PostgREST's vault schema route
+  // (serviceClient.schema('vault')...) — that route only works if 'vault'
+  // is explicitly exposed in the project's API settings, which it isn't
+  // here by default, and silently returned no row instead of the real
+  // token, meaning the worker could never load a usable connection and
+  // no migration could ever write a single row.
+  const { data: pit, error: pitErr } = await serviceClient.rpc('get_data_agent_pit', { p_sub_account: subAccount })
+  if (pitErr) { console.error(`Data Agent worker: failed to load Vault secret for ${subAccount}:`, pitErr); return null }
   if (!pit) return null
   return { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
 }
