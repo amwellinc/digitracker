@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { computeDashboardStats, type DashboardMigrationLike } from './dashboardStats'
 import { DataAgentChat } from '../chat/DataAgentChat'
+import { DataAgentTeamAccess } from '../team/DataAgentTeamAccess'
 
 interface MigrationRow extends DashboardMigrationLike { id: string; original_filename: string }
 interface MemberRow { user_id: string; users: { name: string } | null }
@@ -83,19 +84,16 @@ export function DataAgentDashboard({ subAccount, connectionId }: { subAccount: s
       <div>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold text-gray-900">Team</h3>
-          {/* The GHL connection and team-access management both live in
-              Settings, not here — this page only ever displays them. With
-              no link, a user looking at an empty Team list (or wanting to
-              connect GHL before their first migration) had no way to find
-              where to actually do either. */}
+          {/* GHL connection management (add/rotate/remove connections)
+              still lives in Settings — that part isn't per-folder. Team
+              access itself is now fully self-contained right here (see
+              DataAgentTeamAccess) so adding someone no longer requires
+              leaving Data Agent at all. */}
           <Link to="/settings?tab=data-agent" className="text-xs font-semibold text-violet-700 hover:underline">
-            GHL connection &amp; team access →
+            Manage GHL connections →
           </Link>
         </div>
-        <ul className="text-sm text-gray-700 space-y-1">
-          {members.length === 0 && <li className="text-gray-400">No team members yet — add them in Settings.</li>}
-          {members.map(m => <li key={m.user_id}>{m.users?.name}</li>)}
-        </ul>
+        <DataAgentTeamAccess subAccount={subAccount} />
       </div>
 
       <DataAgentChat subAccount={subAccount} connectionId={connectionId} />

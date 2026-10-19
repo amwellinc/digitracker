@@ -36,6 +36,11 @@ describe('DataAgentDashboard', () => {
     expect(await screen.findByText('Jane')).toBeInTheDocument()
   })
 
+  it('REGRESSION: lets a user be added directly from the folder, without leaving Data Agent for Settings', async () => {
+    render(<MemoryRouter><DataAgentDashboard subAccount="AM333" connectionId="conn-1" /></MemoryRouter>)
+    expect(await screen.findByLabelText(/search your team to grant access/i)).toBeInTheDocument()
+  })
+
   it('REVIEW FINDING: the latest migration stays clickable through to its detail page — the Migration History list excludes it (to avoid rendering its filename twice), so its own callout is the only remaining route there', async () => {
     render(<MemoryRouter><DataAgentDashboard subAccount="AM333" connectionId="conn-1" /></MemoryRouter>)
     const link = await screen.findByRole('link', { name: 'orders.csv' })
