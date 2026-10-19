@@ -8,6 +8,7 @@ const insertMock = vi.fn()
 const deleteMock = vi.fn()
 let insertShouldFail = false
 
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'super-admin-1' } }) }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: vi.fn((table: string) => {
@@ -34,7 +35,7 @@ describe('ProviderClientsPanel', () => {
     await userEvent.selectOptions(await screen.findByLabelText(/provider/i), 'AM333')
     await userEvent.selectOptions(screen.getByLabelText(/client/i), 'JOY')
     await userEvent.click(screen.getByRole('button', { name: /grant/i }))
-    await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ provider_sub_account: 'AM333', client_sub_account: 'JOY' }))
+    await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ provider_sub_account: 'AM333', client_sub_account: 'JOY', added_by: 'super-admin-1' }))
   })
 
   it('lists existing relationships and can revoke one', async () => {
