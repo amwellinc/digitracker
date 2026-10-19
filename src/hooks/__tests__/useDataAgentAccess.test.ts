@@ -6,7 +6,12 @@ const maybeSingleMock = vi.fn()
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: vi.fn(() => ({
-      select: () => ({ eq: () => ({ maybeSingle: () => maybeSingleMock() }) }),
+      select: () => ({
+        eq: () => ({
+          eq: () => ({ maybeSingle: () => maybeSingleMock() }),
+          maybeSingle: () => maybeSingleMock(),
+        }),
+      }),
     })),
   },
 }))

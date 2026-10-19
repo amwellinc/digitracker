@@ -24,13 +24,18 @@ export function useDataAgentAccess(): { hasAccess: boolean; entitled: boolean } 
     if (user.role === 'Admin' || user.role === 'Super-Admin') {
       setIsMember(true)
     } else {
-      // RLS already scopes this to the caller's own sub_account; this hook
-      // only gates nav/route visibility, never real data access, so a
-      // single user_id filter is sufficient here.
+      // Scoped to the caller's own sub_account explicitly, not just
+      // user_id — a user can hold a data_agent_members row for more than
+      // one sub_account (e.g. a service provider's staff member also
+      // added to a granted client's member list, Task 20), and without
+      // this filter .maybeSingle() throws on more than one row for the
+      // same user_id. This hook only gates nav/route visibility, never
+      // real data access — RLS is still the actual authorization boundary.
       void supabase
         .from('data_agent_members')
         .select('user_id')
         .eq('user_id', user.id)
+        .eq('sub_account', user.sub_account)
         .maybeSingle()
         .then(({ data }) => {
           if (!cancelled) setIsMember(Boolean((data as { user_id?: string } | null)?.user_id))
