@@ -40,18 +40,19 @@ Deno.serve(async (req) => {
   const { data: { user: callerAuth }, error: callerErr } = await callerClient.auth.getUser()
   if (callerErr || !callerAuth?.email) return json({ error: 'Invalid session' })
 
-  let body: { subAccount?: unknown }
+  let body: { connectionId?: unknown }
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }) }
-  const subAccount = typeof body.subAccount === 'string' ? body.subAccount : ''
-  if (!subAccount) return json({ error: 'subAccount is required' })
-
-  const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: subAccount })
-  if (!isMember) return json({ ok: false, error: 'Not authorized for this sub-account' })
+  const connectionId = typeof body.connectionId === 'string' ? body.connectionId : ''
+  if (!connectionId) return json({ error: 'connectionId is required' })
 
   const serviceClient = createClient(supabaseUrl, serviceKey)
   const { data: connection } = await serviceClient.from('data_agent_connections')
-    .select('ghl_location_id').eq('sub_account', subAccount).maybeSingle()
-  if (!connection) return json({ ok: false, error: 'No connection saved for this sub-account yet' })
+    .select('sub_account, ghl_location_id').eq('id', connectionId).maybeSingle()
+  if (!connection) return json({ ok: false, error: 'Connection not found' })
+  const subAccount = (connection as { sub_account: string }).sub_account
+
+  const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: subAccount })
+  if (!isMember) return json({ ok: false, error: 'Not authorized for this sub-account' })
 
   // Reads via a SECURITY DEFINER RPC, not PostgREST's vault schema route
   // (serviceClient.schema('vault')...) — that route only works if 'vault'
@@ -59,7 +60,7 @@ Deno.serve(async (req) => {
   // here by default, and silently returned no row instead of the real
   // token ("Saved token could not be read from Vault" regardless of what
   // the saved token actually was).
-  const { data: pit, error: pitErr } = await serviceClient.rpc('get_data_agent_pit', { p_sub_account: subAccount })
+  const { data: pit, error: pitErr } = await serviceClient.rpc('get_data_agent_pit', { p_connection_id: connectionId })
   if (pitErr) {
     console.error('data-agent-test-connection: get_data_agent_pit RPC failed', pitErr)
     return json({ ok: false, error: 'Saved token could not be read — see server logs for details' })
@@ -69,8 +70,8 @@ Deno.serve(async (req) => {
   const config = { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
 
   try {
-    await ensureSchemaCacheFresh(serviceClient, subAccount, config, { force: true })
-    await serviceClient.from('data_agent_connections').update({ last_verified_at: new Date().toISOString() }).eq('sub_account', subAccount)
+    await ensureSchemaCacheFresh(serviceClient, connectionId, subAccount, config, { force: true })
+    await serviceClient.from('data_agent_connections').update({ last_verified_at: new Date().toISOString() }).eq('id', connectionId)
     return json({ ok: true })
   } catch (err) {
     // GHL's own response text (surfaced via assertOk() in dataAgentGhlClient.ts)

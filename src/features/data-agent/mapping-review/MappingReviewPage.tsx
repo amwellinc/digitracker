@@ -63,14 +63,32 @@ export function MappingReviewPage() {
   }, [migrationId, loadMappings])
 
   useEffect(() => {
-    if (!migration?.sub_account || !migration?.target_object_type) return
+    // Keyed by connection_id, not sub_account — a sub-account can have
+    // several GHL connections, each with its own distinct custom-field
+    // schema, so the cache row for THIS migration's schema has to be
+    // looked up by the specific connection it was started against.
+    if (!migration?.connection_id || !migration?.target_object_type) return
     void supabase.from('data_agent_ghl_schema_cache').select('fields')
-      .eq('sub_account', migration.sub_account).eq('object_type', migration.target_object_type)
+      .eq('connection_id', migration.connection_id).eq('object_type', migration.target_object_type)
       .then(({ data }) => {
         const row = (data as { fields: { id: string; fieldKey: string; name: string; dataType: string }[] }[] | null)?.[0]
         setTargetFields(buildTargetFieldOptions(migration.target_object_type, row?.fields ?? []))
       })
-  }, [migration?.sub_account, migration?.target_object_type])
+  }, [migration?.connection_id, migration?.target_object_type])
+
+  const [connectionLabel, setConnectionLabel] = useState<string | null>(null)
+  useEffect(() => {
+    // Shows which GHL account this migration actually targets — the same
+    // "which account" indication the Settings connection list and New
+    // Migration's picker now give, carried through to the migration
+    // itself so it's traceable later too.
+    if (!migration?.connection_id) { setConnectionLabel(null); return }
+    void supabase.from('data_agent_connections').select('label, ghl_location_id').eq('id', migration.connection_id).maybeSingle()
+      .then(({ data }) => {
+        const row = data as { label: string; ghl_location_id: string } | null
+        setConnectionLabel(row ? `${row.label} (${row.ghl_location_id})` : null)
+      })
+  }, [migration?.connection_id])
 
   const loadRecordStatus = useCallback(async () => {
     if (!migrationId) return
@@ -179,6 +197,7 @@ export function MappingReviewPage() {
       <div>
         <h1 className="text-lg font-bold text-gray-900">{migration?.original_filename}</h1>
         <p className="text-sm text-gray-500">{migration?.row_count} rows → {migration?.target_object_type}</p>
+        {connectionLabel && <p className="text-xs text-gray-400">GHL account: {connectionLabel}</p>}
         {migration && (
           <span data-testid="migration-status" className={`inline-block mt-1 text-xs font-semibold px-2 py-1 rounded-full ${MIGRATION_STATUS_BADGE[migration.status]}`}>
             {MIGRATION_STATUS_LABEL[migration.status]}

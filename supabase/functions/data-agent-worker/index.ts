@@ -88,11 +88,15 @@ Deno.serve(async (req) => {
   return json({ ok: true, processed: (migrating ?? []).length + verifyingProcessedCount + undoingProcessedCount })
 })
 
-interface MigratingRow { id: string; sub_account: string; target_object_type: string; match_key_column: string | null; default_country_code: string | null; row_count: number }
+interface MigratingRow { id: string; sub_account: string; connection_id: string | null; target_object_type: string; match_key_column: string | null; default_country_code: string | null; row_count: number }
 
-async function loadGhlConfig(serviceClient: SupabaseClient, subAccount: string): Promise<GhlClientConfig | null> {
-  const { data: connection, error: connErr } = await serviceClient.from('data_agent_connections').select('ghl_location_id').eq('sub_account', subAccount).maybeSingle()
-  if (connErr) { console.error(`Data Agent worker: failed to load connection for ${subAccount}:`, connErr); return null }
+async function loadGhlConfig(serviceClient: SupabaseClient, connectionId: string | null): Promise<GhlClientConfig | null> {
+  // A sub-account can have several connections now — the migration itself
+  // records which one it was started against (connection_id), since the
+  // location id/token to write to is no longer implied by sub_account alone.
+  if (!connectionId) return null
+  const { data: connection, error: connErr } = await serviceClient.from('data_agent_connections').select('ghl_location_id').eq('id', connectionId).maybeSingle()
+  if (connErr) { console.error(`Data Agent worker: failed to load connection ${connectionId}:`, connErr); return null }
   if (!connection) return null
   // Reads via a SECURITY DEFINER RPC, not PostgREST's vault schema route
   // (serviceClient.schema('vault')...) — that route only works if 'vault'
@@ -100,8 +104,8 @@ async function loadGhlConfig(serviceClient: SupabaseClient, subAccount: string):
   // here by default, and silently returned no row instead of the real
   // token, meaning the worker could never load a usable connection and
   // no migration could ever write a single row.
-  const { data: pit, error: pitErr } = await serviceClient.rpc('get_data_agent_pit', { p_sub_account: subAccount })
-  if (pitErr) { console.error(`Data Agent worker: failed to load Vault secret for ${subAccount}:`, pitErr); return null }
+  const { data: pit, error: pitErr } = await serviceClient.rpc('get_data_agent_pit', { p_connection_id: connectionId })
+  if (pitErr) { console.error(`Data Agent worker: failed to load Vault secret for connection ${connectionId}:`, pitErr); return null }
   if (!pit) return null
   return { pit, locationId: (connection as { ghl_location_id: string }).ghl_location_id }
 }
@@ -162,7 +166,7 @@ function buildWriter(isContact: boolean, config: GhlClientConfig, objectKey: str
 }
 
 async function processMigratingMigration(serviceClient: SupabaseClient, migration: MigratingRow) {
-  const config = await loadGhlConfig(serviceClient, migration.sub_account)
+  const config = await loadGhlConfig(serviceClient, migration.connection_id)
   if (!config) {
     const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: 'No usable GHL connection' }).eq('id', migration.id)
     if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} as failed:`, error)
@@ -302,7 +306,7 @@ async function processVerifyingMigration(serviceClient: SupabaseClient, migratio
   let verificationNote: string | null = null
 
   if (sample.length > 0) {
-    const config = await loadGhlConfig(serviceClient, migration.sub_account)
+    const config = await loadGhlConfig(serviceClient, migration.connection_id)
     if (!config) {
       // The migration itself already succeeded (it only reaches this
       // phase after a clean migrating phase) — only the QA step couldn't
@@ -362,7 +366,7 @@ async function processVerifyingMigration(serviceClient: SupabaseClient, migratio
 async function processUndoingMigration(serviceClient: SupabaseClient, migration: MigratingRow) {
   // Reload the connection fresh, exactly like every other write — if it
   // has since changed, undo uses whatever is current now (Review Focus #5).
-  const config = await loadGhlConfig(serviceClient, migration.sub_account)
+  const config = await loadGhlConfig(serviceClient, migration.connection_id)
   if (!config) {
     const { error } = await serviceClient.from('data_agent_migrations').update({ status: 'failed', error_message: 'No usable GHL connection for undo', claimed_at: null }).eq('id', migration.id)
     if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} failed (no connection for undo):`, error)

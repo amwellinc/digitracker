@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
-const migrationRow = { id: 'mig-1', sub_account: 'AM333', target_object_type: 'contact', status: 'mapping', original_filename: 'contacts.csv', row_count: 2 }
+const migrationRow = { id: 'mig-1', sub_account: 'AM333', connection_id: 'conn-1', target_object_type: 'contact', status: 'mapping', original_filename: 'contacts.csv', row_count: 2 }
 let mappingRows: Record<string, unknown>[] = []
 const updateMock = vi.fn()
 const rpcMock = vi.fn()
@@ -28,6 +28,9 @@ vi.mock('@/lib/supabase', () => ({
           select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: mappingRows }) }) }),
           update: (...args: unknown[]) => { updateMock(...args); return { eq: () => Promise.resolve({ error: mappingUpdateError }) } },
         }
+      }
+      if (table === 'data_agent_connections') {
+        return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { label: 'Acme Corp', ghl_location_id: 'loc_999' } }) }) }) }
       }
       // NOTE: the brief's own mock here only chained a single `.eq()` before
       // resolving to a Promise, but MappingReviewPage.tsx chains

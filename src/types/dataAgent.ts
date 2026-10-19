@@ -19,9 +19,18 @@ export interface DataAgentColumnMappingMetadata {
   is_primary_candidate?: boolean
 }
 
+export interface DataAgentConnection {
+  id: string
+  sub_account: string
+  label: string
+  ghl_location_id: string
+  last_verified_at: string | null
+}
+
 export interface DataAgentMigration {
   id: string
   sub_account: string
+  connection_id: string | null
   created_by: string
   target_object_type: string
   source_system: DataAgentSourceSystem

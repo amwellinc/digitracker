@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
   if (!migrationId || !columnMappingId || !promptText) return json({ error: 'migrationId, columnMappingId, and promptText are required' })
 
   const serviceClient = createClient(supabaseUrl, serviceKey)
-  const { data: migration } = await serviceClient.from('data_agent_migrations').select('sub_account, target_object_type, status').eq('id', migrationId).single()
+  const { data: migration } = await serviceClient.from('data_agent_migrations').select('sub_account, connection_id, target_object_type, status').eq('id', migrationId).single()
   if (!migration) return json({ error: 'Migration not found' })
   const { data: isMember } = await callerClient.rpc('is_data_agent_member', { p_sub_account: (migration as { sub_account: string }).sub_account })
   if (!isMember) return json({ error: 'Not authorized for this migration' })
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
   if (!mapping) return json({ error: 'Column mapping not found' })
 
   const { data: schemaCache } = await serviceClient.from('data_agent_ghl_schema_cache').select('fields')
-    .eq('sub_account', (migration as { sub_account: string }).sub_account)
+    .eq('connection_id', (migration as { connection_id: string }).connection_id)
     .eq('object_type', (migration as { target_object_type: string }).target_object_type).maybeSingle()
   const cachedFields = ((schemaCache as { fields: CachedGhlField[] } | null)?.fields ?? [])
   const targetFields = buildTargetFields((migration as { target_object_type: string }).target_object_type, cachedFields)

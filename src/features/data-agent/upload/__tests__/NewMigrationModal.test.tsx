@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -6,25 +6,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const uploadMock = vi.fn()
 const invokeMock = vi.fn()
 const schemaCacheData = [{ object_type: 'contact' }, { object_type: 'orders' }]
-// Mutable per-test so the "no connection yet" test can flip it without its
-// own mock module — the default (truthy) keeps every other test's existing
-// render path (straight to the upload form) unchanged.
-let connectionRow: { sub_account: string } | null = { sub_account: 'AM333' }
+// Mutable per-test so the "no connections yet" test can flip it without its
+// own mock module — the default (one connection) keeps every other test's
+// existing render path (straight to the upload form) unchanged.
+let connectionRows: { id: string; sub_account: string; label: string; ghl_location_id: string; last_verified_at: string | null }[] =
+  [{ id: 'conn-1', sub_account: 'AM333', label: 'Acme Corp', ghl_location_id: 'loc_999', last_verified_at: null }]
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     storage: { from: () => ({ upload: (...args: unknown[]) => uploadMock(...args) }) },
     functions: { invoke: (...args: unknown[]) => invokeMock(...args) },
-    // The modal checks data_agent_connections (via .maybeSingle(), to
-    // decide whether to show the form at all) separately from
-    // data_agent_ghl_schema_cache (via a bare .then(), for the target
-    // dropdown's object types) — the mock must route by table name and
-    // support both chain shapes.
+    // The modal lists data_agent_connections (via .order(), to populate
+    // the account picker and decide whether to show the form at all)
+    // separately from data_agent_ghl_schema_cache (via a bare .then(),
+    // for the target dropdown's object types, keyed by the selected
+    // connection) — the mock must route by table name.
     from: vi.fn((table: string) => ({
       select: () => ({
         eq: () => {
           if (table === 'data_agent_connections') {
-            return { maybeSingle: () => Promise.resolve({ data: connectionRow }) }
+            return { order: () => Promise.resolve({ data: connectionRows }) }
           }
           return Promise.resolve({ data: schemaCacheData })
         },
@@ -39,24 +40,45 @@ describe('NewMigrationModal', () => {
   beforeEach(() => {
     uploadMock.mockReset().mockResolvedValue({ error: null })
     invokeMock.mockReset().mockResolvedValue({ data: { migrationId: 'mig-1' }, error: null })
-    connectionRow = { sub_account: 'AM333' }
+    connectionRows = [{ id: 'conn-1', sub_account: 'AM333', label: 'Acme Corp', ghl_location_id: 'loc_999', last_verified_at: null }]
   })
 
   it('shows a setup prompt instead of the upload form when no GHL connection exists yet', async () => {
-    connectionRow = null
+    connectionRows = []
     render(<MemoryRouter><NewMigrationModal subAccount="AM333" onCreated={vi.fn()} onClose={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText(/isn.t connected to a GHL CRM/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /go to settings/i })).toHaveAttribute('href', '/settings?tab=data-agent')
     expect(screen.queryByLabelText(/csv file/i)).not.toBeInTheDocument()
   })
 
+  it('REGRESSION: offers every connection as a choice when more than one exists, defaulting to the first', async () => {
+    connectionRows = [
+      { id: 'conn-1', sub_account: 'AM333', label: 'Client A', ghl_location_id: 'loc_a', last_verified_at: null },
+      { id: 'conn-2', sub_account: 'AM333', label: 'Client B', ghl_location_id: 'loc_b', last_verified_at: null },
+    ]
+    render(<MemoryRouter><NewMigrationModal subAccount="AM333" onCreated={vi.fn()} onClose={vi.fn()} /></MemoryRouter>)
+    const select = await screen.findByLabelText(/ghl account/i) as HTMLSelectElement
+    expect(within(select).getByRole('option', { name: /client a/i })).toBeInTheDocument()
+    expect(within(select).getByRole('option', { name: /client b/i })).toBeInTheDocument()
+    expect(select.value).toBe('conn-1')
+  })
+
   it('lists Contacts plus every cached Custom Object as target choices', async () => {
     render(<MemoryRouter><NewMigrationModal subAccount="AM333" onCreated={vi.fn()} onClose={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByRole('option', { name: /contacts/i })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /orders/i })).toBeInTheDocument()
+    // "Contacts" is a static option, rendered on the very first pass —
+    // "orders" depends on a two-step async chain (connections resolve →
+    // connectionId state updates → THEN the schema-cache query for that
+    // connection fires), so it must be awaited with findByRole too rather
+    // than asserted with a synchronous getByRole right after. Asserting
+    // both with find/get back-to-back happened to pass by coincidental
+    // microtask timing in isolation but was genuinely flaky — real evidence:
+    // it failed consistently once other test files added enough overhead
+    // to shift that timing.
+    expect(await screen.findByRole('option', { name: /orders/i })).toBeInTheDocument()
   })
 
-  it('uploads the file to storage then calls data-agent-upload, and reports the new migration id', async () => {
+  it('uploads the file to storage then calls data-agent-upload with the selected connectionId, and reports the new migration id', async () => {
     const onCreated = vi.fn()
     render(<MemoryRouter><NewMigrationModal subAccount="AM333" onCreated={onCreated} onClose={vi.fn()} /></MemoryRouter>)
     await screen.findByRole('option', { name: /orders/i })
@@ -69,7 +91,7 @@ describe('NewMigrationModal', () => {
     const [path] = uploadMock.mock.calls[0]
     expect(path).toMatch(/^AM333\/.+-contacts\.csv$/)
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('data-agent-upload', expect.objectContaining({
-      body: expect.objectContaining({ subAccount: 'AM333', targetObjectType: 'orders', originalFilename: 'contacts.csv' }),
+      body: expect.objectContaining({ subAccount: 'AM333', connectionId: 'conn-1', targetObjectType: 'orders', originalFilename: 'contacts.csv' }),
     })))
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('mig-1'))
   })
