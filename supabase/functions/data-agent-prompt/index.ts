@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { resolvePrompt } from '../_shared/dataAgentPrompt.ts'
-import type { TargetField } from '../_shared/dataAgentMatching.ts'
+import { buildTargetFields, type CachedGhlField } from '../_shared/dataAgentUploadPlanner.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -67,7 +67,8 @@ Deno.serve(async (req) => {
   const { data: schemaCache } = await serviceClient.from('data_agent_ghl_schema_cache').select('fields')
     .eq('sub_account', (migration as { sub_account: string }).sub_account)
     .eq('object_type', (migration as { target_object_type: string }).target_object_type).maybeSingle()
-  const targetFields = ((schemaCache as { fields: TargetField[] } | null)?.fields ?? [])
+  const cachedFields = ((schemaCache as { fields: CachedGhlField[] } | null)?.fields ?? [])
+  const targetFields = buildTargetFields((migration as { target_object_type: string }).target_object_type, cachedFields)
 
   const m = mapping as { source_column_name: string; sample_values: string[]; target_field_key: string | null; status: string }
   const { data: appUser } = await callerClient.from('users').select('id').eq('email', callerAuth.email).single()

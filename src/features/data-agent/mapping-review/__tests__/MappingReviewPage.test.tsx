@@ -37,7 +37,7 @@ vi.mock('@/lib/supabase', () => ({
       // builder. The brief's mock and its own component code disagree here;
       // this adds the second `.eq()` level to the mock so it matches real
       // Supabase behavior, rather than weakening the component's query.
-      return { select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ fields: [{ key: 'email', label: 'Email', type: 'standard' }] }] }) }) }) }
+      return { select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ fields: [{ id: 'custom_notes_id', fieldKey: 'custom_notes', name: 'Notes', dataType: 'TEXT' }] }] }) }) }) }
     }),
   },
 }))
@@ -82,6 +82,17 @@ describe('MappingReviewPage', () => {
     await userEvent.selectOptions(screen.getByLabelText(/map "Mystery" to/i), 'ignore')
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
       status: 'mapped', target_type: 'ignored', target_field_key: null, mapped_by: 'user', confirmed_by_user: true,
+    })))
+  })
+
+  it('REVIEW FINDING: lets the user remap to a real cached custom field, not just "ignore" — the dropdown must actually offer real, correctly-keyed options', async () => {
+    mappingRows = [{ id: 'cm-2', source_column_name: 'Mystery', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} }]
+    renderAt('mig-1')
+    const select = await screen.findByLabelText(/map "Mystery" to/i)
+    expect(within(select).getByRole('option', { name: 'Notes' })).toHaveValue('custom_notes_id')
+    await userEvent.selectOptions(select, 'custom_notes_id')
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'mapped', target_type: 'custom_field', target_field_key: 'custom_notes_id', mapped_by: 'user', confirmed_by_user: true,
     })))
   })
 

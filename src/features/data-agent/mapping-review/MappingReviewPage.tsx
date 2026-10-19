@@ -3,8 +3,7 @@ import { useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useRealtime } from '@/hooks/useRealtime'
 import type { DataAgentColumnMapping, DataAgentMigration } from '@/types/dataAgent'
-
-interface TargetFieldOption { key: string; label: string; type: 'standard' | 'custom' }
+import { buildTargetFieldOptions, type TargetFieldOption } from './buildTargetFieldOptions'
 
 const STATUS_STYLE: Record<DataAgentColumnMapping['status'], string> = {
   mapped: 'bg-green-100 text-green-700',
@@ -42,8 +41,8 @@ export function MappingReviewPage() {
     void supabase.from('data_agent_ghl_schema_cache').select('fields')
       .eq('sub_account', migration.sub_account).eq('object_type', migration.target_object_type)
       .then(({ data }) => {
-        const row = (data as { fields: TargetFieldOption[] }[] | null)?.[0]
-        setTargetFields(row?.fields ?? [])
+        const row = (data as { fields: { id: string; fieldKey: string; name: string; dataType: string }[] }[] | null)?.[0]
+        setTargetFields(buildTargetFieldOptions(migration.target_object_type, row?.fields ?? []))
       })
   }, [migration?.sub_account, migration?.target_object_type])
 
