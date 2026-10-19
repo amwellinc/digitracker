@@ -382,9 +382,15 @@ async function processUndoingMigration(serviceClient: SupabaseClient, migration:
     .update({ claimed_at: new Date().toISOString() })
     .in('id', candidateIds).eq('undo_status', 'pending')
     .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`)
-    .select('id, write_status, ghl_record_id, pre_replace_snapshot')
+    .select('id, row_number, write_status, ghl_record_id, pre_replace_snapshot')
   if (claimErr) { console.error(`Data Agent worker: failed to claim undo records for migration ${migration.id}:`, claimErr); return }
-  const pending = (claimedRows ?? []) as { id: string; write_status: string; ghl_record_id: string; pre_replace_snapshot: Record<string, unknown> | null }[]
+  // UPDATE...RETURNING (what .select() on an .update() translates to) does
+  // not preserve any particular row order — the earlier ORDER BY on the
+  // candidate SELECT only picked WHICH rows to claim, not the order this
+  // array comes back in. Re-sorting here, client-side, is the only way to
+  // actually guarantee descending row_number order for the loop below.
+  const pending = ((claimedRows ?? []) as { id: string; row_number: number; write_status: string; ghl_record_id: string; pre_replace_snapshot: Record<string, unknown> | null }[])
+    .sort((a, b) => b.row_number - a.row_number)
   if (pending.length === 0) return // everything was claimed by a concurrent tick between our select and update
 
   const isContact = migration.target_object_type === 'contact'

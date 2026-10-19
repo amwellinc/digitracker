@@ -118,17 +118,30 @@ export async function getObjectRecord(config: GhlClientConfig, objectKey: string
   return body.record
 }
 
+// Loosely normalizes a value for comparison only (never for what's
+// actually sent to GHL) — lowercasing handles GHL's own email
+// lowercasing, and stripping non-digits from anything that looks like a
+// phone number handles common formatting differences (spaces, dashes,
+// parens) without needing a full E.164 library. Intentionally permissive
+// in the matching direction: a false-positive match here just means a
+// real existing contact correctly gets treated as a replace instead of
+// a (wrong) create — the exact-match requirement this function exists
+// for is about rejecting an unrelated contact, not rejecting the right
+// one just because of formatting.
+function normalizeForMatch(value: string): string {
+  const trimmed = value.trim()
+  return /^\+?\d[\d\s().-]*$/.test(trimmed) ? trimmed.replace(/[^\d+]/g, '') : trimmed.toLowerCase()
+}
+
 export async function searchContactByEmail(config: GhlClientConfig, value: string): Promise<{ id: string; fields: Record<string, unknown> } | null> {
   const res = await ghlFetch(config, `/contacts/?locationId=${config.locationId}&query=${encodeURIComponent(value)}`)
   await assertOk(res, 'GHL contact search')
   const body = await res.json() as { contacts?: { id: string; email?: string; phone?: string }[] }
-  // Only trust an EXACT match on the value actually being searched for
-  // (this function is called with either an email or a phone number) —
-  // GHL's query search can return multiple or near-matching results, and
-  // blindly taking contacts[0] risked treating a DIFFERENT real contact
-  // as the one being migrated, which later made undo delete or overwrite
-  // that unrelated contact instead of the one this row actually touched.
-  const matched = body.contacts?.find(c => c.email === value || c.phone === value)
+  const normalizedValue = normalizeForMatch(value)
+  const matched = body.contacts?.find(c =>
+    (c.email != null && normalizeForMatch(c.email) === normalizedValue) ||
+    (c.phone != null && normalizeForMatch(c.phone) === normalizedValue)
+  )
   if (!matched) return null
   const detail = await getContact(config, matched.id)
   return { id: matched.id, fields: detail.contact }
