@@ -34,7 +34,14 @@ export function NewMigrationModal({ subAccount, onCreated, onClose }: Props) {
   async function handleUpload() {
     if (!file) return
     setUploading(true); setError(null)
-    const storagePath = `${subAccount}/${crypto.randomUUID()}-${file.name}`
+    // Storage keys reject some characters outright, and the backend's own
+    // storagePath validator (data-agent-upload/index.ts) is deliberately
+    // strict about what can follow the subAccount prefix — sanitizing here
+    // means a filename with spaces, unicode, "#", "%", etc. still uploads
+    // instead of failing with a cryptic "Invalid key" error. The real
+    // name is preserved separately below as originalFilename for display.
+    const safeFilename = file.name.replace(/[^A-Za-z0-9._-]/g, '_')
+    const storagePath = `${subAccount}/${crypto.randomUUID()}-${safeFilename}`
     const { error: uploadErr } = await supabase.storage.from('data-agent-uploads').upload(storagePath, file)
     if (uploadErr) { setUploading(false); setError(uploadErr.message); return }
 

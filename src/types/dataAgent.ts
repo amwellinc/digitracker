@@ -2,7 +2,7 @@ export type DataAgentSourceSystem = 'salesforce' | 'hubspot' | null
 
 export type DataAgentMigrationStatus =
   | 'uploaded' | 'mapping' | 'awaiting_confirmation' | 'migrating' | 'verifying'
-  | 'completed' | 'failed' | 'cancelled' | 'undoing' | 'undone'
+  | 'completed' | 'completed_with_errors' | 'failed' | 'cancelled' | 'undoing' | 'undone'
 
 export type DataAgentMappingStatus = 'mapped' | 'uncertain' | 'unmapped'
 export type DataAgentMappedBy = 'rule' | 'source_profile' | 'claude' | 'user'

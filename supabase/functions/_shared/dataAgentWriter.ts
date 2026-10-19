@@ -86,7 +86,7 @@ export function isBlankBuiltFields(built: BuiltGhlFields): boolean {
 }
 
 // supabase/functions/_shared/dataAgentWriter.ts (part 2 of 2 — batch writing)
-import { GhlRateLimitError } from './dataAgentGhlClient.ts'
+import { GhlRateLimitError, GhlTransientError } from './dataAgentGhlClient.ts'
 
 export interface GhlRecordWriter {
   findExisting(matchValue: string): Promise<{ id: string; currentFields: Record<string, unknown> } | null>
@@ -110,27 +110,45 @@ export interface BatchWriteResult {
 
 // Sequential, not parallel — the duplicate-row case (Review Focus #3)
 // depends on each row seeing the previous row's write already applied.
-export async function writeRecordBatch(rows: BatchRow[], writer: GhlRecordWriter): Promise<BatchWriteResult[]> {
+//
+// onResult, when given, is awaited immediately after EACH row's result is
+// computed — before moving on to the next row — so the caller can persist
+// that single result right away instead of collecting all of them and
+// writing back only once the whole batch finishes. Without this, a worker
+// invocation that times out or gets killed partway through a batch loses
+// every already-succeeded GHL write's result: those rows stay 'pending',
+// get reclaimed by a later tick, and get written to GHL a second time
+// (duplicate custom-object records; a contact row incorrectly recorded as
+// 'replaced' with a pre-replace snapshot that's actually the migrated
+// data, poisoning undo).
+export async function writeRecordBatch(
+  rows: BatchRow[],
+  writer: GhlRecordWriter,
+  onResult?: (result: BatchWriteResult) => void | Promise<void>,
+): Promise<BatchWriteResult[]> {
   const results: BatchWriteResult[] = []
   for (const row of rows) {
+    let result: BatchWriteResult
     try {
       const existing = row.matchValue ? await writer.findExisting(row.matchValue) : null
       if (existing) {
         await writer.replace(existing.id, row.fields)
-        results.push({ recordId: row.recordId, writeStatus: 'replaced', ghlRecordId: existing.id, preReplaceSnapshot: existing.currentFields, errorMessage: null })
+        result = { recordId: row.recordId, writeStatus: 'replaced', ghlRecordId: existing.id, preReplaceSnapshot: existing.currentFields, errorMessage: null }
       } else {
         const created = await writer.create(row.fields)
-        results.push({ recordId: row.recordId, writeStatus: 'created', ghlRecordId: created.id, preReplaceSnapshot: null, errorMessage: null })
+        result = { recordId: row.recordId, writeStatus: 'created', ghlRecordId: created.id, preReplaceSnapshot: null, errorMessage: null }
       }
     } catch (err) {
-      if (err instanceof GhlRateLimitError) {
+      if (err instanceof GhlRateLimitError || err instanceof GhlTransientError) {
         // Left pending, not failed — retried on a later worker tick (spec §7.4).
-        results.push({ recordId: row.recordId, writeStatus: 'pending', ghlRecordId: null, preReplaceSnapshot: null, errorMessage: err.message })
-        continue
+        result = { recordId: row.recordId, writeStatus: 'pending', ghlRecordId: null, preReplaceSnapshot: null, errorMessage: err.message }
+      } else {
+        // A genuine error — isolated to this row; the loop continues regardless.
+        result = { recordId: row.recordId, writeStatus: 'failed', ghlRecordId: null, preReplaceSnapshot: null, errorMessage: err instanceof Error ? err.message : String(err) }
       }
-      // A genuine error — isolated to this row; the loop continues regardless.
-      results.push({ recordId: row.recordId, writeStatus: 'failed', ghlRecordId: null, preReplaceSnapshot: null, errorMessage: err instanceof Error ? err.message : String(err) })
     }
+    results.push(result)
+    if (onResult) await onResult(result)
   }
   return results
 }

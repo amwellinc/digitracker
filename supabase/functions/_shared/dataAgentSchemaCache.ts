@@ -26,9 +26,23 @@ export async function ensureSchemaCacheFresh(
   }
 
   const [customFields, objects] = await Promise.all([fetchContactCustomFields(config), fetchCustomObjects(config)])
-  await serviceClient.from('data_agent_ghl_schema_cache').upsert([
+  // GHL's /objects/ listing can include 'contact' itself alongside real
+  // custom objects — upserting a second (sub_account, 'contact') row in
+  // the same multi-row call (it's already written explicitly below, with
+  // the real contact custom fields) makes Postgres reject the WHOLE
+  // statement ("ON CONFLICT DO UPDATE command cannot affect row a second
+  // time"). Filtering it out here avoids that conflict outright.
+  const customObjects = objects.filter(o => o.key !== 'contact')
+  const { error: upsertErr } = await serviceClient.from('data_agent_ghl_schema_cache').upsert([
     { sub_account: subAccount, object_type: 'contact', fields: customFields, fetched_at: new Date().toISOString() },
-    ...objects.map(o => ({ sub_account: subAccount, object_type: o.key, fields: o.fields, fetched_at: new Date().toISOString() })),
+    ...customObjects.map(o => ({ sub_account: subAccount, object_type: o.key, fields: o.fields, fetched_at: new Date().toISOString() })),
   ], { onConflict: 'sub_account,object_type' })
+  // Must throw, not just log — this ran because the caller needs a FRESH
+  // cache (Test Connection's explicit force:true, or upload's staleness
+  // gate). Silently swallowing a failed write here previously let
+  // Test Connection report "verified — schema refreshed" with a stale or
+  // missing cache underneath it, sending the user straight into upload's
+  // "No schema cached" error with no indication why.
+  if (upsertErr) throw new Error(`Could not save refreshed schema cache: ${upsertErr.message}`)
   return true
 }

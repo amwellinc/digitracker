@@ -162,6 +162,25 @@ describe('classifyColumn', () => {
     expect(result.target_field_key).toBe('email')
   })
 
+  it('REVIEW FINDING: a source-profile hint that does not resolve to any real field falls through to unmapped instead of fabricating a custom_field key', () => {
+    // target_field_hint values in the seed data (e.g. 'custom_mobile_phone',
+    // 'dnd_email') are written against GHL's typical field *labels*, not
+    // real field ids — a live tenant's actual custom field ids are random
+    // GHL-generated strings, so the hint essentially never resolves in
+    // production. The old behavior returned status: 'mapped', confidence: 1
+    // anyway with target_type: 'custom_field' and target_field_key set to
+    // the unresolved hint itself — auto-confirming green with no human
+    // review, then silently dropping the value (or failing the row) once
+    // the worker sent an unknown field id to GHL. For a DND/opt-out hint
+    // specifically, that meant losing the record of a contact's opt-out.
+    const profiles: SourceProfileEntry[] = [
+      { source_system: 'salesforce', pattern: 'HasOptedOutOfEmail', target_field_hint: 'dnd_email', subtype_hint: null },
+    ]
+    const result = classifyColumn({ ...base, columnName: 'HasOptedOutOfEmail', sourceSystem: 'salesforce', sourceProfiles: profiles })
+    expect(result.mapped_by).not.toBe('source_profile')
+    expect(result.target_field_key).not.toBe('dnd_email')
+  })
+
   it('green-maps an unambiguous DND channel column with no schema/profile hit', () => {
     const result = classifyColumn({ ...base, columnName: 'Email Opt-Out' })
     expect(result).toEqual({ status: 'mapped', mapped_by: 'rule', target_field_key: 'dnd_email', target_type: 'tag', confidence: 1, metadata: { dnd_channel: 'email' } })

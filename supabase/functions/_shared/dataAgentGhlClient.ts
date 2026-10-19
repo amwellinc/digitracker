@@ -9,21 +9,40 @@ const GHL_API_VERSION = '2021-07-28'
 export interface GhlClientConfig { pit: string; locationId: string }
 
 export class GhlRateLimitError extends Error {}
+// A transient failure — a network blip, DNS hiccup, or GHL's own 5xx —
+// is never this tenant's fault and should be retried, exactly like a 429,
+// rather than permanently failing the row/undo step it occurred during.
+export class GhlTransientError extends Error {}
+
+const GHL_REQUEST_TIMEOUT_MS = 15_000
 
 async function ghlFetch(config: GhlClientConfig, path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${GHL_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      ...init.headers,
-      Authorization: `Bearer ${config.pit}`,
-      Version: GHL_API_VERSION,
-      'Content-Type': 'application/json',
-    },
-  })
+  try {
+    return await fetch(`${GHL_BASE_URL}${path}`, {
+      ...init,
+      // Without this, a GHL request that never resolves (not even with an
+      // error) hangs until the edge function's own wall-clock limit kills
+      // the whole invocation mid-batch — the worst case for duplicate
+      // writes, since every row already written in that batch never gets
+      // its result persisted (see the write-back-per-row fix in the
+      // worker). A bounded timeout turns that into an ordinary retryable
+      // failure for just the one row.
+      signal: AbortSignal.timeout(GHL_REQUEST_TIMEOUT_MS),
+      headers: {
+        ...init.headers,
+        Authorization: `Bearer ${config.pit}`,
+        Version: GHL_API_VERSION,
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch (err) {
+    throw new GhlTransientError(`GHL request to ${path} failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 async function assertOk(res: Response, label: string): Promise<void> {
   if (res.status === 429) throw new GhlRateLimitError(`${label}: rate limited`)
+  if (res.status >= 500) throw new GhlTransientError(`${label}: server error ${res.status}`)
   if (!res.ok) throw new Error(`${label} failed: ${res.status} ${await res.text()}`)
 }
 

@@ -1,5 +1,5 @@
 // supabase/functions/_shared/__tests__/dataAgentWriter.test.ts (part 1 of 2 — field building)
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { buildGhlFields, getFieldValue, applyDefaultCountryCode, isBlankBuiltFields, type ConfirmedMapping } from '../dataAgentWriter'
 
 const MAPPINGS: ConfirmedMapping[] = [
@@ -95,8 +95,8 @@ describe('isBlankBuiltFields', () => {
 })
 
 // supabase/functions/_shared/__tests__/dataAgentWriter.test.ts (part 2 of 2 — batch writing)
-import { writeRecordBatch, type GhlRecordWriter, type BatchRow } from '../dataAgentWriter'
-import { GhlRateLimitError } from '../dataAgentGhlClient'
+import { writeRecordBatch, type GhlRecordWriter, type BatchRow, type BatchWriteResult } from '../dataAgentWriter'
+import { GhlRateLimitError, GhlTransientError } from '../dataAgentGhlClient'
 
 function createStatefulWriter() {
   const store = new Map<string, { id: string; fields: Record<string, unknown> }>()
@@ -164,5 +164,64 @@ describe('writeRecordBatch', () => {
     expect(results[0].errorMessage).toMatch(/422/)
     expect(results[1]).toMatchObject({ writeStatus: 'pending' }) // left for retry, never "failed"
     expect(results[2]).toMatchObject({ writeStatus: 'created' }) // row 3 unaffected by rows 1-2
+  })
+
+  it('treats a GhlTransientError exactly like a rate limit — left pending for retry, not failed', async () => {
+    const writer: GhlRecordWriter = {
+      async findExisting() { return null },
+      async create() { throw new GhlTransientError('GHL request to /contacts/upsert failed: network error') },
+      async replace() {},
+    }
+    const rows: BatchRow[] = [{ recordId: 'r1', matchValue: null, fields: { email: 'x@x.com' } }]
+    const [result] = await writeRecordBatch(rows, writer)
+    expect(result).toMatchObject({ writeStatus: 'pending' })
+  })
+
+  it('REGRESSION: calls onResult immediately after each row, not just once at the end — a caller persisting results per-row must see row 1 before row 2 is even attempted', async () => {
+    const seenAtCallTime: string[] = []
+    const writer: GhlRecordWriter = {
+      async findExisting() { return null },
+      async create(fields) {
+        // If onResult for the previous row hasn't fired yet by the time this
+        // row's own create() runs, the batch is still processing them
+        // without writing back in between — exactly the bug this callback
+        // exists to fix.
+        seenAtCallTime.push([...callbackOrder].join(','))
+        return { id: fields.email as string }
+      },
+      async replace() {},
+    }
+    const callbackOrder: string[] = []
+    const rows: BatchRow[] = [
+      { recordId: 'r1', matchValue: null, fields: { email: 'r1' } },
+      { recordId: 'r2', matchValue: null, fields: { email: 'r2' } },
+    ]
+    const onResult = vi.fn(async (result: BatchWriteResult) => { callbackOrder.push(result.recordId) })
+    await writeRecordBatch(rows, writer, onResult)
+    expect(onResult).toHaveBeenCalledTimes(2)
+    expect(onResult.mock.calls[0][0]).toMatchObject({ recordId: 'r1', writeStatus: 'created' })
+    expect(onResult.mock.calls[1][0]).toMatchObject({ recordId: 'r2', writeStatus: 'created' })
+    // row 2's create() ran only after row 1's onResult had already fired.
+    expect(seenAtCallTime).toEqual(['', 'r1'])
+  })
+
+  it('calls onResult for a failed and a pending row too, not just successes', async () => {
+    const writer: GhlRecordWriter = {
+      async findExisting() { return null },
+      async create(fields) {
+        if (fields.email === 'bad@x.com') throw new Error('422')
+        throw new GhlRateLimitError('rate limited')
+      },
+      async replace() {},
+    }
+    const rows: BatchRow[] = [
+      { recordId: 'r1', matchValue: null, fields: { email: 'bad@x.com' } },
+      { recordId: 'r2', matchValue: null, fields: { email: 'limited@x.com' } },
+    ]
+    const onResult = vi.fn()
+    await writeRecordBatch(rows, writer, onResult)
+    expect(onResult).toHaveBeenCalledTimes(2)
+    expect(onResult.mock.calls[0][0]).toMatchObject({ writeStatus: 'failed' })
+    expect(onResult.mock.calls[1][0]).toMatchObject({ writeStatus: 'pending' })
   })
 })

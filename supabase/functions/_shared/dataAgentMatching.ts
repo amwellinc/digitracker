@@ -173,22 +173,31 @@ export interface ClassifyColumnInput {
 export function classifyColumn(input: ClassifyColumnInput): ColumnClassification {
   const { columnName, sampleValues, sourceSystem, targetFields, sourceProfiles } = input
 
-  // 1. Source-profile match (most specific prior knowledge).
+  // 1. Source-profile match (most specific prior knowledge) — but only
+  // when the hint actually resolves against the real target schema.
+  // target_field_hint is seed data (e.g. 'custom_mobile_phone',
+  // 'custom_title') written against GHL's typical field *labels*, not
+  // real field ids — this tenant's actual custom fields have randomly
+  // generated ids, so the hint usually won't be among targetFields at
+  // all. Returning 'mapped'/confidence:1 anyway (the previous behavior)
+  // fabricated a target_field_key that doesn't exist in this schema,
+  // auto-confirmed it green with no human review, and then silently
+  // dropped the value at write time when GHL rejected or ignored the
+  // unknown key — for a DND/opt-out hint specifically, that meant losing
+  // the record of a contact's opt-out. Falling through instead lets the
+  // later tiers (exact schema match, DND keyword, phone/email subtype)
+  // still have a chance to find a REAL field for this column.
   const profileMatch = matchSourceProfile(columnName, sourceSystem, sourceProfiles)
   if (profileMatch) {
-    const metadata: ColumnClassificationMetadata = {}
-    if (profileMatch.subtype_hint) {
-      metadata.subtype = profileMatch.subtype_hint
-      metadata.country_code_presence = detectCountryCodePresence(sampleValues)
-    }
-    // Look the hint up against the real target schema rather than
-    // assuming it's always a custom field — a profile's target_field_hint
-    // can legitimately be a standard field key (e.g. 'email', 'phone'),
-    // and hardcoding 'custom_field' here sent those columns into
-    // customFields instead of the real standard field downstream, so the
-    // contact's actual email/phone was never populated.
     const hintedField = targetFields.find(f => f.key === profileMatch.target_field_hint)
-    return { status: 'mapped', mapped_by: 'source_profile', target_field_key: profileMatch.target_field_hint, target_type: hintedField?.type === 'standard' ? 'standard_field' : 'custom_field', confidence: 1, metadata }
+    if (hintedField) {
+      const metadata: ColumnClassificationMetadata = {}
+      if (profileMatch.subtype_hint) {
+        metadata.subtype = profileMatch.subtype_hint
+        metadata.country_code_presence = detectCountryCodePresence(sampleValues)
+      }
+      return { status: 'mapped', mapped_by: 'source_profile', target_field_key: profileMatch.target_field_hint, target_type: hintedField.type === 'standard' ? 'standard_field' : 'custom_field', confidence: 1, metadata }
+    }
   }
 
   // 2. Exact/near-exact match against the target object's real schema.

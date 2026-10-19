@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import {
   upsertContact, searchContactByEmail, searchObjectRecord, createObjectRecord, updateObjectRecord,
-  getContact, getObjectRecord, deleteContact, deleteObjectRecord, GhlRateLimitError,
+  getContact, getObjectRecord, deleteContact, deleteObjectRecord, GhlRateLimitError, GhlTransientError,
   type GhlClientConfig,
 } from '../_shared/dataAgentGhlClient.ts'
 import { buildGhlFields, getFieldValue, isBlankBuiltFields, writeRecordBatch, type ConfirmedMapping, type GhlRecordWriter, type BatchRow } from '../_shared/dataAgentWriter.ts'
@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
   return json({ ok: true, processed: (migrating ?? []).length + verifyingProcessedCount + undoingProcessedCount })
 })
 
-interface MigratingRow { id: string; sub_account: string; target_object_type: string; match_key_column: string | null; default_country_code: string | null }
+interface MigratingRow { id: string; sub_account: string; target_object_type: string; match_key_column: string | null; default_country_code: string | null; row_count: number }
 
 async function loadGhlConfig(serviceClient: SupabaseClient, subAccount: string): Promise<GhlClientConfig | null> {
   const { data: connection, error: connErr } = await serviceClient.from('data_agent_connections').select('ghl_location_id, secret_name').eq('sub_account', subAccount).maybeSingle()
@@ -110,7 +110,14 @@ function buildWriter(isContact: boolean, config: GhlClientConfig, objectKey: str
         return found ? { id: found.id, currentFields: found.fields } : null
       },
       async create(fields) {
-        const result = await upsertContact(config, { locationId: config.locationId, ...fields } as never)
+        // locationId must win over anything in `fields` — a column mapping's
+        // target_field_key is attacker-reachable (any Data Agent member can
+        // PATCH data_agent_column_mappings while a migration is in
+        // 'mapping'/'awaiting_confirmation', and nothing validates that key
+        // against the real GHL schema). Spreading `fields` last here would
+        // let a mapping row with target_field_key: 'locationId' redirect
+        // this write to a different GHL location entirely.
+        const result = await upsertContact(config, { ...fields, locationId: config.locationId } as never)
         if (!result.new) {
           // GHL's own upsert dedupe matched an EXISTING contact that our
           // pre-flight search (findExisting) didn't find — e.g. it
@@ -126,7 +133,9 @@ function buildWriter(isContact: boolean, config: GhlClientConfig, objectKey: str
         return { id: result.contact.id }
       },
       async replace(_id, fields) {
-        const result = await upsertContact(config, { locationId: config.locationId, ...fields } as never)
+        // Same locationId-override risk as create() above — locationId must
+        // win over whatever target_field_key a mapping row claims.
+        const result = await upsertContact(config, { ...fields, locationId: config.locationId } as never)
         if (result.contact.id !== _id) {
           // GHL's upsert matched a DIFFERENT contact than the one our
           // pre-flight search found and snapshotted — the snapshot
@@ -224,14 +233,19 @@ async function processMigratingMigration(serviceClient: SupabaseClient, migratio
     return { recordId: r.id, matchValue, fields }
   })
 
-  const results = await writeRecordBatch(rows, writer)
-  for (const result of results) {
+  // Write each result back the instant it's computed (via onResult) rather
+  // than collecting all 25 and writing back only once the whole batch
+  // finishes — a worker invocation that times out or gets killed partway
+  // through previously lost every already-succeeded row's result, leaving
+  // them 'pending' for a later tick to reclaim and write to GHL a second
+  // time (see writeRecordBatch's own comment on this).
+  await writeRecordBatch(rows, writer, async (result) => {
     if (result.writeStatus === 'pending') {
-      // 429 — release the claim so the very next tick can retry
+      // 429/transient — release the claim so the very next tick can retry
       // immediately rather than waiting out the stale-claim window.
       const { error } = await serviceClient.from('data_agent_migration_records').update({ claimed_at: null }).eq('id', result.recordId)
       if (error) console.error(`Data Agent worker: failed to release claim on record ${result.recordId}:`, error)
-      continue
+      return
     }
     const { error } = await serviceClient.from('data_agent_migration_records').update({
       write_status: result.writeStatus, ghl_record_id: result.ghlRecordId,
@@ -250,7 +264,7 @@ async function processMigratingMigration(serviceClient: SupabaseClient, migratio
       // visible one instead of pretending this write-back can't fail.
       console.error(`Data Agent worker: CRITICAL — GHL write for record ${result.recordId} succeeded (${result.writeStatus}, ghl id ${result.ghlRecordId}) but writing that result back to the database failed — this row will be retried after the stale-claim window and may create a duplicate GHL record:`, error)
     }
-  }
+  })
 }
 
 async function processVerifyingMigration(serviceClient: SupabaseClient, migration: MigratingRow) {
@@ -318,9 +332,25 @@ async function processVerifyingMigration(serviceClient: SupabaseClient, migratio
     }
   }
 
+  // A migration where every row (or even just some) failed to write must
+  // never report plain 'completed' — that previously happened whenever
+  // write_status had nothing left 'pending', regardless of how many rows
+  // ended up 'failed'. QA only samples 'created'/'replaced' rows, so a
+  // 100%-failed run also got accuracy_rating: null with zero other
+  // signal. 'completed_with_errors' makes a partial failure impossible to
+  // mistake for a clean run from the status column alone.
+  const { count: failedCount, error: failedCountErr } = await serviceClient.from('data_agent_migration_records')
+    .select('id', { count: 'exact', head: true }).eq('migration_id', migration.id).eq('write_status', 'failed')
+  if (failedCountErr) console.error(`Data Agent worker: failed to count failed records for migration ${migration.id}:`, failedCountErr)
+  const hasFailures = (failedCount ?? 0) > 0
+  const finalStatus = hasFailures ? 'completed_with_errors' : 'completed'
+  const finalErrorMessage = hasFailures
+    ? `${failedCount} of ${migration.row_count} row(s) failed to write — see each row's error_message for details`
+    : verificationNote
+
   const { error } = await serviceClient.from('data_agent_migrations').update({
-    status: 'completed', completed_at: new Date().toISOString(),
-    accuracy_rating: accuracyRating, error_message: verificationNote, claimed_at: null,
+    status: finalStatus, completed_at: new Date().toISOString(),
+    accuracy_rating: accuracyRating, error_message: finalErrorMessage, claimed_at: null,
   }).eq('id', migration.id)
   if (error) console.error(`Data Agent worker: failed to mark migration ${migration.id} completed:`, error)
 }
@@ -413,9 +443,13 @@ async function processUndoingMigration(serviceClient: SupabaseClient, migration:
       const { error } = await serviceClient.from('data_agent_migration_records').update({ undo_status: 'done', claimed_at: null }).eq('id', record.id)
       if (error) console.error(`Data Agent worker: failed to mark record ${record.id} undo done:`, error)
     } catch (err) {
-      if (err instanceof GhlRateLimitError) {
+      if (err instanceof GhlRateLimitError || err instanceof GhlTransientError) {
         // Left pending — release the claim so the very next tick can
         // retry immediately rather than waiting out the stale window.
+        // Widened beyond just rate-limits: a transient network blip or
+        // GHL 5xx during undo is not this record's fault either, and
+        // permanently marking it 'failed' for that left no way to retry
+        // short of a manual DB fix.
         const { error } = await serviceClient.from('data_agent_migration_records').update({ claimed_at: null }).eq('id', record.id)
         if (error) console.error(`Data Agent worker: failed to release claim on undo record ${record.id}:`, error)
         continue
@@ -424,4 +458,14 @@ async function processUndoingMigration(serviceClient: SupabaseClient, migration:
       if (error) console.error(`Data Agent worker: failed to mark record ${record.id} undo failed:`, error)
     }
   }
+
+  // Clear the migration-level claim now that this batch is done, even
+  // though more rows may still be pending — without this, the claim set
+  // at the top of this tick stayed in place until STALE_CLAIM_MS (2 min)
+  // elapsed, so the next cron tick (which runs every minute) skipped this
+  // migration entirely and the next batch didn't start for another
+  // ~2 minutes instead of ~1. A large undo was taking roughly twice as
+  // long as necessary as a result.
+  const { error: releaseErr } = await serviceClient.from('data_agent_migrations').update({ claimed_at: null }).eq('id', migration.id)
+  if (releaseErr) console.error(`Data Agent worker: failed to release migration-level claim for ${migration.id}:`, releaseErr)
 }

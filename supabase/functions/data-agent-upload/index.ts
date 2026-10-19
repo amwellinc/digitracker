@@ -3,6 +3,7 @@ import { parseCsvWithHeaders } from '../_shared/parseCsv.ts'
 import { planColumnMappings, computeMigrationStatus, buildTargetFields, type CachedGhlField } from '../_shared/dataAgentUploadPlanner.ts'
 import type { SourceProfileEntry } from '../_shared/dataAgentMatching.ts'
 import { ensureSchemaCacheFresh } from '../_shared/dataAgentSchemaCache.ts'
+import { isValidDataAgentStoragePath } from '../_shared/dataAgentStoragePath.ts'
 import { planWithClaude } from './planWithClaude.ts'
 
 const CORS_HEADERS = {
@@ -39,7 +40,7 @@ Deno.serve(async (req) => {
   if (!subAccount || !targetObjectType || !storagePath || !originalFilename) {
     return json({ error: 'subAccount, targetObjectType, storagePath, and originalFilename are required' })
   }
-  if (!storagePath.startsWith(`${subAccount}/`)) {
+  if (!isValidDataAgentStoragePath(storagePath, subAccount)) {
     return json({ error: 'storagePath does not belong to the given subAccount' })
   }
 
