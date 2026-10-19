@@ -5707,6 +5707,8 @@ git commit -m "feat: add the Data Agent team chat panel"
 
 **Files:**
 - Create: `supabase/migrations/20261018000700_data_agent_provider_clients.sql`
+- Modify: `src/hooks/useDataAgentAccess.ts` (found during this task's own review — see the addendum after Step 4)
+- Modify: `src/hooks/__tests__/useDataAgentAccess.test.ts`
 - Create: `src/features/data-agent/entitlements/ProviderClientsPanel.tsx`
 - Create: `src/features/data-agent/entitlements/__tests__/ProviderClientsPanel.test.tsx`
 - Modify: `src/features/data-agent/entitlements/DataAgentEntitlementsTab.tsx`
@@ -5830,6 +5832,88 @@ git add supabase/migrations/20261018000700_data_agent_provider_clients.sql
 git commit -m "feat: add Data Agent service-provider grants and extend the access gate"
 ```
 
+- [ ] **Additional fix found during this task's security review — `useDataAgentAccess.ts` has a latent bug this redefinition makes newly real**
+
+`src/hooks/useDataAgentAccess.ts` (Task 2) queries `data_agent_members` filtered only by `user_id`, with a comment claiming "RLS already scopes this to the caller's own sub_account." That was true before this task — `data_agent_members`'s primary key is `(sub_account, user_id)`, so a single `user_id` could only ever appear in more than one row if that user held membership in more than one sub-account, which nothing in this codebase previously made a normal, expected situation. This task makes it one: a provider's staff member can legitimately also hold a `data_agent_members` row for a client they're granted to (e.g. added by the client's own Admin for a reason unrelated to the provider grant), or simply belong to two sub-accounts for any other reason. `.eq('user_id', user.id).maybeSingle()` with no `sub_account` filter then receives 2 rows and `.maybeSingle()` throws, breaking nav-gating for that legitimate user. Not Task 20's own file, but the redefinition is what turns this from a structural non-issue into a real one, so fixing it here rather than leaving it stranded.
+
+In `src/hooks/useDataAgentAccess.ts`, replace:
+
+```ts
+    } else {
+      // RLS already scopes this to the caller's own sub_account; this hook
+      // only gates nav/route visibility, never real data access, so a
+      // single user_id filter is sufficient here.
+      void supabase
+        .from('data_agent_members')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!cancelled) setIsMember(Boolean((data as { user_id?: string } | null)?.user_id))
+        })
+    }
+```
+
+with:
+
+```ts
+    } else {
+      // Scoped to the caller's own sub_account explicitly, not just
+      // user_id — a user can hold a data_agent_members row for more than
+      // one sub_account (e.g. a service provider's staff member also
+      // added to a granted client's member list, Task 20), and without
+      // this filter .maybeSingle() throws on more than one row for the
+      // same user_id. This hook only gates nav/route visibility, never
+      // real data access — RLS is still the actual authorization boundary.
+      void supabase
+        .from('data_agent_members')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .eq('sub_account', user.sub_account)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!cancelled) setIsMember(Boolean((data as { user_id?: string } | null)?.user_id))
+        })
+    }
+```
+
+In `src/hooks/__tests__/useDataAgentAccess.test.ts`, the mock's `.eq()` must support being chained twice (once for the entitlements query's single `.eq()`, once more for the members query's new second `.eq()`). Replace:
+
+```ts
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    from: vi.fn(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => maybeSingleMock() }) }),
+    })),
+  },
+}))
+```
+
+with:
+
+```ts
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    from: vi.fn(() => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({ maybeSingle: () => maybeSingleMock() }),
+          maybeSingle: () => maybeSingleMock(),
+        }),
+      }),
+    })),
+  },
+}))
+```
+
+Run: `node_modules/.bin/vitest run src/hooks/__tests__/useDataAgentAccess.test.ts`
+Expected: PASS (3 tests, unchanged — this is a mock-shape fix, not a new test).
+
+```bash
+git add src/hooks/useDataAgentAccess.ts src/hooks/__tests__/useDataAgentAccess.test.ts
+git commit -m "fix: scope useDataAgentAccess's membership check to the caller's own sub_account, not just user_id"
+```
+
 - [ ] **Step 5: Write the failing test for the Super-Admin assignment panel**
 
 ```tsx
@@ -5844,6 +5928,7 @@ const insertMock = vi.fn()
 const deleteMock = vi.fn()
 let insertShouldFail = false
 
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'super-admin-1' } }) }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: vi.fn((table: string) => {
@@ -5870,7 +5955,7 @@ describe('ProviderClientsPanel', () => {
     await userEvent.selectOptions(await screen.findByLabelText(/provider/i), 'AM333')
     await userEvent.selectOptions(screen.getByLabelText(/client/i), 'JOY')
     await userEvent.click(screen.getByRole('button', { name: /grant/i }))
-    await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ provider_sub_account: 'AM333', client_sub_account: 'JOY' }))
+    await waitFor(() => expect(insertMock).toHaveBeenCalledWith({ provider_sub_account: 'AM333', client_sub_account: 'JOY', added_by: 'super-admin-1' }))
   })
 
   it('lists existing relationships and can revoke one', async () => {
@@ -5901,16 +5986,19 @@ Expected: FAIL (module not found).
 // src/features/data-agent/entitlements/ProviderClientsPanel.tsx
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth'
 
 interface SubAccountRow { code: string; company_name: string }
 interface RelationshipRow { provider_sub_account: string; client_sub_account: string }
 
 export function ProviderClientsPanel() {
+  const { user } = useAuth()
   const [accounts, setAccounts] = useState<SubAccountRow[]>([])
   const [relationships, setRelationships] = useState<RelationshipRow[]>([])
   const [provider, setProvider] = useState('')
   const [client, setClient] = useState('')
   const [panelError, setPanelError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.from('data_agent_provider_clients').select('provider_sub_account, client_sub_account').order('provider_sub_account')
@@ -5931,17 +6019,23 @@ export function ProviderClientsPanel() {
   // acting user somehow isn't actually Super-Admin, caught by RLS; or the
   // relationship already exists, caught by the primary key) must surface,
   // not look identical to a successful grant with nothing to show for it.
+  // added_by records who granted it — the only audit trail this
+  // cross-tenant access right has (there is no history table; a revoke is
+  // a hard delete), so it must never be left null.
   async function grant() {
-    if (!provider || !client || provider === client) return
-    setPanelError(null)
-    const { error } = await supabase.from('data_agent_provider_clients').insert({ provider_sub_account: provider, client_sub_account: client })
+    if (!provider || !client || provider === client || busy) return
+    setBusy(true); setPanelError(null)
+    const { error } = await supabase.from('data_agent_provider_clients').insert({ provider_sub_account: provider, client_sub_account: client, added_by: user?.id ?? null })
+    setBusy(false)
     if (error) { setPanelError('Could not grant this relationship — it may already exist.'); return }
     await load()
   }
 
   async function revoke(r: RelationshipRow) {
-    setPanelError(null)
+    if (busy) return
+    setBusy(true); setPanelError(null)
     const { error } = await supabase.from('data_agent_provider_clients').delete().eq('provider_sub_account', r.provider_sub_account).eq('client_sub_account', r.client_sub_account)
+    setBusy(false)
     if (error) { setPanelError('Could not revoke this relationship.'); return }
     await load()
   }
@@ -5967,7 +6061,7 @@ export function ProviderClientsPanel() {
             {accounts.map(a => <option key={a.code} value={a.code}>{a.company_name}</option>)}
           </select>
         </div>
-        <button onClick={() => void grant()} className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-md px-3 py-2">
+        <button onClick={() => void grant()} disabled={busy} className="text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 rounded-md px-3 py-2">
           Grant
         </button>
       </div>
@@ -5975,7 +6069,7 @@ export function ProviderClientsPanel() {
         {relationships.map(r => (
           <li key={`${r.provider_sub_account}-${r.client_sub_account}`} className="flex items-center justify-between px-3 py-2 text-sm">
             <span>{r.provider_sub_account} → {r.client_sub_account}</span>
-            <button onClick={() => void revoke(r)} className="text-xs font-semibold text-red-600 hover:text-red-700">Revoke</button>
+            <button onClick={() => void revoke(r)} disabled={busy} className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50">Revoke</button>
           </li>
         ))}
       </ul>
