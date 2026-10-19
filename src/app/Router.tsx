@@ -104,7 +104,12 @@ function ReportsRoute() {
 // this guard blocks direct navigation to the URL for anyone the nav link
 // isn't shown to.
 function DataAgentRoute({ children }: { children?: React.ReactNode }) {
-  const { hasAccess } = useDataAgentAccess()
+  const { hasAccess, loading } = useDataAgentAccess()
+  // Must not redirect while the async access check is still in flight —
+  // hasAccess defaults to false before either Supabase call resolves, so
+  // redirecting on that default bounced every user, including ones with
+  // real access, back to "/" before the real check ever completed.
+  if (loading) return <Spinner />
   if (!hasAccess) return <Navigate to="/" replace />
   return <Suspense fallback={<Spinner />}>{children ?? <DataAgentPage />}</Suspense>
 }

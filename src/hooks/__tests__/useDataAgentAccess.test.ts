@@ -46,4 +46,13 @@ describe('useDataAgentAccess', () => {
     await waitFor(() => expect(result.current.entitled).toBe(true))
     expect(result.current.hasAccess).toBe(false)
   })
+
+  it('starts loading and resolves to false once both checks complete', async () => {
+    authState.user = { role: 'Admin', sub_account: 'AM333' }
+    maybeSingleMock.mockResolvedValue({ data: { enabled: true } })
+    const { result } = renderHook(() => useDataAgentAccess())
+    expect(result.current.loading).toBe(true)
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.hasAccess).toBe(true)
+  })
 })
