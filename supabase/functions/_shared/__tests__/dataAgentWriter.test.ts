@@ -61,6 +61,14 @@ describe('buildGhlFields', () => {
       expect(built.tags).toEqual([])
     }
   })
+
+  it('REVIEW FINDING: does not apply a phone country-code prefix to a "Work Email" column just because its subtype keyword also appears in phone subtypes', () => {
+    const mappings: ConfirmedMapping[] = [
+      { source_column_name: 'Work Email', target_type: 'standard_field', target_field_key: 'email', metadata: { subtype: 'work' } },
+    ]
+    const built = buildGhlFields({ 'Work Email': 'jane@acme.com' }, mappings, '+65')
+    expect(built.standardFields.email).toBe('jane@acme.com')
+  })
 })
 
 describe('getFieldValue', () => {

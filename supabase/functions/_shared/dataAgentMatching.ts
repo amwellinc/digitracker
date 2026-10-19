@@ -181,7 +181,14 @@ export function classifyColumn(input: ClassifyColumnInput): ColumnClassification
       metadata.subtype = profileMatch.subtype_hint
       metadata.country_code_presence = detectCountryCodePresence(sampleValues)
     }
-    return { status: 'mapped', mapped_by: 'source_profile', target_field_key: profileMatch.target_field_hint, target_type: 'custom_field', confidence: 1, metadata }
+    // Look the hint up against the real target schema rather than
+    // assuming it's always a custom field — a profile's target_field_hint
+    // can legitimately be a standard field key (e.g. 'email', 'phone'),
+    // and hardcoding 'custom_field' here sent those columns into
+    // customFields instead of the real standard field downstream, so the
+    // contact's actual email/phone was never populated.
+    const hintedField = targetFields.find(f => f.key === profileMatch.target_field_hint)
+    return { status: 'mapped', mapped_by: 'source_profile', target_field_key: profileMatch.target_field_hint, target_type: hintedField?.type === 'standard' ? 'standard_field' : 'custom_field', confidence: 1, metadata }
   }
 
   // 2. Exact/near-exact match against the target object's real schema.
@@ -213,7 +220,7 @@ export function classifyColumn(input: ClassifyColumnInput): ColumnClassification
     if (subtypeResult.base === 'phone') metadata.country_code_presence = detectCountryCodePresence(sampleValues)
     const resolvedField = resolveSubtypeTargetField(subtypeResult, targetFields)
     if (resolvedField) {
-      return { status: 'mapped', mapped_by: 'rule', target_field_key: resolvedField.key, target_type: 'custom_field', confidence: 1, metadata }
+      return { status: 'mapped', mapped_by: 'rule', target_field_key: resolvedField.key, target_type: resolvedField.type === 'standard' ? 'standard_field' : 'custom_field', confidence: 1, metadata }
     }
     // Detected a subtype but no matching field exists in the real schema —
     // never invent one. Falls through to unmapped/Claude tier with the

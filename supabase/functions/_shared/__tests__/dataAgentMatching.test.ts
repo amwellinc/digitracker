@@ -154,6 +154,14 @@ describe('classifyColumn', () => {
     expect(result.metadata.subtype).toBe('mobile')
   })
 
+  it('REVIEW FINDING: a source-profile hint pointing at a real standard field gets target_type standard_field, not custom_field', () => {
+    const profiles: SourceProfileEntry[] = [{ source_system: 'salesforce', pattern: 'EmailAddress', target_field_hint: 'email', subtype_hint: null }]
+    const result = classifyColumn({ ...base, columnName: 'EmailAddress', sourceSystem: 'salesforce', sourceProfiles: profiles })
+    expect(result.mapped_by).toBe('source_profile')
+    expect(result.target_type).toBe('standard_field')
+    expect(result.target_field_key).toBe('email')
+  })
+
   it('green-maps an unambiguous DND channel column with no schema/profile hit', () => {
     const result = classifyColumn({ ...base, columnName: 'Email Opt-Out' })
     expect(result).toEqual({ status: 'mapped', mapped_by: 'rule', target_field_key: 'dnd_email', target_type: 'tag', confidence: 1, metadata: { dnd_channel: 'email' } })

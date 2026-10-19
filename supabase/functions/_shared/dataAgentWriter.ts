@@ -1,4 +1,6 @@
 // supabase/functions/_shared/dataAgentWriter.ts (part 1 of 2 — field building)
+import { detectPhoneEmailSubtype } from './dataAgentMatching.ts'
+
 export interface ConfirmedMapping {
   source_column_name: string
   target_type: 'standard_field' | 'custom_field' | 'tag' | 'ignored'
@@ -23,7 +25,6 @@ export function applyDefaultCountryCode(value: string, defaultCountryCode: strin
   return `${defaultCountryCode}${trimmed.replace(/^0+/, '')}`
 }
 
-const PHONE_SUBTYPES = new Set(['mobile', 'home', 'work', 'fax'])
 // Common CSV boolean-export conventions for a DND/opt-out column whose
 // mere presence would otherwise always apply the tag regardless of what
 // the cell actually says — getting this backwards has real compliance
@@ -49,7 +50,15 @@ export function buildGhlFields(sourceRow: Record<string, string>, mappings: Conf
       continue
     }
 
-    const isPhoneLike = m.target_field_key === 'phone' || (m.metadata.subtype && PHONE_SUBTYPES.has(m.metadata.subtype))
+    // Re-derives the real base (phone vs. email) from the source column
+    // name directly, rather than trusting metadata.subtype's bare value —
+    // a "Work Email" column and a "Work Phone" column both get
+    // metadata.subtype === 'work' (the subtype keyword alone can't tell
+    // the two apart), so checking subtype membership alone would wrongly
+    // apply a phone country-code prefix to an email address. Same fix
+    // already applied once in dataAgentUploadPlanner.ts's own primary-
+    // candidate grouping for the identical reason.
+    const isPhoneLike = m.target_field_key === 'phone' || detectPhoneEmailSubtype(m.source_column_name)?.base === 'phone'
     const value = isPhoneLike ? applyDefaultCountryCode(raw, defaultCountryCode) : raw
 
     if (m.target_type === 'standard_field') standardFields[m.target_field_key] = value
