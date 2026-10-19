@@ -88,7 +88,20 @@ Deno.serve(async (req) => {
 
   const rulesPlan = planColumnMappings(headers, rows, sourceSystem, targetFields, sourceProfiles)
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
-  const plan = anthropicKey ? await planWithClaude(rulesPlan, targetFields, sourceSystem, anthropicKey) : rulesPlan
+  let plan = rulesPlan
+  if (anthropicKey) {
+    try {
+      plan = await planWithClaude(rulesPlan, targetFields, sourceSystem, anthropicKey)
+    } catch (err) {
+      // A Claude failure (outage, malformed/truncated output, rate limit)
+      // must not crash the whole upload and orphan the uploaded file —
+      // falling back to the rules-only plan is safe by construction:
+      // every column Claude would have tried to resolve simply stays
+      // whatever the rules tier already decided (mapped, or red/unmapped
+      // for a human to resolve), never silently treated as confirmed.
+      console.error('Data Agent upload: Claude tier failed, falling back to rules-only plan:', err)
+    }
+  }
   const status = computeMigrationStatus(plan)
 
   const { data: migration, error: migrationErr } = await serviceClient.from('data_agent_migrations').insert({
