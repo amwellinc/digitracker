@@ -12,7 +12,6 @@ vi.mock('../workspace/DataAgentWorkspaceSwitcher', () => ({
 vi.mock('../folders/DataAgentFolderList', () => ({
   DataAgentFolderList: ({ subAccount }: { subAccount: string }) => <div data-testid="folders-for">{subAccount}</div>,
 }))
-vi.mock('../upload/NewMigrationModal', () => ({ NewMigrationModal: () => null }))
 
 import { DataAgentPage } from '../DataAgentPage'
 
@@ -26,5 +25,10 @@ describe('DataAgentPage', () => {
     render(<DataAgentPage />, { wrapper: MemoryRouter })
     await userEvent.click(screen.getByText('switch-to-joy'))
     expect(screen.getByTestId('folders-for')).toHaveTextContent('JOY')
+  })
+
+  it('REGRESSION: has no top-level "New Migration" shortcut — a migration always belongs to one project, so the only entry point is "+ New Project" then New Migration from inside that project', () => {
+    render(<DataAgentPage />, { wrapper: MemoryRouter })
+    expect(screen.queryByRole('button', { name: /new migration/i })).not.toBeInTheDocument()
   })
 })

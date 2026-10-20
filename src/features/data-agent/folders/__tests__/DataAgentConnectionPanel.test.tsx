@@ -52,6 +52,31 @@ describe('DataAgentConnectionPanel', () => {
     expect(await screen.findByText(/verified/i)).toBeInTheDocument()
   })
 
+  it('REGRESSION: renames the connection via update_data_agent_connection_label and refreshes via onChanged — the only way to change a name once a connection has migration history (delete is blocked then)', async () => {
+    const onChanged = vi.fn()
+    renderPanel(onChanged)
+    await userEvent.click(screen.getByRole('button', { name: /rename/i }))
+    const input = screen.getByLabelText(/project name/i) as HTMLInputElement
+    expect(input.value).toBe('Client A')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Acme Corp — Production')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('update_data_agent_connection_label', {
+      p_connection_id: 'conn-1', p_label: 'Acme Corp — Production',
+    }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+  })
+
+  it('surfaces a rename error instead of silently doing nothing', async () => {
+    rpcMock.mockResolvedValue({ error: { message: 'A project name is required' } })
+    renderPanel()
+    await userEvent.click(screen.getByRole('button', { name: /rename/i }))
+    await userEvent.clear(screen.getByLabelText(/project name/i))
+    await userEvent.type(screen.getByLabelText(/project name/i), 'x')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/project name is required/i)).toBeInTheDocument()
+  })
+
   it('rotates the token via update_data_agent_connection_token', async () => {
     renderPanel()
     await userEvent.click(screen.getByRole('button', { name: /rotate token/i }))
