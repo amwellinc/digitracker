@@ -24,7 +24,7 @@ export function DataAgentPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-gray-900">Data Agent</h1>
-        <DataAgentWorkspaceSwitcher ownSubAccount={user.sub_account} selected={workspace} onChange={setWorkspace} />
+        <DataAgentWorkspaceSwitcher ownSubAccount={user.sub_account} selected={workspace} onChange={setWorkspace} isSuperAdmin={user.role === 'Super-Admin'} />
       </div>
       {/* Each GHL connection is its own project folder — see
           DataAgentFolderList's own comment for why this replaced a single
