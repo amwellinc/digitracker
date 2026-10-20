@@ -183,7 +183,10 @@ describe('classifyColumn', () => {
 
   it('green-maps an unambiguous DND channel column with no schema/profile hit', () => {
     const result = classifyColumn({ ...base, columnName: 'Email Opt-Out' })
-    expect(result).toEqual({ status: 'mapped', mapped_by: 'rule', target_field_key: 'dnd_email', target_type: 'tag', confidence: 1, metadata: { dnd_channel: 'email' } })
+    // tag_source: 'fixed' — a DND column is a boolean-ish indicator, never
+    // a list of tag names, so the fixed dnd_email tag text applies
+    // whenever the cell is truthy, never the cell's own raw content.
+    expect(result).toEqual({ status: 'mapped', mapped_by: 'rule', target_field_key: 'dnd_email', target_type: 'tag', confidence: 1, metadata: { dnd_channel: 'email', tag_source: 'fixed' } })
   })
 
   it('green-maps a subtype column to an existing matching custom field', () => {

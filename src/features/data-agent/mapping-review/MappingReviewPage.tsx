@@ -142,7 +142,24 @@ export function MappingReviewPage() {
   useRealtime({ table: 'data_agent_migration_records', filter: migrationId ? `migration_id=eq.${migrationId}` : undefined, onUpdate: () => void loadRecordStatus() })
 
   async function remap(mapping: DataAgentColumnMapping, choice: string) {
-    if (choice === 'tag') {
+    if (choice === 'tags-from-value') {
+      // Commits immediately, no extra input needed — the cell's own
+      // content (split on commas) becomes the tag(s) for each row. This
+      // is the common real-world shape for an actual CSV "Tags" column
+      // (e.g. "VIP, Newsletter, Spring2026"), unlike a fixed-name tag
+      // mapping (below), which always applies ONE tag text regardless of
+      // what the cell says.
+      const update = {
+        status: 'mapped' as const, target_type: 'tag' as const, target_field_key: mapping.source_column_name,
+        mapped_by: 'user' as const, confirmed_by_user: true,
+        metadata: { ...mapping.metadata, tag_source: 'value' as const },
+      }
+      const { error } = await supabase.from('data_agent_column_mappings').update(update).eq('id', mapping.id)
+      if (error) { setPageError(`Could not update "${mapping.source_column_name}": ${error.message}`); return }
+      await loadMappings()
+      return
+    }
+    if (choice === 'tag-fixed') {
       // Needs a tag name before it can be saved — defer the actual write
       // until applyTag, pre-filling the draft from the column name as a
       // reasonable starting point (editable before Apply).
@@ -170,6 +187,7 @@ export function MappingReviewPage() {
     if (!tagName) return
     const { error } = await supabase.from('data_agent_column_mappings').update({
       status: 'mapped' as const, target_type: 'tag' as const, target_field_key: tagName, mapped_by: 'user' as const, confirmed_by_user: true,
+      metadata: { ...mapping.metadata, tag_source: 'fixed' as const },
     }).eq('id', mapping.id)
     if (error) { setPageError(`Could not update "${mapping.source_column_name}": ${error.message}`); return }
     setTagEditingFor(null)
@@ -322,8 +340,22 @@ export function MappingReviewPage() {
           <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
             {mappings.map(m => {
               const isTagMapping = m.status === 'mapped' && m.target_type === 'tag'
-              const showTagEditor = tagEditingFor === m.id || isTagMapping
-              const tagValue = tagDrafts[m.id] ?? (isTagMapping ? m.target_field_key ?? '' : m.source_column_name)
+              // Unset/undefined defaults to 'fixed' for backward compatibility
+              // — every tag mapping the DND rule tier creates predates this
+              // distinction and must keep behaving exactly as it always has.
+              const tagSource = isTagMapping ? (m.metadata.tag_source ?? 'fixed') : null
+              const showFixedTagEditor = tagEditingFor === m.id || tagSource === 'fixed'
+              const tagValue = tagDrafts[m.id] ?? (showFixedTagEditor && isTagMapping ? m.target_field_key ?? '' : m.source_column_name)
+              const selectValue = showFixedTagEditor
+                ? 'tag-fixed'
+                : tagSource === 'value'
+                  ? 'tags-from-value'
+                  // target_type === 'ignored' alone does NOT mean the user chose to ignore
+                  // this column — classifyColumn's no-match default (Task 6) also sets
+                  // target_type: 'ignored' on a genuinely unmapped/red column, which still
+                  // has status !== 'mapped'. Only a column BOTH mapped AND typed 'ignored'
+                  // was actually ignored by a human.
+                  : (m.target_field_key ?? (m.status === 'mapped' && m.target_type === 'ignored' ? 'ignore' : ''))
               return (
               <div key={m.id} className="px-4 py-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
@@ -336,20 +368,14 @@ export function MappingReviewPage() {
                   </span>
                   <select
                     aria-label={`Map "${m.source_column_name}" to`}
-                    // target_type === 'ignored' alone does NOT mean the user chose to ignore
-                    // this column — classifyColumn's no-match default (Task 6) also sets
-                    // target_type: 'ignored' on a genuinely unmapped/red column, which still
-                    // has status !== 'mapped'. Only a column BOTH mapped AND typed 'ignored'
-                    // was actually ignored by a human. A tag mapping's target_field_key is
-                    // the tag TEXT itself, not one of these option values, so its selected
-                    // value is always the dedicated 'tag' option, not the raw key.
-                    value={showTagEditor ? 'tag' : (m.target_field_key ?? (m.status === 'mapped' && m.target_type === 'ignored' ? 'ignore' : ''))}
+                    value={selectValue}
                     onChange={e => void remap(m, e.target.value)}
                     className="input text-xs"
                   >
                     <option value="" disabled>Choose…</option>
                     {targetFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-                    <option value="tag">Tag…</option>
+                    <option value="tags-from-value">Tags (split this column&apos;s value by comma)</option>
+                    <option value="tag-fixed">Tag (one fixed name)…</option>
                     <option value="ignore">Ignore this column</option>
                   </select>
                   <div className="flex-1 min-w-[180px]">
@@ -369,7 +395,12 @@ export function MappingReviewPage() {
                     {promptReply[m.id] && <p className="text-xs text-gray-500 mt-1">{promptReply[m.id]}</p>}
                   </div>
                 </div>
-                {showTagEditor && (
+                {tagSource === 'value' && (
+                  <p className="text-xs text-gray-400">
+                    Each comma-separated value in this column becomes its own tag — e.g. &quot;VIP, Newsletter&quot; applies both tags.
+                  </p>
+                )}
+                {showFixedTagEditor && (
                   <div className="flex items-center gap-2 pl-0">
                     <label htmlFor={`tag-name-${m.id}`} className="text-xs text-gray-500 whitespace-nowrap">
                       Apply the tag:

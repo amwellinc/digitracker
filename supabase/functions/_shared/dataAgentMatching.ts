@@ -29,6 +29,11 @@ export interface ColumnClassificationMetadata {
   dnd_channel?: DndChannel
   country_code_presence?: CountryCodePresence
   is_primary_candidate?: boolean // set by the caller (Task 8's planner), never by classifyColumn itself
+  // Only ever meaningful when target_type is 'tag' — see dataAgentWriter.ts's
+  // ConfirmedMapping metadata for what each value means. The rules tier
+  // only ever detects the DND/opt-out pattern automatically, which is
+  // always a boolean-ish indicator column, never a list of tag names.
+  tag_source?: 'fixed' | 'value'
 }
 
 export interface ColumnClassification {
@@ -220,7 +225,7 @@ export function classifyColumn(input: ClassifyColumnInput): ColumnClassification
   // phone/email subtype keyword, even with no schema/profile hit.
   const dndChannel = detectDndChannel(columnName)
   if (dndChannel) {
-    return { status: 'mapped', mapped_by: 'rule', target_field_key: `dnd_${dndChannel}`, target_type: 'tag', confidence: 1, metadata: { dnd_channel: dndChannel } }
+    return { status: 'mapped', mapped_by: 'rule', target_field_key: `dnd_${dndChannel}`, target_type: 'tag', confidence: 1, metadata: { dnd_channel: dndChannel, tag_source: 'fixed' } }
   }
 
   const subtypeResult = detectPhoneEmailSubtype(columnName)

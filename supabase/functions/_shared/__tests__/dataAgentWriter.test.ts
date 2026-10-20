@@ -69,6 +69,50 @@ describe('buildGhlFields', () => {
     const built = buildGhlFields({ 'Work Email': 'jane@acme.com' }, mappings, '+65')
     expect(built.standardFields.email).toBe('jane@acme.com')
   })
+
+  describe('tag_source: value — the cell itself is a list of tag names', () => {
+    const tagsMapping: ConfirmedMapping[] = [
+      { source_column_name: 'Tags', target_type: 'tag', target_field_key: 'Tags', metadata: { tag_source: 'value' } },
+    ]
+
+    it('REGRESSION: splits a comma-separated cell into several real tags, not one literal tag containing commas', () => {
+      const built = buildGhlFields({ Tags: 'VIP, Newsletter, Spring2026' }, tagsMapping, null)
+      expect(built.tags).toEqual(['VIP', 'Newsletter', 'Spring2026'])
+    })
+
+    it('trims whitespace around each tag piece', () => {
+      const built = buildGhlFields({ Tags: '  VIP ,Newsletter  ,  Spring2026' }, tagsMapping, null)
+      expect(built.tags).toEqual(['VIP', 'Newsletter', 'Spring2026'])
+    })
+
+    it('handles a single tag with no commas the same as a comma-separated list', () => {
+      const built = buildGhlFields({ Tags: 'VIP' }, tagsMapping, null)
+      expect(built.tags).toEqual(['VIP'])
+    })
+
+    it('drops empty pieces from stray/doubled commas rather than pushing a blank tag', () => {
+      const built = buildGhlFields({ Tags: 'VIP,, Newsletter,' }, tagsMapping, null)
+      expect(built.tags).toEqual(['VIP', 'Newsletter'])
+    })
+
+    it('does NOT fall back to the falsy-value check that fixed-mode tags use — "no" is a real tag name in value mode, not an opt-out indicator', () => {
+      const built = buildGhlFields({ Tags: 'no' }, tagsMapping, null)
+      expect(built.tags).toEqual(['no'])
+    })
+
+    it('a blank cell still applies no tags at all', () => {
+      const built = buildGhlFields({ Tags: '' }, tagsMapping, null)
+      expect(built.tags).toEqual([])
+    })
+  })
+
+  it('a tag mapping with no tag_source set (every DND mapping that predates this field) keeps the original fixed-tag behavior unchanged', () => {
+    const legacyDndMapping: ConfirmedMapping[] = [
+      { source_column_name: 'Email Opt-Out', target_type: 'tag', target_field_key: 'dnd_email', metadata: { dnd_channel: 'email' } },
+    ]
+    const built = buildGhlFields({ 'Email Opt-Out': 'yes' }, legacyDndMapping, null)
+    expect(built.tags).toEqual(['dnd_email'])
+  })
 })
 
 describe('getFieldValue', () => {

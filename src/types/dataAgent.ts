@@ -17,6 +17,12 @@ export interface DataAgentColumnMappingMetadata {
   dnd_channel?: DataAgentDndChannel
   country_code_presence?: DataAgentCountryCodePresence
   is_primary_candidate?: boolean
+  // Only meaningful when target_type is 'tag'. 'value': the cell itself
+  // holds one or more tag names (comma-separated), each becoming its own
+  // GHL tag. 'fixed' (or unset, for every tag mapping that predates this
+  // field): target_field_key is the one fixed tag applied whenever the
+  // cell is truthy, regardless of its actual content.
+  tag_source?: 'fixed' | 'value'
 }
 
 export interface DataAgentConnection {

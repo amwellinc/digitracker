@@ -99,12 +99,12 @@ describe('MappingReviewPage', () => {
     })))
   })
 
-  it('REGRESSION: lets the user manually map a column as a tag, naming the tag before it saves', async () => {
+  it('REGRESSION: lets the user manually map a column to one fixed tag name, naming it before it saves', async () => {
     mappingRows = [{ id: 'cm-2', source_column_name: 'VIP Flag', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} }]
     renderAt('mig-1')
     const select = await screen.findByLabelText(/map "VIP Flag" to/i)
-    await userEvent.selectOptions(select, 'tag')
-    // Choosing "Tag…" must not save anything yet — it needs a tag name first.
+    await userEvent.selectOptions(select, 'tag-fixed')
+    // Choosing "Tag (one fixed name)…" must not save anything yet — it needs a tag name first.
     expect(updateMock).not.toHaveBeenCalled()
     const tagInput = screen.getByLabelText(/tag name for "VIP Flag"/i) as HTMLInputElement
     // Pre-filled from the column name as a reasonable starting point, editable.
@@ -114,7 +114,26 @@ describe('MappingReviewPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /^apply$/i }))
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
       status: 'mapped', target_type: 'tag', target_field_key: 'VIP Customer', mapped_by: 'user', confirmed_by_user: true,
+      metadata: expect.objectContaining({ tag_source: 'fixed' }),
     })))
+  })
+
+  it('REGRESSION: lets the user map a column so each row\'s own comma-separated value becomes its own tag(s) — the reported gap (a CSV "Tags" column was applying one literal tag containing commas instead of several real tags)', async () => {
+    mappingRows = [{ id: 'cm-2', source_column_name: 'Tags', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} }]
+    renderAt('mig-1')
+    const select = await screen.findByLabelText(/map "Tags" to/i)
+    // Commits immediately — unlike the fixed-name mode, no extra input is needed.
+    await userEvent.selectOptions(select, 'tags-from-value')
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'mapped', target_type: 'tag', target_field_key: 'Tags', mapped_by: 'user', confirmed_by_user: true,
+      metadata: expect.objectContaining({ tag_source: 'value' }),
+    })))
+  })
+
+  it('shows the explanatory note once a column is already mapped with tag_source: value', async () => {
+    mappingRows = [{ id: 'cm-1', source_column_name: 'Tags', status: 'mapped', target_field_key: 'Tags', target_type: 'tag', mapped_by: 'user', metadata: { tag_source: 'value' } }]
+    renderAt('mig-1')
+    expect(await screen.findByText(/each comma-separated value in this column becomes its own tag/i)).toBeInTheDocument()
   })
 
   it('calls confirm_data_agent_migration when every column is resolved', async () => {

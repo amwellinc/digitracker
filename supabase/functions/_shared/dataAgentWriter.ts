@@ -5,7 +5,18 @@ export interface ConfirmedMapping {
   source_column_name: string
   target_type: 'standard_field' | 'custom_field' | 'tag' | 'ignored'
   target_field_key: string | null
-  metadata: { country_code_presence?: 'present' | 'absent' | 'mixed'; subtype?: string; dnd_channel?: string }
+  metadata: {
+    country_code_presence?: 'present' | 'absent' | 'mixed'; subtype?: string; dnd_channel?: string
+    // 'value' (the default for a user-chosen tag mapping): the cell
+    // itself holds one or more tag names, comma-separated, as a real
+    // "Tags" export column typically does — each piece becomes its own
+    // GHL tag. 'fixed' (unset/undefined also means this, for backward
+    // compatibility with every tag mapping the DND rule tier already
+    // created before this distinction existed): the cell is a boolean-
+    // ish indicator, and target_field_key is the ONE fixed tag text
+    // applied whenever it's truthy — never the cell's own content.
+    tag_source?: 'fixed' | 'value'
+  }
 }
 
 export interface BuiltGhlFields {
@@ -46,7 +57,14 @@ export function buildGhlFields(sourceRow: Record<string, string>, mappings: Conf
     if (raw.trim() === '') continue
 
     if (m.target_type === 'tag') {
-      if (!FALSY_TAG_VALUES.has(raw.trim().toLowerCase())) tags.push(m.target_field_key)
+      if (m.metadata.tag_source === 'value') {
+        // The cell is itself a list of tag names, not an indicator —
+        // e.g. "VIP, Newsletter, Spring2026" becomes three separate GHL
+        // tags for this row, not one literal tag containing commas.
+        for (const piece of raw.split(',').map(t => t.trim()).filter(t => t.length > 0)) tags.push(piece)
+      } else if (!FALSY_TAG_VALUES.has(raw.trim().toLowerCase())) {
+        tags.push(m.target_field_key)
+      }
       continue
     }
 
