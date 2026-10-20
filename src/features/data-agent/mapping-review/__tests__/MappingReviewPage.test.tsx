@@ -183,6 +183,30 @@ describe('MappingReviewPage', () => {
     await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('request_data_agent_undo', { p_migration_id: 'mig-1' }))
   })
 
+  it('REGRESSION: lets a stuck migration be cancelled — "cancelled" was a valid status with no way to ever reach it', async () => {
+    Object.assign(migrationRow, { status: 'migrating' })
+    renderAt('mig-1')
+    const cancelBtn = await screen.findByRole('button', { name: /cancel migration/i })
+    await userEvent.click(cancelBtn)
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledWith('cancel_data_agent_migration', { p_migration_id: 'mig-1' }))
+  })
+
+  it('does not offer Cancel once a migration has already reached a terminal state', async () => {
+    Object.assign(migrationRow, { status: 'completed' })
+    mappingRows = [{ id: 'cm-1', source_column_name: 'Email', status: 'mapped', target_field_key: 'email', target_type: 'standard_field', mapped_by: 'rule', metadata: {} }]
+    renderAt('mig-1')
+    await screen.findByRole('button', { name: /undo migration/i })
+    expect(screen.queryByRole('button', { name: /cancel migration/i })).not.toBeInTheDocument()
+  })
+
+  it('REGRESSION: offers a manual Refresh for when nothing visibly progresses (e.g. the worker is stuck)', async () => {
+    Object.assign(migrationRow, { status: 'migrating' })
+    renderAt('mig-1')
+    const refreshBtn = await screen.findByRole('button', { name: /^refresh$/i })
+    await userEvent.click(refreshBtn)
+    await waitFor(() => expect(refreshBtn).not.toBeDisabled())
+  })
+
   it('does not show Undo while the migration is still in progress', async () => {
     Object.assign(migrationRow, { status: 'mapping' })
     renderAt('mig-1')

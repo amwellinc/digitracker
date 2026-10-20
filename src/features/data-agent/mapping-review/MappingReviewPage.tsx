@@ -31,6 +31,11 @@ const MIGRATION_STATUS_BADGE: Record<DataAgentMigrationStatus, string> = {
 // table and Confirm button stayed fully interactive after a migration
 // had already started migrating/completed.
 const EDITABLE_STATUSES = new Set<DataAgentMigrationStatus>(['uploaded', 'mapping', 'awaiting_confirmation'])
+// 'cancelled' was a valid status with no way to ever reach it — a
+// migration stuck mid-flight (e.g. 'migrating' forever, if the worker's
+// own cron secret was never configured) had no way out at all. Mirrors
+// cancel_data_agent_migration's own allowed-status set exactly.
+const CANCELLABLE_STATUSES = new Set<DataAgentMigrationStatus>(['uploaded', 'mapping', 'awaiting_confirmation', 'migrating', 'verifying'])
 
 interface RecordCounts { created: number; replaced: number; failed: number; skipped: number; pending: number }
 interface FailedRecordRow { row_number: number; error_message: string | null }
@@ -66,12 +71,16 @@ export function MappingReviewPage() {
     setMappings((data ?? []) as DataAgentColumnMapping[])
   }, [migrationId])
 
-  useEffect(() => {
+  const loadMigration = useCallback(async () => {
     if (!migrationId) return
-    void supabase.from('data_agent_migrations').select('*').eq('id', migrationId).single()
-      .then(({ data }) => setMigration(data as DataAgentMigration))
+    const { data } = await supabase.from('data_agent_migrations').select('*').eq('id', migrationId).single()
+    setMigration(data as DataAgentMigration)
+  }, [migrationId])
+
+  useEffect(() => {
+    void loadMigration()
     void loadMappings()
-  }, [migrationId, loadMappings])
+  }, [loadMigration, loadMappings])
 
   useEffect(() => {
     // Keyed by connection_id, not sub_account — a sub-account can have
@@ -214,6 +223,25 @@ export function MappingReviewPage() {
     if (error) setUndoError(error.message)
   }
 
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
+
+  async function cancelMigration() {
+    if (!migrationId) return
+    setCancelling(true); setCancelError(null)
+    const { error } = await supabase.rpc('cancel_data_agent_migration', { p_migration_id: migrationId })
+    setCancelling(false)
+    if (error) { setCancelError(error.message); return }
+    await loadMigration()
+  }
+
+  const [refreshing, setRefreshing] = useState(false)
+  async function refreshAll() {
+    setRefreshing(true)
+    await Promise.all([loadMigration(), loadMappings(), loadRecordStatus()])
+    setRefreshing(false)
+  }
+
   const allResolved = mappings.length > 0 && mappings.every(m => m.status === 'mapped')
   // Defaults to editable before the migration itself has loaded — the
   // mapping table (populated by a separate query) has always rendered
@@ -221,6 +249,7 @@ export function MappingReviewPage() {
   // so rather than flashing a blank "not editable" state for a moment.
   const isEditable = !migration || EDITABLE_STATUSES.has(migration.status)
   const canUndo = migration?.status === 'completed' || migration?.status === 'completed_with_errors'
+  const canCancel = !!migration && CANCELLABLE_STATUSES.has(migration.status)
 
   return (
     <div className="space-y-4">
@@ -229,17 +258,38 @@ export function MappingReviewPage() {
           ← Back to project
         </Link>
       )}
-      <div>
-        <h1 className="text-lg font-bold text-gray-900">{migration?.original_filename}</h1>
-        <p className="text-sm text-gray-500">{migration?.row_count} rows → {migration?.target_object_type}</p>
-        {connectionLabel && <p className="text-xs text-gray-400">GHL account: {connectionLabel}</p>}
-        {migration && (
-          <span data-testid="migration-status" className={`inline-block mt-1 text-xs font-semibold px-2 py-1 rounded-full ${MIGRATION_STATUS_BADGE[migration.status]}`}>
-            {MIGRATION_STATUS_LABEL[migration.status]}
-          </span>
-        )}
-        {migration?.error_message && <p role="alert" className="text-sm text-red-600 mt-1">{migration.error_message}</p>}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900">{migration?.original_filename}</h1>
+          <p className="text-sm text-gray-500">{migration?.row_count} rows → {migration?.target_object_type}</p>
+          {connectionLabel && <p className="text-xs text-gray-400">GHL account: {connectionLabel}</p>}
+          {migration && (
+            <span data-testid="migration-status" className={`inline-block mt-1 text-xs font-semibold px-2 py-1 rounded-full ${MIGRATION_STATUS_BADGE[migration.status]}`}>
+              {MIGRATION_STATUS_LABEL[migration.status]}
+            </span>
+          )}
+          {migration?.error_message && <p role="alert" className="text-sm text-red-600 mt-1">{migration.error_message}</p>}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* A migration that stops progressing (e.g. the worker's own
+              cron secret was never configured — a real live incident)
+              previously had no way to even confirm it was actually stuck
+              rather than just slow — Realtime should reflect status
+              changes live, but a manual re-fetch is the honest fallback
+              when nothing is visibly happening. */}
+          <button onClick={() => void refreshAll()} disabled={refreshing}
+            className="text-xs font-semibold text-gray-600 bg-gray-50 hover:bg-gray-100 disabled:opacity-50 rounded-md px-3 py-1.5">
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+          {canCancel && (
+            <button onClick={() => void cancelMigration()} disabled={cancelling}
+              className="text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-50 rounded-md px-3 py-1.5">
+              {cancelling ? 'Cancelling…' : 'Cancel Migration'}
+            </button>
+          )}
+        </div>
       </div>
+      {cancelError && <p role="alert" className="text-sm text-red-600">{cancelError}</p>}
 
       {migration?.instructions && (
         <div className="border border-gray-200 rounded-lg p-3">
