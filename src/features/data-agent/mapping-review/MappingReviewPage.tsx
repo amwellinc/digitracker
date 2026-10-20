@@ -48,6 +48,17 @@ export function MappingReviewPage() {
   const [promptBusy, setPromptBusy] = useState<string | null>(null)
   const [recordCounts, setRecordCounts] = useState<RecordCounts | null>(null)
   const [failedRecords, setFailedRecords] = useState<FailedRecordRow[]>([])
+  // Tags were only ever reachable automatically (the DND rule tier) —
+  // there was no manual "map this column as a tag" option at all, even
+  // though target_type: 'tag' is a real, fully-supported mapping kind
+  // (buildGhlFields applies the column's value as a GHL tag whenever the
+  // cell isn't a recognizable falsy value). A tag mapping's
+  // target_field_key IS the tag text itself, not a schema field
+  // reference, so it needs its own name input rather than picking from
+  // the existing field dropdown. Tracks which mapping is currently being
+  // given a tag name, and the in-progress text for each.
+  const [tagEditingFor, setTagEditingFor] = useState<string | null>(null)
+  const [tagDrafts, setTagDrafts] = useState<Record<string, string>>({})
 
   const loadMappings = useCallback(async () => {
     if (!migrationId) return
@@ -122,6 +133,14 @@ export function MappingReviewPage() {
   useRealtime({ table: 'data_agent_migration_records', filter: migrationId ? `migration_id=eq.${migrationId}` : undefined, onUpdate: () => void loadRecordStatus() })
 
   async function remap(mapping: DataAgentColumnMapping, choice: string) {
+    if (choice === 'tag') {
+      // Needs a tag name before it can be saved — defer the actual write
+      // until applyTag, pre-filling the draft from the column name as a
+      // reasonable starting point (editable before Apply).
+      setTagDrafts(prev => ({ ...prev, [mapping.id]: prev[mapping.id] ?? mapping.source_column_name }))
+      setTagEditingFor(mapping.id)
+      return
+    }
     const update = choice === 'ignore'
       ? { status: 'mapped' as const, target_type: 'ignored' as const, target_field_key: null, mapped_by: 'user' as const, confirmed_by_user: true }
       : (() => {
@@ -134,6 +153,17 @@ export function MappingReviewPage() {
         })()
     const { error } = await supabase.from('data_agent_column_mappings').update(update).eq('id', mapping.id)
     if (error) { setPageError(`Could not update "${mapping.source_column_name}": ${error.message}`); return }
+    await loadMappings()
+  }
+
+  async function applyTag(mapping: DataAgentColumnMapping) {
+    const tagName = (tagDrafts[mapping.id] ?? '').trim()
+    if (!tagName) return
+    const { error } = await supabase.from('data_agent_column_mappings').update({
+      status: 'mapped' as const, target_type: 'tag' as const, target_field_key: tagName, mapped_by: 'user' as const, confirmed_by_user: true,
+    }).eq('id', mapping.id)
+    if (error) { setPageError(`Could not update "${mapping.source_column_name}": ${error.message}`); return }
+    setTagEditingFor(null)
     await loadMappings()
   }
 
@@ -240,48 +270,81 @@ export function MappingReviewPage() {
       {isEditable && (
         <>
           <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
-            {mappings.map(m => (
-              <div key={m.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{m.source_column_name}</p>
-                  {m.reasoning && <p className="text-xs text-gray-400">{m.reasoning}</p>}
-                </div>
-                <span data-testid={`status-${m.id}`} className={`text-xs font-semibold px-2 py-1 rounded-full ${STATUS_STYLE[m.status]}`}>
-                  {m.status}
-                </span>
-                <select
-                  aria-label={`Map "${m.source_column_name}" to`}
-                  // target_type === 'ignored' alone does NOT mean the user chose to ignore
-                  // this column — classifyColumn's no-match default (Task 6) also sets
-                  // target_type: 'ignored' on a genuinely unmapped/red column, which still
-                  // has status !== 'mapped'. Only a column BOTH mapped AND typed 'ignored'
-                  // was actually ignored by a human.
-                  value={m.target_field_key ?? (m.status === 'mapped' && m.target_type === 'ignored' ? 'ignore' : '')}
-                  onChange={e => void remap(m, e.target.value)}
-                  className="input text-xs"
-                >
-                  <option value="" disabled>Choose…</option>
-                  {targetFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-                  <option value="ignore">Ignore this column</option>
-                </select>
-                <div className="flex-1 min-w-[180px]">
-                  <div className="flex gap-1">
-                    <input
-                      aria-label={`Ask about "${m.source_column_name}"`}
-                      value={promptText[m.id] ?? ''}
-                      onChange={e => setPromptText(prev => ({ ...prev, [m.id]: e.target.value }))}
-                      placeholder="Ask or instruct…"
-                      className="input text-xs flex-1"
-                    />
-                    <button onClick={() => void askPrompt(m)} disabled={promptBusy === m.id}
-                      className="text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 disabled:opacity-50 rounded-md px-2">
-                      Ask
-                    </button>
+            {mappings.map(m => {
+              const isTagMapping = m.status === 'mapped' && m.target_type === 'tag'
+              const showTagEditor = tagEditingFor === m.id || isTagMapping
+              const tagValue = tagDrafts[m.id] ?? (isTagMapping ? m.target_field_key ?? '' : m.source_column_name)
+              return (
+              <div key={m.id} className="px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">{m.source_column_name}</p>
+                    {m.reasoning && <p className="text-xs text-gray-400">{m.reasoning}</p>}
                   </div>
-                  {promptReply[m.id] && <p className="text-xs text-gray-500 mt-1">{promptReply[m.id]}</p>}
+                  <span data-testid={`status-${m.id}`} className={`text-xs font-semibold px-2 py-1 rounded-full ${STATUS_STYLE[m.status]}`}>
+                    {m.status}
+                  </span>
+                  <select
+                    aria-label={`Map "${m.source_column_name}" to`}
+                    // target_type === 'ignored' alone does NOT mean the user chose to ignore
+                    // this column — classifyColumn's no-match default (Task 6) also sets
+                    // target_type: 'ignored' on a genuinely unmapped/red column, which still
+                    // has status !== 'mapped'. Only a column BOTH mapped AND typed 'ignored'
+                    // was actually ignored by a human. A tag mapping's target_field_key is
+                    // the tag TEXT itself, not one of these option values, so its selected
+                    // value is always the dedicated 'tag' option, not the raw key.
+                    value={showTagEditor ? 'tag' : (m.target_field_key ?? (m.status === 'mapped' && m.target_type === 'ignored' ? 'ignore' : ''))}
+                    onChange={e => void remap(m, e.target.value)}
+                    className="input text-xs"
+                  >
+                    <option value="" disabled>Choose…</option>
+                    {targetFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                    <option value="tag">Tag…</option>
+                    <option value="ignore">Ignore this column</option>
+                  </select>
+                  <div className="flex-1 min-w-[180px]">
+                    <div className="flex gap-1">
+                      <input
+                        aria-label={`Ask about "${m.source_column_name}"`}
+                        value={promptText[m.id] ?? ''}
+                        onChange={e => setPromptText(prev => ({ ...prev, [m.id]: e.target.value }))}
+                        placeholder="Ask or instruct…"
+                        className="input text-xs flex-1"
+                      />
+                      <button onClick={() => void askPrompt(m)} disabled={promptBusy === m.id}
+                        className="text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 disabled:opacity-50 rounded-md px-2">
+                        Ask
+                      </button>
+                    </div>
+                    {promptReply[m.id] && <p className="text-xs text-gray-500 mt-1">{promptReply[m.id]}</p>}
+                  </div>
                 </div>
+                {showTagEditor && (
+                  <div className="flex items-center gap-2 pl-0">
+                    <label htmlFor={`tag-name-${m.id}`} className="text-xs text-gray-500 whitespace-nowrap">
+                      Apply the tag:
+                    </label>
+                    <input
+                      id={`tag-name-${m.id}`}
+                      aria-label={`Tag name for "${m.source_column_name}"`}
+                      value={tagValue}
+                      onChange={e => setTagDrafts(prev => ({ ...prev, [m.id]: e.target.value }))}
+                      placeholder="Tag name"
+                      className="input text-xs flex-1 max-w-xs"
+                    />
+                    <button onClick={() => void applyTag(m)} disabled={!tagValue.trim()}
+                      className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 rounded-md px-3 py-1">
+                      Apply
+                    </button>
+                    {/* Applied per row whenever the cell's value isn't blank
+                        or a recognizable "no/false/0/n/off" — see
+                        buildGhlFields's own FALSY_TAG_VALUES check. */}
+                    <span className="text-xs text-gray-400">when this column&apos;s value isn&apos;t blank/no/false</span>
+                  </div>
+                )}
               </div>
-            ))}
+              )
+            })}
           </div>
 
           {needsCountryCode && (

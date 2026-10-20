@@ -99,6 +99,24 @@ describe('MappingReviewPage', () => {
     })))
   })
 
+  it('REGRESSION: lets the user manually map a column as a tag, naming the tag before it saves', async () => {
+    mappingRows = [{ id: 'cm-2', source_column_name: 'VIP Flag', status: 'unmapped', target_field_key: null, target_type: 'ignored', mapped_by: null, metadata: {} }]
+    renderAt('mig-1')
+    const select = await screen.findByLabelText(/map "VIP Flag" to/i)
+    await userEvent.selectOptions(select, 'tag')
+    // Choosing "Tag…" must not save anything yet — it needs a tag name first.
+    expect(updateMock).not.toHaveBeenCalled()
+    const tagInput = screen.getByLabelText(/tag name for "VIP Flag"/i) as HTMLInputElement
+    // Pre-filled from the column name as a reasonable starting point, editable.
+    expect(tagInput.value).toBe('VIP Flag')
+    await userEvent.clear(tagInput)
+    await userEvent.type(tagInput, 'VIP Customer')
+    await userEvent.click(screen.getByRole('button', { name: /^apply$/i }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'mapped', target_type: 'tag', target_field_key: 'VIP Customer', mapped_by: 'user', confirmed_by_user: true,
+    })))
+  })
+
   it('calls confirm_data_agent_migration when every column is resolved', async () => {
     mappingRows = [{ id: 'cm-1', source_column_name: 'Email', status: 'mapped', target_field_key: 'email', target_type: 'standard_field', mapped_by: 'rule', metadata: {} }]
     renderAt('mig-1')
