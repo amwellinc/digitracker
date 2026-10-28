@@ -23,8 +23,9 @@ interface Props {
 // version always shows an explicit Search button next to the input.
 export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: Props) {
   const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'Super-Admin'
   const [search, setSearch] = useState('')
-  const [candidates, setCandidates] = useState<Pick<User, 'id' | 'name' | 'role'>[]>([])
+  const [candidates, setCandidates] = useState<Pick<User, 'id' | 'name' | 'role' | 'sub_account'>[]>([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
   const [addingId, setAddingId] = useState<string | null>(null)
@@ -35,16 +36,21 @@ export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: 
     if (!user?.sub_account || !search.trim()) return
     setSearching(true)
     setMsg(null)
-    const { data } = await supabase
-      .from('users')
-      .select('id, name, role')
-      .eq('sub_account', user.sub_account)
-      .eq('status', 'active')
-      .ilike('name', `%${search.trim()}%`)
+    // add_project_member already lets a Super-Admin add someone from ANY
+    // workspace (it only enforces "your own workspace" for a plain
+    // Admin/Manager) — scoping this search to the caller's own
+    // sub_account unconditionally meant a Super-Admin could never even
+    // FIND a cross-workspace person to add, let alone that the RPC would
+    // have allowed it. Found live: invite-associate's own "add them as a
+    // normal member instead" guidance was a dead end for exactly this
+    // case, since this search couldn't surface them either.
+    let query = supabase.from('users').select('id, name, role, sub_account').eq('status', 'active')
+    if (!isSuperAdmin) query = query.eq('sub_account', user.sub_account)
+    const { data } = await query.ilike('name', `%${search.trim()}%`)
     setSearching(false)
     setSearched(true)
     const known = new Set(existingMemberIds)
-    setCandidates(((data ?? []) as Pick<User, 'id' | 'name' | 'role'>[]).filter(c => !known.has(c.id)))
+    setCandidates(((data ?? []) as Pick<User, 'id' | 'name' | 'role' | 'sub_account'>[]).filter(c => !known.has(c.id)))
   }
 
   async function addMember(c: Pick<User, 'id' | 'name' | 'role'>) {
@@ -65,7 +71,9 @@ export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: 
 
   return (
     <div className="border border-violet-200 bg-violet-50/50 rounded-lg p-3 space-y-2">
-      <p className="text-xs font-semibold text-violet-800">Add a teammate from your workspace</p>
+      <p className="text-xs font-semibold text-violet-800">
+        {isSuperAdmin ? 'Add a teammate from any workspace' : 'Add a teammate from your workspace'}
+      </p>
       <form onSubmit={e => void runSearch(e)} className="flex flex-col sm:flex-row gap-2">
         <input
           value={search} onChange={e => { setSearch(e.target.value); setSearched(false) }}
@@ -78,14 +86,16 @@ export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: 
         </button>
       </form>
       {searched && candidates.length === 0 && (
-        <p className="text-xs text-gray-400">No one in your workspace matched that name.</p>
+        <p className="text-xs text-gray-400">{isSuperAdmin ? 'No one matched that name.' : 'No one in your workspace matched that name.'}</p>
       )}
       {candidates.length > 0 && (
         <div className="space-y-1 max-w-xs">
           {candidates.map(c => (
             <button key={c.id} type="button" onClick={() => void addMember(c)} disabled={addingId === c.id}
               className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-violet-300 text-left disabled:opacity-50">
-              <span className="text-sm text-gray-700">{c.name} <span className="text-gray-400">({c.role})</span></span>
+              <span className="text-sm text-gray-700">
+                {c.name} <span className="text-gray-400">({c.role}{isSuperAdmin ? ` · ${c.sub_account}` : ''})</span>
+              </span>
               <span className="text-xs font-semibold text-violet-600">{addingId === c.id ? 'Adding…' : '+ Add'}</span>
             </button>
           ))}

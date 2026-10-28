@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const ilikeMock = vi.fn()
+const eqMock = vi.fn()
 const rpcMock = vi.fn()
 
 vi.mock('@/lib/supabase', () => ({
@@ -10,7 +11,7 @@ vi.mock('@/lib/supabase', () => ({
     from: vi.fn(() => {
       const qb = {
         select: () => qb,
-        eq: () => qb,
+        eq: (...args: unknown[]) => { eqMock(...args); return qb },
         ilike: (...args: unknown[]) => ilikeMock(...args),
       }
       return qb
@@ -55,6 +56,7 @@ describe('AddProjectMemberForm', () => {
     ilikeMock.mockReset().mockResolvedValue({
       data: [{ id: 'u2', name: 'Jane Staff', role: 'Staff' }],
     })
+    eqMock.mockReset()
     rpcMock.mockReset().mockResolvedValue({ error: null })
   })
 
@@ -118,5 +120,57 @@ describe('AddProjectMemberForm', () => {
     await userEvent.click(await screen.findByRole('button', { name: /new hire/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/3 workspaces/i)
+  })
+
+  // Regression test: add_project_member already lets a Super-Admin add
+  // someone from ANY workspace, but this search was unconditionally scoped
+  // to the caller's own sub_account — a Super-Admin could never even FIND
+  // a cross-workspace person to add. Found live: an Admin got stuck trying
+  // to invite an existing user from a different workspace, with no path
+  // through either this form or invite-associate's own guidance.
+  describe('as Super-Admin', () => {
+    const superAdminUser: User = { ...adminUser, id: 'sa-1', role: 'Super-Admin' }
+
+    it('shows copy for searching across all workspaces, not just one', () => {
+      render(
+        <AuthContext.Provider value={makeCtx({ user: superAdminUser, isSuperAdmin: true })}>
+          <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
+        </AuthContext.Provider>
+      )
+      expect(screen.getByText(/add a teammate from any workspace/i)).toBeInTheDocument()
+    })
+
+    it('searches without scoping to the caller\'s own sub_account', async () => {
+      ilikeMock.mockResolvedValue({
+        data: [{ id: 'u9', name: 'Cross Account', role: 'Staff', sub_account: 'DIGI5Y' }],
+      })
+      render(
+        <AuthContext.Provider value={makeCtx({ user: superAdminUser, isSuperAdmin: true })}>
+          <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
+        </AuthContext.Provider>
+      )
+
+      await userEvent.type(screen.getByLabelText(/search your workspace/i), 'Cross')
+      await userEvent.click(screen.getByRole('button', { name: /search/i }))
+
+      await waitFor(() => expect(ilikeMock).toHaveBeenCalledWith('name', '%Cross%'))
+      expect(eqMock).not.toHaveBeenCalledWith('sub_account', expect.anything())
+      expect(await screen.findByText('Cross Account')).toBeInTheDocument()
+      expect(screen.getByText(/staff · digi5y/i)).toBeInTheDocument()
+    })
+
+    it('shows the all-workspaces empty-state copy when nothing matches', async () => {
+      ilikeMock.mockResolvedValue({ data: [] })
+      render(
+        <AuthContext.Provider value={makeCtx({ user: superAdminUser, isSuperAdmin: true })}>
+          <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
+        </AuthContext.Provider>
+      )
+
+      await userEvent.type(screen.getByLabelText(/search your workspace/i), 'Nobody')
+      await userEvent.click(screen.getByRole('button', { name: /search/i }))
+
+      expect(await screen.findByText(/no one matched that name/i)).toBeInTheDocument()
+    })
   })
 })

@@ -325,7 +325,13 @@ export function ProjectPage() {
             existingMemberIds={members.map(m => m.id)}
             onAdded={() => void loadMemberStatus()}
           />
-          {user?.role === 'Admin' && (
+          {/* invite-associate's own authorization already permits a
+              Super-Admin (it only requires project membership from a
+              plain Admin — a Super-Admin bypasses that check entirely),
+              but this gate only ever showed the form to the exact role
+              'Admin', hiding it from Super-Admin on this page for no
+              reason tied to any actual permission. */}
+          {(user?.role === 'Admin' || user?.role === 'Super-Admin') && (
             <InviteAssociateForm projectId={projectId!} onInvited={() => void loadMemberStatus()} />
           )}
         </div>

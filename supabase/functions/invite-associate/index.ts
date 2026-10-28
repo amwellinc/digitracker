@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
   // Service-role client — the checks below are the security boundary.
   const admin = createClient(supabaseUrl, serviceKey)
 
-  const { data: caller } = await admin.from('users').select('id, name, role')
+  const { data: caller } = await admin.from('users').select('id, name, role, sub_account')
     .ilike('email', callerAuth.email).eq('status', 'active').maybeSingle()
   if (!caller) return json({ error: 'Caller not found' }, 403)
 
@@ -76,11 +76,26 @@ Deno.serve(async (req) => {
     if (!m) return json({ error: 'You must be a member of this project to invite associates' }, 403)
   }
 
-  const { data: existing, error: lookupErr } = await admin.from('users').select('id, role, status')
+  const { data: existing, error: lookupErr } = await admin.from('users').select('id, role, status, sub_account')
     .ilike('email', escapeLike(email)).maybeSingle()
   if (lookupErr) return json({ error: `Could not look up user: ${lookupErr.message}` }, 500)
   if (existing && existing.role !== 'Associate') {
-    return json({ error: 'This email belongs to a workspace user — add them as a normal member instead.' }, 409)
+    // "Add them as a normal member instead" is only actually true for the
+    // one case where that path works: a user already in the CALLER's own
+    // workspace. For a Super-Admin, or an existing user from a different
+    // workspace, that message sent the caller straight into a second dead
+    // end — AddProjectMemberForm's own search is scoped to the caller's
+    // sub_account, and add_project_member rejects a cross-workspace add
+    // for anyone but a Super-Admin (found live: an Admin tried to invite
+    // an existing DIGI5Y-side user and got stuck with no way to add them
+    // through either path, and no explanation why).
+    if (existing.role === 'Super-Admin') {
+      return json({ error: 'This email belongs to a Super-Admin, who already has access to every project — there is nothing to add.' }, 409)
+    }
+    if (existing.sub_account === caller.sub_account || caller.role === 'Super-Admin') {
+      return json({ error: 'This email belongs to a workspace user — add them as a normal member instead.' }, 409)
+    }
+    return json({ error: 'This email already belongs to a user in a different workspace. Adding someone from another workspace requires a Super-Admin — ask one to add them to this project.' }, 409)
   }
 
   let userId: string
