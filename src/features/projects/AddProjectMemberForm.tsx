@@ -9,6 +9,11 @@ interface Props {
   onAdded: () => void
 }
 
+// Escape LIKE wildcards so ilike()/or() behave as plain substring matches.
+function escapeLike(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
 // Direct "add a teammate" control — add_project_member already allows
 // Admin/Manager to add someone from their own sub_account (see migrations
 // 058 and 20261007010000), but the only UI that called it was buried
@@ -46,7 +51,14 @@ export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: 
     // case, since this search couldn't surface them either.
     let query = supabase.from('users').select('id, name, role, sub_account').eq('status', 'active')
     if (!isSuperAdmin) query = query.eq('sub_account', user.sub_account)
-    const { data } = await query.ilike('name', `%${search.trim()}%`)
+    // An Admin trying to add someone usually has their email, not their
+    // exact display name — a name-only search silently fails to find a
+    // real same-workspace match whenever the typed text is an email.
+    // Found live: an Admin searching "cs111@digi5y.com" got "No one in
+    // your workspace matched that name" even though the search box gave
+    // no indication it only ever checked the name column.
+    const term = escapeLike(search.trim())
+    const { data } = await query.or(`name.ilike.%${term}%,email.ilike.%${term}%`)
     setSearching(false)
     setSearched(true)
     const known = new Set(existingMemberIds)
@@ -77,7 +89,7 @@ export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: 
       <form onSubmit={e => void runSearch(e)} className="flex flex-col sm:flex-row gap-2">
         <input
           value={search} onChange={e => { setSearch(e.target.value); setSearched(false) }}
-          placeholder="Search by name…" aria-label="Search your workspace to add a teammate"
+          placeholder="Search by name or email…" aria-label="Search your workspace to add a teammate"
           className="input flex-1 sm:max-w-xs"
         />
         <button type="submit" disabled={searching || !search.trim()}
@@ -86,7 +98,11 @@ export function AddProjectMemberForm({ projectId, existingMemberIds, onAdded }: 
         </button>
       </form>
       {searched && candidates.length === 0 && (
-        <p className="text-xs text-gray-400">{isSuperAdmin ? 'No one matched that name.' : 'No one in your workspace matched that name.'}</p>
+        <p className="text-xs text-gray-400">
+          {isSuperAdmin
+            ? 'No one matched that name or email.'
+            : "No one in your workspace matched that name or email. If they're not in your workspace, use Invite associate below instead."}
+        </p>
       )}
       {candidates.length > 0 && (
         <div className="space-y-1 max-w-xs">

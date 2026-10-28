@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const ilikeMock = vi.fn()
+const orMock = vi.fn()
 const eqMock = vi.fn()
 const rpcMock = vi.fn()
 
@@ -12,7 +12,7 @@ vi.mock('@/lib/supabase', () => ({
       const qb = {
         select: () => qb,
         eq: (...args: unknown[]) => { eqMock(...args); return qb },
-        ilike: (...args: unknown[]) => ilikeMock(...args),
+        or: (...args: unknown[]) => orMock(...args),
       }
       return qb
     }),
@@ -53,7 +53,7 @@ function makeCtx(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
 // effect. This gives Admin/Manager a standalone control for it.
 describe('AddProjectMemberForm', () => {
   beforeEach(() => {
-    ilikeMock.mockReset().mockResolvedValue({
+    orMock.mockReset().mockResolvedValue({
       data: [{ id: 'u2', name: 'Jane Staff', role: 'Staff' }],
     })
     eqMock.mockReset()
@@ -83,14 +83,67 @@ describe('AddProjectMemberForm', () => {
     await userEvent.type(screen.getByLabelText(/search your workspace/i), 'Jane')
     await userEvent.click(screen.getByRole('button', { name: /search/i }))
 
-    await waitFor(() => expect(ilikeMock).toHaveBeenCalledWith('name', '%Jane%'))
+    await waitFor(() => expect(orMock).toHaveBeenCalledWith('name.ilike.%Jane%,email.ilike.%Jane%'))
     expect(screen.queryByText('Jane Staff')).not.toBeInTheDocument()
     expect(await screen.findByText(/no one in your workspace matched/i)).toBeInTheDocument()
   })
 
+  // Regression test: an Admin trying to add someone usually has their
+  // email, not their exact display name. The search used to filter on the
+  // `name` column only, so typing an email always came back empty even for
+  // a real same-workspace match. Found live: an Admin searching
+  // "cs111@digi5y.com" got "No one in your workspace matched that name"
+  // with no indication the search never even checked email.
+  it('matches by email as well as name', async () => {
+    orMock.mockResolvedValue({ data: [{ id: 'u5', name: 'CS Hundred Eleven', role: 'Staff' }] })
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
+      </AuthContext.Provider>
+    )
+
+    await userEvent.type(screen.getByLabelText(/search your workspace/i), 'cs111@digi5y.com')
+    await userEvent.click(screen.getByRole('button', { name: /search/i }))
+
+    await waitFor(() => expect(orMock).toHaveBeenCalledWith('name.ilike.%cs111@digi5y.com%,email.ilike.%cs111@digi5y.com%'))
+    expect(await screen.findByText('CS Hundred Eleven')).toBeInTheDocument()
+  })
+
+  it('escapes LIKE wildcard characters in the search term', async () => {
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
+      </AuthContext.Provider>
+    )
+
+    await userEvent.type(screen.getByLabelText(/search your workspace/i), '50%_off')
+    await userEvent.click(screen.getByRole('button', { name: /search/i }))
+
+    await waitFor(() => expect(orMock).toHaveBeenCalledWith('name.ilike.%50\\%\\_off%,email.ilike.%50\\%\\_off%'))
+  })
+
+  // Regression test: when nothing matches in the caller's own workspace,
+  // the person being searched for may simply not be a member of this
+  // workspace at all -- the fix for exactly that case is the Invite
+  // associate form rendered alongside this one, but nothing used to point
+  // an Admin toward it.
+  it('points a non-Super-Admin toward Invite associate when nothing matches', async () => {
+    orMock.mockResolvedValue({ data: [] })
+    render(
+      <AuthContext.Provider value={makeCtx()}>
+        <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
+      </AuthContext.Provider>
+    )
+
+    await userEvent.type(screen.getByLabelText(/search your workspace/i), 'cs111@digi5y.com')
+    await userEvent.click(screen.getByRole('button', { name: /search/i }))
+
+    expect(await screen.findByText(/use invite associate below instead/i)).toBeInTheDocument()
+  })
+
   it('adds a candidate via add_project_member and reports success', async () => {
     const onAdded = vi.fn()
-    ilikeMock.mockResolvedValue({ data: [{ id: 'u3', name: 'New Hire', role: 'Staff' }] })
+    orMock.mockResolvedValue({ data: [{ id: 'u3', name: 'New Hire', role: 'Staff' }] })
     render(
       <AuthContext.Provider value={makeCtx()}>
         <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={onAdded} />
@@ -108,7 +161,7 @@ describe('AddProjectMemberForm', () => {
 
   it('surfaces an error from add_project_member without claiming success', async () => {
     rpcMock.mockResolvedValue({ error: { message: 'This project already has members from 3 workspaces' } })
-    ilikeMock.mockResolvedValue({ data: [{ id: 'u3', name: 'New Hire', role: 'Staff' }] })
+    orMock.mockResolvedValue({ data: [{ id: 'u3', name: 'New Hire', role: 'Staff' }] })
     render(
       <AuthContext.Provider value={makeCtx()}>
         <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
@@ -141,7 +194,7 @@ describe('AddProjectMemberForm', () => {
     })
 
     it('searches without scoping to the caller\'s own sub_account', async () => {
-      ilikeMock.mockResolvedValue({
+      orMock.mockResolvedValue({
         data: [{ id: 'u9', name: 'Cross Account', role: 'Staff', sub_account: 'DIGI5Y' }],
       })
       render(
@@ -153,14 +206,14 @@ describe('AddProjectMemberForm', () => {
       await userEvent.type(screen.getByLabelText(/search your workspace/i), 'Cross')
       await userEvent.click(screen.getByRole('button', { name: /search/i }))
 
-      await waitFor(() => expect(ilikeMock).toHaveBeenCalledWith('name', '%Cross%'))
+      await waitFor(() => expect(orMock).toHaveBeenCalledWith('name.ilike.%Cross%,email.ilike.%Cross%'))
       expect(eqMock).not.toHaveBeenCalledWith('sub_account', expect.anything())
       expect(await screen.findByText('Cross Account')).toBeInTheDocument()
       expect(screen.getByText(/staff · digi5y/i)).toBeInTheDocument()
     })
 
     it('shows the all-workspaces empty-state copy when nothing matches', async () => {
-      ilikeMock.mockResolvedValue({ data: [] })
+      orMock.mockResolvedValue({ data: [] })
       render(
         <AuthContext.Provider value={makeCtx({ user: superAdminUser, isSuperAdmin: true })}>
           <AddProjectMemberForm projectId="p1" existingMemberIds={[]} onAdded={vi.fn()} />
@@ -170,7 +223,7 @@ describe('AddProjectMemberForm', () => {
       await userEvent.type(screen.getByLabelText(/search your workspace/i), 'Nobody')
       await userEvent.click(screen.getByRole('button', { name: /search/i }))
 
-      expect(await screen.findByText(/no one matched that name/i)).toBeInTheDocument()
+      expect(await screen.findByText(/no one matched that name or email/i)).toBeInTheDocument()
     })
   })
 })
