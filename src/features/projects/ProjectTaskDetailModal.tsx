@@ -47,7 +47,17 @@ export function ProjectTaskDetailModal({ projectId, task: initialTask, members, 
   const isAssociate = user?.role === 'Associate'
   const isAssigned = assigneeIds.includes(user?.id ?? '')
   const canChangeStatus = !isAssociate || isAssigned
-  const canComment = canManage || isAssigned || isAssociate
+  // project_task_comments' own RLS policy (and is_project_member(), which
+  // gates every project table identically) already lets ANY project
+  // member read and post comments on ANY task in that project -- and
+  // ProjectGuard only lets a project member reach this modal at all. Still
+  // gating the box down to manager/assignee/associate-only (copied from
+  // the unrelated org-wide Tasks feature, where "canComment" narrows a much
+  // bigger audience down to the task's own participants) silently hid it
+  // from a plain member who wasn't personally assigned. Found live:
+  // ordinary users added to PROJECT-AMUSA could see a task but not
+  // comment on it unless they created or were assigned to it.
+  const canComment = true
 
   useEffect(() => {
     void supabase.from('project_task_assignees').select('user_id').eq('project_task_id', task.id)
