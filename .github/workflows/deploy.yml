@@ -72,7 +72,7 @@ jobs:
 
       - name: Apply database migrations
         if: steps.check.outputs.configured == 'true'
-        run: supabase db push
+        run: supabase db push --remote
 
       # Only pushes a secret when its GitHub value is non-empty. An unset
       # GitHub secret expands to "", and setting that blanked the live value
@@ -88,13 +88,26 @@ jobs:
           NOTIFICATION_EMAIL_SECRET: ${{ secrets.NOTIFICATION_EMAIL_SECRET }}
         run: |
           args=()
-          for name in GHL_CLIENT_ID GHL_CLIENT_SECRET GHL_WEBHOOK_SECRET NOTIFICATION_EMAIL_SECRET; do
-            if [ -n "${!name}" ]; then
-              args+=("$name=${!name}")
-            else
-              echo "::notice::$name is not set in GitHub — leaving the Supabase value unchanged."
-            fi
-          done
+          if [ -n "$GHL_CLIENT_ID" ]; then
+            args+=("GHL_CLIENT_ID=$GHL_CLIENT_ID")
+          else
+            echo "::notice::GHL_CLIENT_ID is not set in GitHub — leaving the Supabase value unchanged."
+          fi
+          if [ -n "$GHL_CLIENT_SECRET" ]; then
+            args+=("GHL_CLIENT_SECRET=$GHL_CLIENT_SECRET")
+          else
+            echo "::notice::GHL_CLIENT_SECRET is not set in GitHub — leaving the Supabase value unchanged."
+          fi
+          if [ -n "$GHL_WEBHOOK_SECRET" ]; then
+            args+=("GHL_WEBHOOK_SECRET=$GHL_WEBHOOK_SECRET")
+          else
+            echo "::notice::GHL_WEBHOOK_SECRET is not set in GitHub — leaving the Supabase value unchanged."
+          fi
+          if [ -n "$NOTIFICATION_EMAIL_SECRET" ]; then
+            args+=("NOTIFICATION_EMAIL_SECRET=$NOTIFICATION_EMAIL_SECRET")
+          else
+            echo "::notice::NOTIFICATION_EMAIL_SECRET is not set in GitHub — leaving the Supabase value unchanged."
+          fi
           if [ ${#args[@]} -gt 0 ]; then
             supabase secrets set "${args[@]}"
           fi
