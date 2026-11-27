@@ -138,7 +138,7 @@ jobs:
           deploy_with_retry() {
             fn="$1"; shift
             for attempt in 1 2 3; do
-              if supabase functions deploy "$fn" "$@"; then
+              if supabase functions deploy "$fn" "$@" --yes; then
                 return 0
               fi
               echo "::warning::Deploy of $fn failed (attempt $attempt/3)"
