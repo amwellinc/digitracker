@@ -72,7 +72,7 @@ jobs:
 
       - name: Apply database migrations
         if: steps.check.outputs.configured == 'true'
-        run: supabase db push --remote
+        run: supabase db push --remote --yes
 
       # Only pushes a secret when its GitHub value is non-empty. An unset
       # GitHub secret expands to "", and setting that blanked the live value
