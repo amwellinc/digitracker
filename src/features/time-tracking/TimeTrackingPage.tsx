@@ -15,7 +15,6 @@ import { useClockContext } from './ClockContext'
 import type { Screenshot } from '@/types'
 import { StatCards } from './StatCards'
 import { TeamAvatarRow } from './TeamAvatarRow'
-import { AdminDashboard } from '@/features/dashboard/AdminDashboard'
 import { MessageBoard } from '@/features/message-board/MessageBoard'
 import { notifIcon } from '@/features/notifications/notifIcon'
 
@@ -222,24 +221,13 @@ export function TimeTrackingPage() {
     <div className="space-y-6">
       <MessageBoard />
 
-      {isSuperAdmin && <AdminDashboard />}
-
-      {isSuperAdmin && (
-        <div className="flex items-center gap-4 pt-2">
-          <div className="flex-1 border-t border-gray-200" />
-          <span className="text-xs font-medium text-gray-400 uppercase tracking-wide shrink-0">Your Time Tracking</span>
-          <div className="flex-1 border-t border-gray-200" />
-        </div>
-      )}
-
       {user?.role === 'Manager' && <TeamAvatarRow />}
 
-      {!isSuperAdmin && (
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Time Tracking</h2>
-          <p className="text-sm text-gray-500 mt-1">Manage your daily shift and view your activity.</p>
-        </div>
-      )}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Personal workspace</p>
+        <h2 className="text-2xl font-bold text-gray-900 mt-0.5">Your Workday</h2>
+        <p className="text-sm text-gray-500 mt-1">Manage your shift, breaks, and hours worked today.</p>
+      </div>
 
       {todayHoliday && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 flex items-start gap-3">

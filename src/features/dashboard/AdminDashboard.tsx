@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { todayInTz } from '@/lib/timezone'
@@ -109,17 +110,30 @@ export function AdminDashboard() {
   const [actioning, setActioning] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [leaveActionError, setLeaveActionError] = useState<string | null>(null)
+  const [pendingCorrectionCount, setPendingCorrectionCount] = useState(0)
 
   const load = useCallback(async () => {
     if (!user) return
     const today = todayInTz(timezone)
 
     // All users in workspace — needed for leave + screenshot queries
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('*')
-      .eq('sub_account', user.sub_account)
-      .order('name')
+    const [{ data: usersData }, correctionCount] = await Promise.all([
+      supabase
+        .from('users')
+        .select('*')
+        .eq('sub_account', user.sub_account)
+        .order('name'),
+      supabase
+        .from('time_log_correction_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending'),
+    ])
+
+    if (correctionCount.error) {
+      console.error('[AdminDashboard] time correction count error:', correctionCount.error)
+    } else {
+      setPendingCorrectionCount(correctionCount.count ?? 0)
+    }
 
     const allUsers = (usersData ?? []) as User[]
     const userIds = allUsers.map(u => u.id)
@@ -231,7 +245,7 @@ export function AdminDashboard() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
-          <p className="text-sm text-gray-500">{dateStr}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Business overview · {dateStr}</p>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mt-0.5">
             {greeting()}, {user?.name.split(' ')[0]} 👋
           </h1>
@@ -239,14 +253,34 @@ export function AdminDashboard() {
             {user?.sub_account} · {total} member{total !== 1 ? 's' : ''}
           </p>
         </div>
-        <div className="sm:text-right">
-          <p className="text-2xl sm:text-3xl font-mono font-bold text-gray-900 tracking-tight">{timeStr}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Live</p>
+        <div className="flex items-center justify-between gap-4 sm:justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {pendingCorrectionCount > 0 && (
+              <Link
+                to="/time-review"
+                className="inline-flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100"
+              >
+                Review {pendingCorrectionCount} time correction{pendingCorrectionCount === 1 ? '' : 's'}
+              </Link>
+            )}
+            {pending.length > 0 && (
+              <Link
+                to="/leave"
+                className="inline-flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100"
+              >
+                Review {pending.length} leave request{pending.length === 1 ? '' : 's'}
+              </Link>
+            )}
+          </div>
+          <div className="sm:text-right">
+            <p className="text-2xl sm:text-3xl font-mono font-bold text-gray-900 tracking-tight">{timeStr}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Live</p>
+          </div>
         </div>
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard label="Total Staff"    value={total}           sub="in workspace" />
         <StatCard label="Online Now"     value={online}          sub="clocked in"       accent="text-green-600" />
         <StatCard label="Idle"           value={idle}            sub="clocked in, inactive 20+ min" accent="text-violet-600" />

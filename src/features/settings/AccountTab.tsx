@@ -4,7 +4,18 @@ import { supabase } from '@/lib/supabase'
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { COUNTRY_OPTIONS } from '@/lib/constants'
 import { invalidateTimezoneCache } from '@/hooks/useSubAccountTimezone'
-import { invalidateBrandingCache } from '@/hooks/useSubAccountBranding'
+import { updateBrandingCache } from '@/hooks/useSubAccountBranding'
+import { DEFAULT_COLOR, isValidBrandColor } from '@/lib/theme'
+
+const BRAND_COLORS = [
+  { label: 'Blue', value: '#2563eb' },
+  { label: 'Indigo', value: '#4f46e5' },
+  { label: 'Violet', value: '#7c3aed' },
+  { label: 'Teal', value: '#0d9488' },
+  { label: 'Emerald', value: '#059669' },
+  { label: 'Rose', value: '#e11d48' },
+  { label: 'Orange', value: '#ea580c' },
+]
 
 function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
@@ -28,6 +39,7 @@ export function AccountTab() {
 
   const [companyName, setCompanyName] = useState('')
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [brandColor, setBrandColor] = useState(DEFAULT_COLOR)
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [savingBranding, setSavingBranding] = useState(false)
@@ -38,16 +50,23 @@ export function AccountTab() {
     if (!user?.sub_account || !isAdmin) return
     void supabase
       .from('sub_accounts')
-      .select('timezone, country, company_name, logo_url')
+      .select('timezone, country, company_name, logo_url, brand_color')
       .eq('code', user.sub_account)
       .single()
       .then(({ data }) => {
         if (!data) return
-        const row = data as { timezone: string; country: string | null; company_name: string | null; logo_url: string | null }
+        const row = data as {
+          timezone: string
+          country: string | null
+          company_name: string | null
+          logo_url: string | null
+          brand_color: string | null
+        }
         setTimezone(row.timezone ?? DEFAULT_TIMEZONE)
         setCountry(row.country ?? '')
         setCompanyName(row.company_name ?? '')
         setLogoUrl(row.logo_url)
+        setBrandColor(row.brand_color && isValidBrandColor(row.brand_color) ? row.brand_color : DEFAULT_COLOR)
       })
   }, [user?.sub_account, isAdmin])
 
@@ -106,7 +125,11 @@ export function AccountTab() {
 
     const { error } = await supabase
       .from('sub_accounts')
-      .update({ company_name: companyName.trim(), logo_url: nextLogoUrl })
+      .update({
+        company_name: companyName.trim(),
+        logo_url: nextLogoUrl,
+        brand_color: brandColor,
+      })
       .eq('code', user.sub_account)
     setSavingBranding(false)
     if (error) {
@@ -116,8 +139,12 @@ export function AccountTab() {
     setLogoUrl(nextLogoUrl)
     setLogoFile(null)
     setLogoPreview(null)
-    invalidateBrandingCache(user.sub_account)
-    setBrandingMsg({ type: 'success', text: 'Branding saved. Your team will see it in the header now.' })
+    updateBrandingCache(user.sub_account, {
+      companyName: companyName.trim() || null,
+      logoUrl: nextLogoUrl,
+      brandColor,
+    })
+    setBrandingMsg({ type: 'success', text: 'Workspace appearance saved for your team.' })
   }
 
   return (
@@ -146,10 +173,10 @@ export function AccountTab() {
       {/* Company branding — Admin / Super-Admin only */}
       {isAdmin && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Company Branding</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Workspace Appearance</h2>
           <p className="text-sm text-gray-500 mb-5">
-            Replaces "DIGITRACKER" in the header with your own logo and company name for everyone
-            in your workspace.
+            Set your company name, logo, and accent color. These workspace settings are shared with
+            everyone in your team.
           </p>
           <form onSubmit={handleSaveBranding} className="space-y-4">
             <div className="flex items-center gap-4">
@@ -193,6 +220,64 @@ export function AccountTab() {
               <p className="text-xs text-gray-400 mt-1">Leave blank to keep showing "DIGITRACKER".</p>
             </div>
 
+            <fieldset>
+              <legend className="block text-sm font-medium text-gray-700 mb-2">Workspace accent color</legend>
+              <div className="flex flex-wrap items-center gap-3">
+                {BRAND_COLORS.map(color => (
+                  <button
+                    key={color.value}
+                    type="button"
+                    title={color.label}
+                    aria-label={`${color.label} workspace color`}
+                    aria-pressed={brandColor === color.value}
+                    onClick={() => setBrandColor(color.value)}
+                    style={{ backgroundColor: color.value }}
+                    className={`w-9 h-9 rounded-full transition-transform hover:scale-110 ${
+                      brandColor === color.value ? 'ring-2 ring-offset-2 ring-gray-800 scale-110' : ''
+                    }`}
+                  />
+                ))}
+                <label className="flex items-center gap-2 text-sm text-gray-600">
+                  <span>Custom</span>
+                  <input
+                    type="color"
+                    value={brandColor}
+                    aria-label="Custom workspace accent color"
+                    onChange={e => setBrandColor(e.target.value)}
+                    className="w-10 h-10 rounded-lg border border-gray-300 cursor-pointer p-0.5"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setBrandColor(DEFAULT_COLOR)}
+                  className="text-xs text-gray-500 hover:text-gray-700 underline"
+                >
+                  Reset
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                Updates buttons, navigation, and highlights across the workspace after saving.
+              </p>
+              <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-xs text-gray-500 mb-2">Preview</p>
+                <div className="flex items-center gap-3">
+                  <span
+                    style={{ backgroundColor: brandColor }}
+                    className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+                  >
+                    Primary action
+                  </span>
+                  <span style={{ color: brandColor }} className="text-sm font-medium">Link</span>
+                  <span
+                    style={{ backgroundColor: `${brandColor}1a`, color: brandColor }}
+                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                  >
+                    Status
+                  </span>
+                </div>
+              </div>
+            </fieldset>
+
             {brandingMsg && (
               <p className={`text-sm ${brandingMsg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
                 {brandingMsg.text}
@@ -204,7 +289,7 @@ export function AccountTab() {
               disabled={savingBranding}
               className="bg-violet-600 text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
             >
-              {savingBranding ? 'Saving…' : 'Save Branding'}
+              {savingBranding ? 'Saving…' : 'Save Workspace Appearance'}
             </button>
           </form>
         </div>

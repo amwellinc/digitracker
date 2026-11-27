@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getDateRange, buildUserReport, buildDailyAttendance, formatTimeInTz, toCsv, type KpiDailyLogRow } from '../reportData'
+import { getDateRange, getCustomDateRange, buildUserReport, buildDailyAttendance, formatTimeInTz, toCsv, type KpiDailyLogRow } from '../reportData'
 import type { User, TimeLog, LeaveRequest } from '@/types'
 
 describe('getDateRange', () => {
@@ -7,6 +7,22 @@ describe('getDateRange', () => {
     const range = getDateRange('week', new Date(2026, 0, 7)) // Wed, Jan 7 2026
     expect(range.from).toBe('2026-01-05')
     expect(range.to).toBe('2026-01-11')
+  })
+
+  describe('getCustomDateRange', () => {
+    it('accepts a valid single-day or multi-day range', () => {
+      expect(getCustomDateRange('2026-06-01', '2026-06-01')?.label).toContain('Jun')
+      expect(getCustomDateRange('2026-06-01', '2026-06-07')).toMatchObject({
+        from: '2026-06-01',
+        to: '2026-06-07',
+      })
+    })
+
+    it('rejects invalid dates, reversed ranges, and spans over one year', () => {
+      expect(getCustomDateRange('2026-02-31', '2026-03-01')).toBeNull()
+      expect(getCustomDateRange('2026-06-07', '2026-06-01')).toBeNull()
+      expect(getCustomDateRange('2025-01-01', '2026-01-02')).toBeNull()
+    })
   })
 
   it('returns the same Monday–Sunday when anchored on the Sunday itself', () => {
@@ -181,5 +197,25 @@ describe('toCsv', () => {
     expect(lines[0]).toContain('Name,Role,Days Worked')
     expect(lines[1]).toContain('"A Name"')
     expect(lines[1]).toContain('100')
+  })
+
+  it('escapes quotes and prefixes formula-like names', () => {
+    const user: User = {
+      id: 'u2', email: 'b@test.com', name: 'Doe, "Jane"', role: 'Staff', sub_account: 'AM333',
+      manager_id: null, annual_leave: 14, time_off: 40, profile_image: null,
+      reporting_time_in: '10:00', reporting_time_out: '19:00', country: 'SG', phone: null,
+      status: 'active', created_at: '',
+      appointed_as: null, address_line1: null, address_line2: null, address_city: null, address_pin_code: null,
+      last_ip_address: null, last_ip_captured_at: null, emergency_contact_name: null, emergency_contact_phone: null,
+      department_id: null,
+    }
+    const report = {
+      user, daysWorked: 0, totalMinutes: 0, totalHours: 0, avgHoursPerDay: '0',
+      daysOnLeave: 0, daysTimeOff: 0, daysAbsent: 0, eodrSubmittedDays: 0, eodrEligibleDays: 0,
+      eodrCompliancePct: 0, attendancePct: 0, latestFirstClockIn: null, latestLastClockOut: null,
+    }
+
+    expect(toCsv([report]).split('\n')[1]).toContain('"Doe, ""Jane"""')
+    expect(toCsv([{ ...report, user: { ...user, name: '=2+2' } }]).split('\n')[1]).toContain(`"'=2+2"`)
   })
 })

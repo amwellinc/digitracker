@@ -21,6 +21,15 @@ import { useDataAgentAccess } from '@/hooks/useDataAgentAccess'
 const TimeTrackingPage = lazy(() =>
   import('@/features/time-tracking/TimeTrackingPage').then(m => ({ default: m.TimeTrackingPage }))
 )
+const TimesheetPage = lazy(() =>
+  import('@/features/time-tracking/TimesheetPage').then(m => ({ default: m.TimesheetPage }))
+)
+const TimeReviewPage = lazy(() =>
+  import('@/features/time-tracking/TimeReviewPage').then(m => ({ default: m.TimeReviewPage }))
+)
+const BusinessDashboardPage = lazy(() =>
+  import('@/features/dashboard/BusinessDashboardPage').then(m => ({ default: m.BusinessDashboardPage }))
+)
 const SettingsPage = lazy(() =>
   import('@/features/settings/SettingsPage').then(m => ({ default: m.SettingsPage }))
 )
@@ -143,6 +152,34 @@ export function AppRouter() {
             element={
               <Suspense fallback={<Spinner />}>
                 <TimeTrackingPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="business"
+            element={
+              <AuthGuard allowedRoles={['Admin']}>
+                <Suspense fallback={<Spinner />}>
+                  <BusinessDashboardPage />
+                </Suspense>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="time-review"
+            element={
+              <AuthGuard allowedRoles={['Admin']}>
+                <Suspense fallback={<Spinner />}>
+                  <TimeReviewPage />
+                </Suspense>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="timesheets"
+            element={
+              <Suspense fallback={<Spinner />}>
+                <TimesheetPage />
               </Suspense>
             }
           />

@@ -40,6 +40,30 @@ export interface DailyAttendanceRow {
 
 function pad2(n: number): string { return String(n).padStart(2, '0') }
 
+export function getCustomDateRange(from: string, to: string): DateRange | null {
+  const isValidIsoDate = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+    const date = new Date(`${value}T00:00:00.000Z`)
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  }
+
+  if (!isValidIsoDate(from) || !isValidIsoDate(to) || from > to) return null
+
+  const daySpan = (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000
+  if (daySpan > 365) return null
+
+  const start = new Date(`${from}T00:00:00.000Z`)
+  const end = new Date(`${to}T00:00:00.000Z`)
+  const startLabel = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  const endLabel = end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+
+  return {
+    from,
+    to,
+    label: from === to ? endLabel : `${startLabel} – ${endLabel}`,
+  }
+}
+
 // Local-timezone date components — toISOString() is UTC and shifts the date
 // for anyone in a UTC+ zone, which silently misattributes a day's records.
 export function isoDate(d: Date): string {
@@ -191,8 +215,12 @@ export function buildUserReport(
 
 export function toCsv(rows: UserReportRow[], timezone = 'UTC'): string {
   const header = 'Name,Role,Days Worked,Total Hours,Avg Hours/Day,On Leave,Time Off,Absent,EODR Submitted,EODR Compliance %,Attendance %,Latest First Clock-In,Latest Last Clock-Out'
+  const csvText = (value: string) => {
+    const safeValue = /^[\s]*[=+\-@]/.test(value) ? `'${value}` : value
+    return `"${safeValue.replace(/"/g, '""')}"`
+  }
   const lines = rows.map(r => [
-    `"${r.user.name}"`, r.user.role, r.daysWorked, r.totalHours, r.avgHoursPerDay,
+    csvText(r.user.name), csvText(r.user.role), r.daysWorked, r.totalHours, r.avgHoursPerDay,
     r.daysOnLeave, r.daysTimeOff, r.daysAbsent, r.eodrSubmittedDays, r.eodrCompliancePct, r.attendancePct,
     formatTimeInTz(r.latestFirstClockIn, timezone), formatTimeInTz(r.latestLastClockOut, timezone),
   ].join(','))

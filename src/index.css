@@ -3,6 +3,45 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --color-brand: #2563eb;
+    --color-brand-50: 239 246 255;
+    --color-brand-100: 219 234 254;
+    --color-brand-200: 191 219 254;
+    --color-brand-300: 147 197 253;
+    --color-brand-400: 96 165 250;
+    --color-brand-500: 59 130 246;
+    --color-brand-600: 37 99 235;
+    --color-brand-700: 32 84 200;
+    --color-brand-800: 26 69 165;
+    --color-brand-900: 20 53 127;
+    --color-brand-950: 15 40 94;
+    --color-gray-50: 249 250 251;
+    --color-gray-100: 243 244 246;
+    --color-gray-200: 229 231 235;
+    --color-gray-300: 209 213 219;
+    --color-gray-400: 156 163 175;
+    --color-gray-500: 107 114 128;
+    --color-gray-600: 75 85 99;
+    --color-gray-700: 55 65 81;
+    --color-gray-800: 31 41 55;
+    --color-gray-900: 17 24 39;
+    --color-gray-950: 3 7 18;
+  }
+  html.dark {
+    color-scheme: dark;
+    --color-gray-50: 15 23 42;
+    --color-gray-100: 30 41 59;
+    --color-gray-200: 51 65 85;
+    --color-gray-300: 71 85 105;
+    --color-gray-400: 148 163 184;
+    --color-gray-500: 148 163 184;
+    --color-gray-600: 203 213 225;
+    --color-gray-700: 226 232 240;
+    --color-gray-800: 241 245 249;
+    --color-gray-900: 248 250 252;
+    --color-gray-950: 255 255 255;
+  }
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
@@ -33,6 +72,10 @@
   .card {
     @apply bg-white rounded-xl border border-gray-200;
   }
+}
+
+html.dark .bg-white {
+  background-color: rgb(30 41 59);
 }
 
 @layer utilities {

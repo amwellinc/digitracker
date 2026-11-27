@@ -11,6 +11,7 @@ import { useProjectMemberships } from '@/hooks/useProjectMemberships'
 const STAFF_NAV = [
   { to: '/',           end: true,  label: 'Time Tracking',   icon: '⏱',
     children: [{ to: '/screenshots', label: 'Screenshots', icon: '📸' }] },
+  { to: '/timesheets', end: false, label: 'My Timesheet',    icon: '🧾' },
   { to: '/calendar',   end: false, label: 'Calendar',         icon: '📅' },
   { to: '/leave',      end: false, label: 'Leave & Time Off', icon: '📋' },
   { to: '/tasks',      end: false, label: 'Tasks',            icon: '✅' },
@@ -19,6 +20,10 @@ const STAFF_NAV = [
 ]
 
 const REPORTS_NAV_ITEM = { to: '/reports', end: false, label: 'Reports', icon: '📈', children: [] as { to: string; label: string; icon: string }[] }
+const BUSINESS_NAV = [
+  { to: '/business',    end: true,  label: 'Business Overview', icon: '🏢', children: [] },
+  { to: '/time-review', end: false, label: 'Time Review',        icon: '🕒', children: [] },
+]
 
 const SUPER_ADMIN_NAV = [
   { to: '/platform',          end: true,  label: 'Platform Admin',   icon: '🏢', children: [] },
@@ -76,7 +81,12 @@ function LayoutInner() {
     : []
   const NAV = isSuperAdminView
     ? SUPER_ADMIN_NAV
-    : [...(canViewReports ? [...STAFF_NAV, REPORTS_NAV_ITEM] : STAFF_NAV), ...PROJECT_NAV_ITEMS, ...DATA_AGENT_NAV_ITEM]
+    : [
+        ...(user?.role === 'Admin' ? BUSINESS_NAV : []),
+        ...(canViewReports ? [...STAFF_NAV, REPORTS_NAV_ITEM] : STAFF_NAV),
+        ...PROJECT_NAV_ITEMS,
+        ...DATA_AGENT_NAV_ITEM,
+      ]
 
   // Close sidebar on route change (mobile nav)
   useEffect(() => {

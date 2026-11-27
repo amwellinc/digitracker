@@ -5,23 +5,33 @@ import type { User, TimeLog, LeaveRequest } from '@/types'
 import { useSubAccountTimezone } from '@/hooks/useSubAccountTimezone'
 import { todayInTz } from '@/lib/timezone'
 import {
-  getDateRange, shiftAnchor, buildUserReport,
-  type ReportRangeMode, type UserReportRow, type KpiDailyLogRow,
+  getDateRange, getCustomDateRange, shiftAnchor, buildUserReport,
+  type DateRange, type ReportRangeMode, type UserReportRow, type KpiDailyLogRow,
 } from '@/lib/reportData'
 import { TeamReportView } from './TeamReportView'
 import { IndividualReportView } from './IndividualReportView'
 
-const MODES: { id: ReportRangeMode; label: string }[] = [
+type ViewRangeMode = ReportRangeMode | 'custom'
+
+const MODES: { id: ViewRangeMode; label: string }[] = [
   { id: 'day', label: 'Day' },
   { id: 'week', label: 'Week' },
   { id: 'month', label: 'Month' },
+  { id: 'custom', label: 'Custom' },
 ]
 
 export function ReportsPage() {
   const { user } = useAuth()
   const timezone = useSubAccountTimezone()
-  const [mode, setMode] = useState<ReportRangeMode>('week')
+  const [mode, setMode] = useState<ViewRangeMode>('week')
   const [anchor, setAnchor] = useState(new Date())
+  const [customRange, setCustomRange] = useState<DateRange>(() => {
+    const today = todayInTz(timezone)
+    return getCustomDateRange(`${today.slice(0, 7)}-01`, today) ?? getDateRange('month', new Date())
+  })
+  const [customFromDraft, setCustomFromDraft] = useState(customRange.from)
+  const [customToDraft, setCustomToDraft] = useState(customRange.to)
+  const [customRangeError, setCustomRangeError] = useState<string | null>(null)
   const [view, setView] = useState<'team' | 'individual'>('team')
   const [selectedUserId, setSelectedUserId] = useState<string>('')
 
@@ -30,7 +40,7 @@ export function ReportsPage() {
   const [rawTimeLogs, setRawTimeLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
 
-  const range = getDateRange(mode, anchor)
+  const range = mode === 'custom' ? customRange : getDateRange(mode, anchor)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -67,6 +77,16 @@ export function ReportsPage() {
     }
   }, [view, selectedUserId, members, user])
 
+  function applyCustomRange() {
+    const selectedRange = getCustomDateRange(customFromDraft, customToDraft)
+    if (!selectedRange) {
+      setCustomRangeError('Choose valid dates no more than 366 days apart, with the start on or before the end.')
+      return
+    }
+    setCustomRange(selectedRange)
+    setCustomRangeError(null)
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -93,7 +113,7 @@ export function ReportsPage() {
           </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
             {MODES.map(m => (
               <button
@@ -105,13 +125,43 @@ export function ReportsPage() {
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setAnchor(a => shiftAnchor(mode, a, -1))} className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 text-sm">‹</button>
-            <span className="text-sm font-medium text-gray-700 min-w-[160px] text-center">{range.label}</span>
-            <button onClick={() => setAnchor(a => shiftAnchor(mode, a, 1))} className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 text-sm">›</button>
-          </div>
+          {mode === 'custom' ? (
+            <div className="flex items-end gap-2 flex-wrap">
+              <label className="text-xs font-medium text-gray-600">
+                From
+                <input
+                  type="date"
+                  value={customFromDraft}
+                  onChange={e => setCustomFromDraft(e.target.value)}
+                  className="input mt-1"
+                />
+              </label>
+              <label className="text-xs font-medium text-gray-600">
+                To
+                <input
+                  type="date"
+                  value={customToDraft}
+                  onChange={e => setCustomToDraft(e.target.value)}
+                  className="input mt-1"
+                />
+              </label>
+              <button type="button" onClick={applyCustomRange} className="btn-primary">
+                Apply
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setAnchor(a => shiftAnchor(mode, a, -1))} aria-label="Previous period" className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 text-sm">‹</button>
+              <span className="text-sm font-medium text-gray-700 min-w-[160px] text-center">{range.label}</span>
+              <button onClick={() => setAnchor(a => shiftAnchor(mode, a, 1))} aria-label="Next period" className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 text-sm">›</button>
+            </div>
+          )}
         </div>
       </div>
+
+      {customRangeError && (
+        <p role="alert" className="text-sm text-red-600">{customRangeError}</p>
+      )}
 
       {loading ? (
         <div className="py-16 text-center text-sm text-gray-400">Loading report…</div>
